@@ -193,6 +193,8 @@ export class Core {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.xr.enabled = true;
+    // disable built-in occlusion
+    this.renderer.xr.getDepthSensingMesh = function(){ return null; }
     this.registry.register(this.renderer);
 
     this.renderer.xr.setReferenceSpaceType(options.referenceSpaceType);
@@ -222,7 +224,6 @@ export class Core {
     // Sets up device camera.
     if (options.deviceCamera?.enabled) {
       this.deviceCamera = new XRDeviceCamera(options.deviceCamera);
-      await this.deviceCamera.init();
       this.registry.register(this.deviceCamera);
     }
 
@@ -233,7 +234,7 @@ export class Core {
       webXRRequiredFeatures.push('depth-sensing');
       webXRRequiredFeatures.push('local-floor');
       this.webXRSettings.depthSensing = {
-        usagePreference: ['cpu-optimized'],
+        usagePreference: [],
         dataFormatPreference:
             [this.options.depth.useFloat32 ? 'float32' : 'luminance-alpha'],
       };
@@ -421,7 +422,10 @@ export class Core {
    * scripts.
    * @param session - The newly started WebXR session.
    */
-  private onXRSessionStarted(session: XRSession) {
+  private async onXRSessionStarted(session: XRSession) {
+    if (this.options.deviceCamera?.enabled) {
+      await this.deviceCamera!.init();
+    }
     this.scriptsManager.onXRSessionStarted(session);
   }
 
