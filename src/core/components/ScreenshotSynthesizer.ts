@@ -3,6 +3,10 @@ import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
 
 import {XRDeviceCamera} from '../../camera/XRDeviceCamera.js';
 
+// Use a small canvas since a full size canvas can consume a lot of memory and
+// cause toDataUrl to be slow.
+const DEFAULT_CANVAS_WIDTH = 640;
+
 function flipBufferVertically(
     buffer: Uint8Array, width: number, height: number) {
   const bytesPerRow = width * 4;
@@ -23,20 +27,25 @@ function flipBufferVertically(
 class PendingScreenshotRequest {
   constructor(
       public resolve: (value: string) => void,
-      public reject: (reason?: Error) => void, public overlayOnCamera: boolean) {}
+      public reject: (reason?: Error) => void,
+      public overlayOnCamera: boolean) {}
 }
 
 export class ScreenshotSynthesizer {
   private pendingScreenshotRequests: PendingScreenshotRequest[] = [];
   private virtualCanvas?: HTMLCanvasElement;
   private virtualBuffer = new Uint8Array();
+  // Smaller resolution render target than the main render target.
+  private virtualRenderTarget?: THREE.WebGLRenderTarget;
   private virtualRealCanvas?: HTMLCanvasElement;
   private virtualRealBuffer = new Uint8Array();
-  private realVirtualRenderTarget?: THREE.WebGLRenderTarget;
+  private virtualRealRenderTarget?: THREE.WebGLRenderTarget;
   private fullScreenQuad?: FullScreenQuad;
+  private renderTargetWidth = DEFAULT_CANVAS_WIDTH;
 
   async onAfterRender(
-      renderer: THREE.WebGLRenderer, deviceCamera?: XRDeviceCamera) {
+      renderer: THREE.WebGLRenderer, renderSceneFn: () => void,
+      deviceCamera?: XRDeviceCamera) {
     if (this.pendingScreenshotRequests.length == 0) {
       return;
     }
@@ -48,15 +57,16 @@ export class ScreenshotSynthesizer {
     const haveVirtualOnlyRequests = this.pendingScreenshotRequests.every(
         (request) => !request.overlayOnCamera);
     if (haveVirtualOnlyRequests) {
-      this.createVirtualImageDataURL(renderer).then((virtualImageDataUrl) => {
-        this.resolveVirtualOnlyRequests(virtualImageDataUrl);
-      });
+      this.createVirtualImageDataURL(renderer, renderSceneFn)
+          .then((virtualImageDataUrl) => {
+            this.resolveVirtualOnlyRequests(virtualImageDataUrl);
+          });
     }
 
     const haveVirtualAndRealReqeusts = this.pendingScreenshotRequests.some(
         (request) => request.overlayOnCamera);
     if (haveVirtualAndRealReqeusts && deviceCamera) {
-      this.createVirtualRealImageDataURL(renderer, deviceCamera)
+      this.createVirtualRealImageDataURL(renderer, renderSceneFn, deviceCamera)
           .then((virtualRealImageDataUrl) => {
             if (virtualRealImageDataUrl) {
               this.resolveVirtualRealRequests(virtualRealImageDataUrl);
@@ -67,28 +77,56 @@ export class ScreenshotSynthesizer {
     }
   }
 
-  private async createVirtualImageDataURL(renderer: THREE.WebGLRenderer) {
-    const renderTarget = renderer.getRenderTarget()!;
-    if (this.virtualBuffer.length !=
-        renderTarget.width * renderTarget.height * 4) {
-      this.virtualBuffer =
-          new Uint8Array(renderTarget.width * renderTarget.height * 4);
+  private async createVirtualImageDataURL(
+      renderer: THREE.WebGLRenderer, renderSceneFn: () => void) {
+    const mainRenderTarget = renderer.getRenderTarget()!;
+    const isRenderingStereo =
+        renderer.xr.isPresenting && renderer.xr.getCamera().cameras.length == 2;
+    const mainRenderTargetSingleViewWidth =
+        isRenderingStereo ? mainRenderTarget.width / 2 : mainRenderTarget.width;
+    const scaledHeight = Math.round(
+        mainRenderTarget.height *
+        (this.renderTargetWidth / mainRenderTargetSingleViewWidth));
+    if (!this.virtualRenderTarget ||
+        this.virtualRenderTarget.width != this.renderTargetWidth) {
+      this.virtualRenderTarget?.dispose();
+      this.virtualRenderTarget = new THREE.WebGLRenderTarget(
+          this.renderTargetWidth, scaledHeight,
+          {colorSpace: THREE.SRGBColorSpace});
+    }
+    const xrIsPresenting = renderer.xr.isPresenting;
+    renderer.xr.isPresenting = false;
+    const virtualRenderTarget = this.virtualRenderTarget;
+    renderer.setRenderTarget(virtualRenderTarget);
+    renderer.clearColor();
+    renderer.clearDepth();
+    renderSceneFn();
+    renderer.setRenderTarget(mainRenderTarget);
+    renderer.xr.isPresenting = xrIsPresenting;
+
+    const expectedBufferLength =
+        virtualRenderTarget.width * virtualRenderTarget.height * 4;
+    if (this.virtualBuffer.length != expectedBufferLength) {
+      this.virtualBuffer = new Uint8Array(expectedBufferLength);
     }
     const buffer = this.virtualBuffer;
     await renderer.readRenderTargetPixelsAsync(
-        renderTarget, 0, 0, renderTarget.width, renderTarget.height, buffer);
+        virtualRenderTarget, 0, 0, virtualRenderTarget.width,
+        virtualRenderTarget.height, buffer);
 
-    flipBufferVertically(buffer, renderTarget.width, renderTarget.height);
+    flipBufferVertically(
+        buffer, virtualRenderTarget.width, virtualRenderTarget.height);
     const canvas = this.virtualCanvas ||
         (this.virtualCanvas = document.createElement('canvas'));
-    canvas.width = renderTarget.width;
-    canvas.height = renderTarget.height;
+    canvas.width = virtualRenderTarget.width;
+    canvas.height = virtualRenderTarget.height;
     const context = canvas.getContext('2d');
     if (!context) {
       throw new Error('Failed to get 2D context');
     }
     const imageData = new ImageData(
-        new Uint8ClampedArray(buffer), renderTarget.width, renderTarget.height);
+        new Uint8ClampedArray(buffer), virtualRenderTarget.width,
+        virtualRenderTarget.height);
     context.putImageData(imageData, 0, 0);
     return canvas.toDataURL();
   }
@@ -107,25 +145,38 @@ export class ScreenshotSynthesizer {
   }
 
   private async createVirtualRealImageDataURL(
-      renderer: THREE.WebGLRenderer, deviceCamera: XRDeviceCamera) {
+      renderer: THREE.WebGLRenderer, renderSceneFn: () => void,
+      deviceCamera: XRDeviceCamera) {
     if (!deviceCamera.loaded) {
-      console.log('Waiting for device camera to be loaded');
+      console.debug('Waiting for device camera to be loaded');
       return null;
     }
-    if (!this.realVirtualRenderTarget) {
-      this.realVirtualRenderTarget = new THREE.WebGLRenderTarget(640, 480);
+    const mainRenderTarget = renderer.getRenderTarget()!;
+    const isRenderingStereo =
+        renderer.xr.isPresenting && renderer.xr.getCamera().cameras.length == 2;
+    const mainRenderTargetSingleViewWidth =
+        isRenderingStereo ? mainRenderTarget.width / 2 : mainRenderTarget.width;
+    const scaledHeight = Math.round(
+        mainRenderTarget.height *
+        (this.renderTargetWidth / mainRenderTargetSingleViewWidth));
+    if (!this.virtualRealRenderTarget ||
+        this.virtualRealRenderTarget.height != scaledHeight) {
+      this.virtualRealRenderTarget?.dispose();
+      this.virtualRealRenderTarget = new THREE.WebGLRenderTarget(
+          this.renderTargetWidth, scaledHeight,
+          {colorSpace: THREE.SRGBColorSpace});
     }
-    const virtualRenderTarget = renderer.getRenderTarget()!;
 
-    const renderTarget = this.realVirtualRenderTarget;
+    const renderTarget = this.virtualRealRenderTarget;
     renderer.setRenderTarget(renderTarget);
+    const xrIsPresenting = renderer.xr.isPresenting;
+    renderer.xr.isPresenting = false;
     const quad = this.getFullScreenQuad();
     (quad.material as THREE.MeshBasicMaterial).map = deviceCamera.texture;
     quad.render(renderer);
-    (quad.material as THREE.MeshBasicMaterial).map =
-        virtualRenderTarget.texture;
-    quad.render(renderer);
-    renderer.setRenderTarget(virtualRenderTarget);
+    renderSceneFn();
+    renderer.xr.isPresenting = xrIsPresenting;
+    renderer.setRenderTarget(mainRenderTarget);
 
     if (this.virtualRealBuffer.length !=
         renderTarget.width * renderTarget.height * 4) {

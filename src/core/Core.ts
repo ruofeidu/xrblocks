@@ -79,8 +79,10 @@ export class Core {
   /** Manages all (spatial) audio playback. */
   sound = new CoreSound();
 
+  private renderSceneBound = this.renderScene.bind(this);
+
   /** Manages the desktop XR simulator. */
-  simulator = new Simulator(this.renderScene.bind(this));
+  simulator = new Simulator(this.renderSceneBound);
 
   /** Manages drag-and-drop interactions. */
   dragManager = new DragManager();
@@ -400,7 +402,8 @@ export class Core {
     }
 
     this.renderSimulatorAndScene();
-    this.screenshotSynthesizer.onAfterRender(this.renderer, this.deviceCamera);
+    this.screenshotSynthesizer.onAfterRender(
+        this.renderer, this.renderSceneBound, this.deviceCamera);
     if (this.simulatorRunning) {
       this.simulator.renderSimulatorScene();
     }
