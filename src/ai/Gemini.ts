@@ -55,6 +55,11 @@ export interface GeminiQueryInput {
   data?: GoogleGenAITypes.LiveSendRealtimeInputParameters;
 }
 
+export type GeminiStartLiveSessionParams = {
+  tools?: GoogleGenAITypes.FunctionDeclaration[];
+  systemInstruction?: GoogleGenAITypes.ContentUnion | string;
+};
+
 export class Gemini extends BaseAIModel {
   inited = false;
   liveSession?: GoogleGenAITypes.Session;
@@ -85,10 +90,7 @@ export class Gemini extends BaseAIModel {
     return this.isAvailable() && EndSensitivity && StartSensitivity && Modality;
   }
 
-  async startLiveSession(params: {
-    tools?: GoogleGenAITypes.FunctionDeclaration[];
-    systemInstruction?: GoogleGenAITypes.ContentUnion | string;
-  } = {}) {
+  async startLiveSession(params: GeminiStartLiveSessionParams = {}) {
     if (!this.isLiveAvailable()) {
       throw new Error(
           'Live API not available. Make sure @google/genai module is loaded.');
@@ -182,7 +184,7 @@ export class Gemini extends BaseAIModel {
 
   sendToolResponse(response: GoogleGenAITypes.LiveSendToolResponseParameters) {
     if (this.liveSession) {
-      console.log('Sending tool response from gemini:', response);
+      console.debug('Sending tool response to gemini:', response);
       this.liveSession.sendToolResponse(response);
     }
   }

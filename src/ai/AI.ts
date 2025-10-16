@@ -5,7 +5,7 @@ import {getUrlParameter} from '../utils/utils';
 
 import {AIOptions, GeminiOptions, OpenAIOptions} from './AIOptions';
 import {GeminiResponse} from './AITypes';
-import {Gemini} from './Gemini';
+import {Gemini, GeminiStartLiveSessionParams} from './Gemini';
 import {OpenAI} from './OpenAI';
 
 export type ModelClass = Gemini|OpenAI;
@@ -181,7 +181,7 @@ export class AI extends Script {
     return await this.model!.query(input, tools);
   }
 
-  async startLiveSession(config = {}) {
+  async startLiveSession(config: GeminiStartLiveSessionParams = {}) {
     if (!this.model) {
       throw new Error('AI model is not initialized.');
     }

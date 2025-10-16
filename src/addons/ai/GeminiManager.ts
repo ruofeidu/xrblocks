@@ -32,6 +32,7 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
   // Transcription state
   currentInputText: string = '';
   currentOutputText: string = '';
+  tools: xb.Tool[] = [];
 
   constructor() {
     super();
@@ -42,15 +43,22 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     this.ai = xb.core.ai!;
   }
 
-  async startGeminiLive() {
+  async startGeminiLive({liveParams}: {
+    liveParams?: xb.GeminiStartLiveSessionParams
+  } = {}) {
     if (this.isAIRunning || !this.ai) {
       console.warn('AI already running or not available');
       return;
     }
 
+    liveParams = liveParams || {};
+    liveParams.tools = liveParams.tools || [];
+    for (const tool of this.tools) {
+      liveParams.tools.push(tool.toJSON());
+    }
     try {
       await this.setupAudioCapture();
-      await this.startLiveAI();
+      await this.startLiveAI(liveParams);
       this.startScreenshotCapture();
       this.isAIRunning = true;
     } catch (error) {
@@ -111,7 +119,7 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     this.processorNode.connect(this.audioContext.destination);
   }
 
-  async startLiveAI() {
+  async startLiveAI(params: xb.GeminiStartLiveSessionParams) {
     return new Promise<void>((resolve, reject) => {
       this.ai.setLiveCallbacks({
         onopen: () => {
@@ -129,7 +137,7 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
         }
       });
 
-      this.ai.startLiveSession().catch(reject);
+      this.ai.startLiveSession(params).catch(reject);
     });
   }
 
@@ -272,6 +280,23 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
   handleAIMessage(message: GoogleGenAITypes.LiveServerMessage) {
     if (message.data) {
       this.playAudioChunk(message.data);
+    }
+
+    for (const functionCall of message.toolCall?.functionCalls ?? []) {
+      const tool = this.tools.find(tool => tool.name == functionCall.name);
+      if (tool) {
+        const exec = tool.execute(functionCall.args);
+        exec.then(result => {
+              this.ai.sendToolResponse({
+                functionResponses: {
+                  id: functionCall.id,
+                  name: functionCall.name,
+                  response: {'output': result}
+                }
+              });
+            })
+            .catch((error: unknown) => console.error('Tool error:', error));
+      }
     }
 
     if (message.serverContent) {
