@@ -95,8 +95,11 @@ export class AudioPlayer extends Script {
     this.scheduleAudioBuffers();
   }
 
-  scheduleAudioBuffers() {
-    while (this.audioQueue.length > 0) {
+  private scheduleAudioBuffers() {
+    const SCHEDULE_AHEAD_TIME = 0.2;
+    while (this.audioQueue.length > 0 &&
+           this.nextStartTime <=
+               this.audioContext!.currentTime + SCHEDULE_AHEAD_TIME) {
       const audioBuffer = this.audioQueue.shift()!;
       const currentTime = this.audioContext!.currentTime;
       const startTime = Math.max(this.nextStartTime, currentTime);
@@ -106,6 +109,7 @@ export class AudioPlayer extends Script {
 
       // Connect through gain node for volume control
       source.connect(this.gainNode || this.audioContext!.destination);
+      source.onended = () => this.scheduleAudioBuffers();
 
       // Start playback
       source.start(startTime);
