@@ -6,15 +6,16 @@ on:
     branches:
       - main
     paths:
-      - 'docs/**'
-      - 'README.md'
-      - 'src/**'
-      - 'demos/**'
-      - 'templates/**'
-      - 'samples/**'
+      - "docs/**"
+      - "README.md"
+      - "src/**"
+      - "demos/**"
+      - "templates/**"
+      - "samples/**"
 
 jobs:
   dispatch-to-xrblocks-github-io:
+    if: github.repository == 'google/xrblocks'
     runs-on: ubuntu-latest
     steps:
       - name: Trigger build in xrblocks.github.io
