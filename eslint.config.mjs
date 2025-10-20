@@ -26,7 +26,7 @@ export default defineConfig(
       },
     },
     {
-      files: ['demos/**/*.js', 'templates/**/*.js'],
+      files: ['demos/**/*.js', 'templates/**/*.js', 'samples/**/*.js'],
       languageOptions: {globals: {...globals.browser}},
     },
     {
