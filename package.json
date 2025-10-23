@@ -10,8 +10,8 @@
     "build": "echo \"Building xrblocks.js...\" && rollup -c --failAfterWarnings",
     "prepare": "npm run build",
     "format": "npm run format:fix",
-    "format:check": "prettier \"**/*.{cjs,html,js,json,md,ts}\" --check",
-    "format:fix": "prettier \"**/*.{cjs,html,js,json,md,ts}\" --write"
+    "format:check": "prettier \"**/*.{cjs,html,js,json,md,mdx,ts}\" --check",
+    "format:fix": "prettier \"**/*.{cjs,html,js,json,md,mdx,ts}\" --write"
   },
   "files": [
     "build"

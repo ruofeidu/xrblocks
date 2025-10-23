@@ -84,8 +84,8 @@ code below:
   </head>
   <body>
     <script type="module">
-      import * as THREE from "three";
-      import * as xb from "xrblocks";
+      import * as THREE from 'three';
+      import * as xb from 'xrblocks';
 
       /**
        * A basic example of XRBlocks to render a cylinder and pinch to change its color.
@@ -122,7 +122,7 @@ code below:
       }
 
       // When the page content is loaded, add our script and initialize XR Blocks.
-      document.addEventListener("DOMContentLoaded", function () {
+      document.addEventListener('DOMContentLoaded', function () {
         xb.add(new MainScript());
         xb.init(new xb.Options());
       });
