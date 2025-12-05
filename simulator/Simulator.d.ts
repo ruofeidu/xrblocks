@@ -42,6 +42,8 @@ export declare class Simulator extends Script {
     effects?: XREffects;
     virtualSceneRenderTarget?: THREE.WebGLRenderTarget;
     virtualSceneFullScreenQuad?: FullScreenQuad;
+    backgroundVideoQuad?: FullScreenQuad;
+    videoElement?: HTMLVideoElement;
     camera?: SimulatorCamera;
     options: SimulatorOptions;
     renderer: THREE.WebGLRenderer;
@@ -49,6 +51,8 @@ export declare class Simulator extends Script {
     mainScene: THREE.Scene;
     private initialized;
     private renderSimulatorSceneToCanvasBound;
+    private sparkRenderer?;
+    private registry?;
     constructor(renderMainScene: (cameraOverride?: THREE.Camera) => void);
     init({ simulatorOptions, input, timer, camera, renderer, scene, registry, options, depth, }: {
         simulatorOptions: SimulatorOptions;

@@ -2,6 +2,7 @@ import { AIOptions } from '../ai/AIOptions';
 import { DeviceCameraOptions } from '../camera/CameraOptions.js';
 import { DepthOptions } from '../depth/DepthOptions.js';
 import { HandsOptions } from '../input/HandsOptions.js';
+import { GestureRecognitionOptions } from '../input/gestures/GestureRecognitionOptions.js';
 import { LightingOptions } from '../lighting/LightingOptions.js';
 import { PhysicsOptions } from '../physics/PhysicsOptions';
 import { SimulatorOptions } from '../simulator/SimulatorOptions';
@@ -78,6 +79,7 @@ export declare class Options {
     lighting: LightingOptions;
     deviceCamera: DeviceCameraOptions;
     hands: HandsOptions;
+    gestures: GestureRecognitionOptions;
     reticles: ReticleOptions;
     sound: SoundOptions;
     ai: AIOptions;
@@ -93,6 +95,7 @@ export declare class Options {
      * Whether to use post-processing effects.
      */
     usePostprocessing: boolean;
+    enableSimulator: boolean;
     /**
      * Configuration for the XR session button.
      */
@@ -102,10 +105,16 @@ export declare class Options {
         endText: string;
         invalidText: string;
         startSimulatorText: string;
-        enableSimulator: boolean;
-        showSimulatorButtonOnMobile: boolean;
-        autostartSimulatorOnDesktop: boolean;
-        autostartSimulator: boolean;
+        showEnterSimulatorButton: boolean;
+        alwaysAutostartSimulator: boolean;
+    };
+    /**
+     * Which permissions to request before entering the XR session.
+     */
+    permissions: {
+        geolocation: boolean;
+        camera: boolean;
+        microphone: boolean;
     };
     /**
      * Constructs the Options object by merging default values with provided
@@ -151,15 +160,15 @@ export declare class Options {
      */
     enableHands(): this;
     /**
+     * Enables the gesture recognition block and ensures hands are available.
+     * @returns The instance for chaining.
+     */
+    enableGestures(): this;
+    /**
      * Enables the visualization of rays for hand tracking.
      * @returns The instance for chaining.
      */
     enableHandRays(): this;
-    /**
-     * Enables the Gemini Live feature.
-     * @returns The instance for chaining.
-     */
-    enableGeminiLive(): this;
     /**
      * Enables a standard set of AI features, including Gemini Live.
      * @returns The instance for chaining.

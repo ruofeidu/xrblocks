@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { AI } from '../ai/AI';
 import { XRDeviceCamera } from '../camera/XRDeviceCamera';
 import { Depth } from '../depth/Depth';
+import { GestureRecognition } from '../input/gestures/GestureRecognition';
 import { Input } from '../input/Input';
 import { Lighting } from '../lighting/Lighting';
 import { Physics } from '../physics/Physics';
@@ -20,6 +21,7 @@ import { XREffects } from './components/XREffects';
 import { XRTransition } from './components/XRTransition';
 import { Options } from './Options';
 import { User } from './User';
+import { PermissionsManager } from './components/PermissionsManager';
 /**
  * Core is the central engine of the XR Blocks framework, acting as a
  * singleton manager for all XR subsystems. Its primary goal is to abstract
@@ -49,7 +51,7 @@ export declare class Core {
     /** The main camera for rendering. */
     camera: THREE.PerspectiveCamera;
     /** The root scene graph for all objects. */
-    scene: THREE.Scene;
+    scene: THREE.Scene<THREE.Object3DEventMap>;
     /** Represents the user in the XR scene. */
     user: User;
     /** Manages all UI elements. */
@@ -77,11 +79,13 @@ export declare class Core {
     xrButton?: XRButton;
     effects?: XREffects;
     ai: AI;
+    gestureRecognition?: GestureRecognition;
     transition?: XRTransition;
     currentFrame?: XRFrame;
     scriptsManager: ScriptsManager;
     renderSceneOverride?: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void;
     webXRSessionManager?: WebXRSessionManager;
+    permissionsManager: PermissionsManager;
     /**
      * Core is a singleton manager that manages all XR "blocks".
      * It initializes core components and abstractions like the scene, camera,

@@ -1,5 +1,7 @@
 import * as xb from 'xrblocks';
+import { AUDIO_CAPTURE_PROCESSOR_CODE } from './AudioCaptureProcessorCode.js';
 
+const DEFAULT_SCHEDULE_AHEAD_TIME = 1.0;
 class GeminiManager extends xb.Script {
     constructor() {
         super();
@@ -8,6 +10,7 @@ class GeminiManager extends xb.Script {
         this.audioContext = null;
         this.sourceNode = null;
         this.processorNode = null;
+        this.queuedSourceNodes = new Set();
         // AI state
         this.isAIRunning = false;
         // Audio playback setup
@@ -17,24 +20,25 @@ class GeminiManager extends xb.Script {
         this.currentInputText = '';
         this.currentOutputText = '';
         this.tools = [];
+        this.scheduleAheadTime = DEFAULT_SCHEDULE_AHEAD_TIME;
     }
     init() {
         this.xrDeviceCamera = xb.core.deviceCamera;
         this.ai = xb.core.ai;
     }
-    async startGeminiLive({ liveParams } = {}) {
+    async startGeminiLive({ liveParams, model, } = {}) {
         if (this.isAIRunning || !this.ai) {
             console.warn('AI already running or not available');
             return;
         }
         liveParams = liveParams || {};
         liveParams.tools = liveParams.tools || [];
-        for (const tool of this.tools) {
-            liveParams.tools.push(tool.toJSON());
-        }
+        liveParams.tools.push({
+            functionDeclarations: this.tools.map((tool) => tool.toJSON()),
+        });
         try {
             await this.setupAudioCapture();
-            await this.startLiveAI(liveParams);
+            await this.startLiveAI(liveParams, model);
             this.startScreenshotCapture();
             this.isAIRunning = true;
         }
@@ -67,19 +71,21 @@ class GeminiManager extends xb.Script {
                 sampleRate: 16000,
                 channelCount: 1,
                 echoCancellation: true,
-                noiseSuppression: true
-            }
+                noiseSuppression: true,
+            },
         });
         const audioTracks = this.audioStream.getAudioTracks();
         if (audioTracks.length === 0) {
             throw new Error('No audio tracks found.');
         }
         this.audioContext = new AudioContext({ sampleRate: 16000 });
-        await this.audioContext.audioWorklet.addModule('./AudioCaptureProcessor.js');
-        this.sourceNode =
-            this.audioContext.createMediaStreamSource(this.audioStream);
-        this.processorNode =
-            new AudioWorkletNode(this.audioContext, 'audio-capture-processor');
+        const blob = new Blob([AUDIO_CAPTURE_PROCESSOR_CODE], {
+            type: 'text/javascript',
+        });
+        const blobUrl = URL.createObjectURL(blob);
+        await this.audioContext.audioWorklet.addModule(blobUrl);
+        this.sourceNode = this.audioContext.createMediaStreamSource(this.audioStream);
+        this.processorNode = new AudioWorkletNode(this.audioContext, 'audio-capture-processor');
         this.processorNode.port.onmessage = (event) => {
             if (event.data.type === 'audioData' && this.isAIRunning) {
                 this.sendAudioData(event.data.data);
@@ -88,7 +94,7 @@ class GeminiManager extends xb.Script {
         this.sourceNode.connect(this.processorNode);
         this.processorNode.connect(this.audioContext.destination);
     }
-    async startLiveAI(params) {
+    async startLiveAI(params, model) {
         return new Promise((resolve, reject) => {
             this.ai.setLiveCallbacks({
                 onopen: () => {
@@ -103,9 +109,9 @@ class GeminiManager extends xb.Script {
                 },
                 onclose: () => {
                     this.isAIRunning = false;
-                }
+                },
             });
-            this.ai.startLiveSession(params).catch(reject);
+            this.ai.startLiveSession(params, model).catch(reject);
         });
     }
     startScreenshotCapture(intervalMs = 1000) {
@@ -126,9 +132,9 @@ class GeminiManager extends xb.Script {
             });
             if (typeof base64Image == 'string') {
                 // Strip the data URL prefix if present
-                const base64Data = base64Image.startsWith('data:') ?
-                    base64Image.split(',')[1] :
-                    base64Image;
+                const base64Data = base64Image.startsWith('data:')
+                    ? base64Image.split(',')[1]
+                    : base64Image;
                 this.sendVideoFrame(base64Data);
             }
         }
@@ -187,21 +193,32 @@ class GeminiManager extends xb.Script {
         }
     }
     scheduleAudioBuffers() {
-        const SCHEDULE_AHEAD_TIME = 0.2;
         while (this.audioQueue.length > 0 &&
             this.nextAudioStartTime <=
-                this.audioContext.currentTime + SCHEDULE_AHEAD_TIME) {
+                this.audioContext.currentTime + this.scheduleAheadTime) {
             const audioBuffer = this.audioQueue.shift();
             const source = this.audioContext.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(this.audioContext.destination);
             source.onended = () => {
+                source.disconnect();
+                this.queuedSourceNodes.delete(source);
                 this.scheduleAudioBuffers();
             };
             const startTime = Math.max(this.nextAudioStartTime, this.audioContext.currentTime);
             source.start(startTime);
+            this.queuedSourceNodes.add(source);
             this.nextAudioStartTime = startTime + audioBuffer.duration;
         }
+    }
+    stopPlayingAudio() {
+        this.audioQueue = [];
+        this.nextAudioStartTime = 0;
+        for (const source of this.queuedSourceNodes) {
+            source.stop();
+            source.disconnect();
+        }
+        this.queuedSourceNodes.clear();
     }
     cleanup() {
         if (this.screenshotInterval) {
@@ -223,7 +240,7 @@ class GeminiManager extends xb.Script {
             this.audioContext = null;
         }
         if (this.audioStream) {
-            this.audioStream.getTracks().forEach(track => track.stop());
+            this.audioStream.getTracks().forEach((track) => track.stop());
             this.audioStream = null;
         }
     }
@@ -232,16 +249,21 @@ class GeminiManager extends xb.Script {
             this.playAudioChunk(message.data);
         }
         for (const functionCall of message.toolCall?.functionCalls ?? []) {
-            const tool = this.tools.find(tool => tool.name == functionCall.name);
+            const tool = this.tools.find((tool) => tool.name == functionCall.name);
             if (tool) {
                 const exec = tool.execute(functionCall.args);
-                exec.then(result => {
+                exec
+                    .then((result) => {
                     this.ai.sendToolResponse({
                         functionResponses: {
                             id: functionCall.id,
                             name: functionCall.name,
-                            response: { 'output': result }
-                        }
+                            response: {
+                                output: result.data,
+                                error: result.error,
+                                ...result.metadata,
+                            },
+                        },
                     });
                 })
                     .catch((error) => console.error('Tool error:', error));
@@ -259,6 +281,10 @@ class GeminiManager extends xb.Script {
                 if (text) {
                     this.dispatchEvent({ type: 'outputTranscription', message: text });
                 }
+            }
+            if (message.serverContent.interrupted) {
+                this.stopPlayingAudio();
+                this.dispatchEvent({ type: 'interrupted' });
             }
             if (message.serverContent.turnComplete) {
                 this.dispatchEvent({ type: 'turnComplete' });
