@@ -15,8 +15,8 @@
  *
  * @file xrblocks.js
  * @version v0.5.1
- * @commitid 2e7d4ba
- * @builddate 2025-12-06T05:57:37.960Z
+ * @commitid be7eefa
+ * @builddate 2025-12-06T06:15:10.927Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -12194,7 +12194,6 @@ class TextButton extends TextView {
         const geometry = new THREE.PlaneGeometry(1, 1);
         const colorVec4 = getVec4ByColorString(options.backgroundColor ?? '#000000');
         const { opacity = 0.0, radius = SquircleShader.uniforms.uRadius.value, boxSize = SquircleShader.uniforms.uBoxSize.value, } = options;
-        console.log(colorVec4);
         const uniforms = {
             ...SquircleShader.uniforms,
             uBackgroundColor: { value: colorVec4 },
