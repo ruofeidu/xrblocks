@@ -14,9 +14,9 @@
  * limitations under the License.
  *
  * @file xrblocks.js
- * @version v0.5.0
- * @commitid d85f597
- * @builddate 2025-12-06T05:02:02.169Z
+ * @version v0.5.1
+ * @commitid 2e7d4ba
+ * @builddate 2025-12-06T05:57:37.960Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -11802,7 +11802,7 @@ class TextView extends View {
     }
     setTextColor(color) {
         if (Text && this.textObj instanceof Text) {
-            this.textObj.color = color;
+            this.textObj.color = getColorHex(color);
         }
     }
     /**
@@ -12192,8 +12192,9 @@ class TextButton extends TextView {
      */
     constructor(options = {}) {
         const geometry = new THREE.PlaneGeometry(1, 1);
-        const colorVec4 = getVec4ByColorString(options.backgroundColor ?? '#00000000');
+        const colorVec4 = getVec4ByColorString(options.backgroundColor ?? '#000000');
         const { opacity = 0.0, radius = SquircleShader.uniforms.uRadius.value, boxSize = SquircleShader.uniforms.uBoxSize.value, } = options;
+        console.log(colorVec4);
         const uniforms = {
             ...SquircleShader.uniforms,
             uBackgroundColor: { value: colorVec4 },
@@ -12242,6 +12243,9 @@ class TextButton extends TextView {
         // Applies our own overrides to the default values.
         this.fontSize = options.fontSize ?? this.fontSize;
         this.fontColor = options.fontColor ?? this.fontColor;
+        this.hoverColor = options.hoverColor ?? this.hoverColor;
+        this.selectedFontColor =
+            options.selectedFontColor ?? this.selectedFontColor;
         this.width = options.width ?? this.width;
         this.height = options.height ?? this.height;
     }
@@ -12264,20 +12268,19 @@ class TextButton extends TextView {
         if (!this.textObj) {
             return;
         }
-        if (this.textObj) {
-            this.textObj.renderOrder = this.renderOrder + 1;
-        }
+        // Update render order to ensure text appears on top of the button mesh
+        this.textObj.renderOrder = this.renderOrder + 1;
         const ux = this.ux;
         if (ux.isHovered()) {
             if (ux.isSelected()) {
-                this.setTextColor(0x666666);
+                this.setTextColor(this.selectedFontColor);
             }
             else {
-                this.setTextColor(0xaaaaaa);
+                this.setTextColor(this.hoverColor);
             }
         }
         else {
-            this.setTextColor(0xffffff);
+            this.setTextColor(this.fontColor);
             this.uniforms.uOpacity.value = this.defaultOpacity * this.opacity;
         }
     }
