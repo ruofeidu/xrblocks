@@ -98,6 +98,9 @@ export class Math3D extends xb.Script {
     this.add(this.keyboard);
     this.keyboard.position.set(0, -0.3, 0);
 
+    const startFn = this.mathObjects[0].functionText;
+    this.keyboard.setText(startFn);
+
     this.keyboard.onEnterPressed = (newFunctionText) => {
       this.mathObjects[this.descriptionPagerState.currentPage].functionText =
         newFunctionText;
@@ -105,8 +108,10 @@ export class Math3D extends xb.Script {
     };
 
     this.keyboard.onTextChanged = (currentText) => {
-      if (this.functionDisplay) {
-        this.functionDisplay.text = currentText;
+      const index = this.descriptionPagerState.currentPage;
+      const currentDisplay = this.descriptionPager.children[index].children[0];
+      if (currentDisplay && currentDisplay.setText) {
+        currentDisplay.setText(currentText);
       }
     };
 
