@@ -15,8 +15,8 @@
  *
  * @file xrblocks.js
  * @version v0.8.2
- * @commitid 987502c
- * @builddate 2026-01-17T01:32:11.603Z
+ * @commitid eda9924
+ * @builddate 2026-01-29T19:02:51.207Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -3534,11 +3534,22 @@ var StreamState;
     StreamState["ERROR"] = "error";
     StreamState["NO_DEVICES_FOUND"] = "no_devices_found";
 })(StreamState || (StreamState = {}));
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+        reader.onerror = () => reject(reader.error);
+    });
+}
 /**
  * The base class for handling video streams (from camera or file), managing
  * the underlying <video> element, streaming state, and snapshot logic.
  */
 class VideoStream extends Script {
+    get video() {
+        return this.video_;
+    }
     /**
      * @param options - The configuration options.
      */
@@ -3605,12 +3616,7 @@ class VideoStream extends Script {
             }
         }
     }
-    /**
-     * Captures the current video frame.
-     * @param options - The options for the snapshot.
-     * @returns The captured data.
-     */
-    getSnapshot({ width = this.width, height = this.height, outputFormat = 'texture', mimeType = 'image/jpeg', quality = 0.9, } = {}) {
+    getSnapshot({ width = this.width, height = this.height, outputFormat = 'texture', ...rest } = {}) {
         if (!this.loaded ||
             !width ||
             !height ||
@@ -3620,6 +3626,8 @@ class VideoStream extends Script {
         if (width > this.width || height > this.height) {
             console.warn(`The requested snapshot width (${width}px x ${height}px) is larger than the source video width (${this.width}px x ${this.height}px). The snapshot will be upscaled.`);
         }
+        const mimeType = ('mimeType' in rest ? rest.mimeType : undefined) ?? 'image/jpeg';
+        const quality = ('quality' in rest ? rest.quality : undefined) ?? 0.9;
         try {
             // Re-initialize canvas only if dimensions have changed.
             if (!this.canvas_ ||
@@ -3637,7 +3645,9 @@ class VideoStream extends Script {
                 case 'imageData':
                     return this.context_.getImageData(0, 0, width, height);
                 case 'base64':
-                    return this.canvas_.toDataURL(mimeType, quality);
+                    return new Promise((resolve) => this.canvas_.toBlob(resolve, mimeType, quality)).then((blob) => (blob ? blobToBase64(blob) : null));
+                case 'blob':
+                    return new Promise((resolve) => this.canvas_.toBlob(resolve, mimeType, quality));
                 case 'texture':
                 default: {
                     const frozenTexture = new THREE.Texture(this.canvas_);
@@ -6188,7 +6198,12 @@ class User extends Script {
             const currentlyTouchedMeshes = [];
             this.scene.traverse((object) => {
                 if (object.isMesh && object.visible) {
-                    tempBox.setFromObject(object);
+                    try {
+                        tempBox.setFromObject(object);
+                    }
+                    catch (_) {
+                        return;
+                    }
                     if (tempBox.containsPoint(indexTipPosition)) {
                         currentlyTouchedMeshes.push(object);
                     }
@@ -10242,20 +10257,19 @@ class DetectedObject extends THREE.Object3D {
     /**
      * @param label - The semantic label of the object.
      * @param image - The base64 encoded cropped image of the object.
-     * @param boundingBox - The 2D bounding box.
-     * @param additionalData - A key-value map of additional properties from the
-     * detector. This includes any object proparties that is requested through the
+     * @param detection2DBoundingBox - The 2D bounding box of the detected object in normalized screen
+     * coordinates. Values are between 0 and 1. Centerpoint of this bounding is
+     * used for backproject to obtain 3D object position (i.e., this.position).
+     * @param data - Additional properties from the detector.
+     * This includes any object proparties that is requested through the
      * schema but is not assigned a class property by default (e.g., color, size).
      */
-    constructor(label, image, boundingBox, 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    additionalData = {}) {
+    constructor(label, image, detection2DBoundingBox, data) {
         super();
         this.label = label;
         this.image = image;
-        this.detection2DBoundingBox = boundingBox;
-        // Assign any additional properties to this object.
-        Object.assign(this, additionalData);
+        this.detection2DBoundingBox = detection2DBoundingBox;
+        this.data = data;
     }
 }
 
@@ -10325,7 +10339,10 @@ class ObjectDetector extends Script {
             console.error('Gemini is unavailable for object detection.');
             return [];
         }
-        const base64Image = this.deviceCamera.getSnapshot({
+        // Cache depth and camera data to align with the captured image frame.
+        const cachedDepthArray = this.depth.depthArray[0].slice(0);
+        const cachedMatrixWorld = this.camera.matrixWorld.clone();
+        const base64Image = await this.deviceCamera.getSnapshot({
             outputFormat: 'base64',
         });
         if (!base64Image) {
@@ -10333,9 +10350,6 @@ class ObjectDetector extends Script {
             return [];
         }
         const { mimeType, strippedBase64 } = parseBase64DataURL(base64Image);
-        // Cache depth and camera data to align with the captured image frame.
-        const cachedDepthArray = this.depth.depthArray[0].slice(0);
-        const cachedMatrixWorld = this.camera.matrixWorld.clone();
         // Temporarily set the Gemini config for this specific query type.
         const originalGeminiConfig = this.aiOptions.gemini.config;
         this.aiOptions.gemini.config = this._geminiConfig;
@@ -10401,7 +10415,7 @@ class ObjectDetector extends Script {
                     return object;
                 }
             });
-            const detectedObjects = (await Promise.all(detectionPromises)).filter(Boolean);
+            const detectedObjects = (await Promise.all(detectionPromises)).filter((obj) => obj !== null && obj !== undefined);
             return detectedObjects;
         }
         catch (error) {
@@ -10813,17 +10827,25 @@ class PlaneDetector extends Script {
     }
 }
 
+function toFlatArray(array) {
+    if (!Array.isArray(array))
+        return array;
+    const result = new Float32Array(array.reduce((sum, arr) => sum + arr.length, 0));
+    array.reduce((offset, arr) => (result.set(arr, offset), offset + arr.length), 0);
+    return result;
+}
 class DetectedMesh extends THREE.Mesh {
     constructor(xrMesh, material) {
         const geometry = new THREE.BufferGeometry();
-        const vertices = new Float32Array(xrMesh.vertices);
-        const indices = new Uint32Array(xrMesh.indices);
+        const vertices = toFlatArray(xrMesh.vertices);
+        const indices = xrMesh.indices;
         geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
         geometry.setIndex(new THREE.BufferAttribute(indices, 1));
         geometry.computeVertexNormals();
         super(geometry, material);
         this.lastChangedTime = 0;
         this.lastChangedTime = xrMesh.lastChangedTime;
+        this.semanticLabel = xrMesh.semanticLabel;
     }
     initRapierPhysics(RAPIER, blendedWorld) {
         this.RAPIER = RAPIER;
@@ -10842,8 +10864,8 @@ class DetectedMesh extends THREE.Mesh {
             return;
         this.lastChangedTime = mesh.lastChangedTime;
         const geometry = new THREE.BufferGeometry();
-        const vertices = new Float32Array(mesh.vertices);
-        const indices = new Uint32Array(mesh.indices);
+        const vertices = toFlatArray(mesh.vertices);
+        const indices = mesh.indices;
         geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
         geometry.setIndex(new THREE.BufferAttribute(indices, 1));
         geometry.computeVertexNormals();
@@ -10858,14 +10880,18 @@ class DetectedMesh extends THREE.Mesh {
     }
 }
 
+const SEMANTIC_LABELS = ['Floor', 'Ceiling', 'Wall', 'Table'];
+const SEMANTIC_COLORS = [0x00ff00, 0xff0000, 0x0000ff, 0xffff00];
 // Wrapper around WebXR Mesh Detection API
 // https://immersive-web.github.io/real-world-meshing/
 class MeshDetector extends Script {
     constructor() {
         super(...arguments);
-        this._debugMaterial = null;
+        this.debugMaterials = new Map();
+        this.fallbackDebugMaterial = null;
         this.xrMeshToThreeMesh = new Map();
         this.threeMeshToXrMesh = new Map();
+        this.defaultMaterial = new THREE.MeshBasicMaterial({ visible: false });
     }
     static { this.dependencies = {
         options: MeshDetectionOptions,
@@ -10874,11 +10900,18 @@ class MeshDetector extends Script {
     init({ options, renderer, }) {
         this.renderer = renderer;
         if (options.showDebugVisualizations) {
-            this._debugMaterial = new THREE.MeshBasicMaterial({
-                color: 0xffff00,
+            this.fallbackDebugMaterial = new THREE.MeshBasicMaterial({
+                color: 0x000000,
                 wireframe: true,
                 side: THREE.DoubleSide,
             });
+            for (let i = 0; i < SEMANTIC_LABELS.length; i++) {
+                this.debugMaterials.set(SEMANTIC_LABELS[i], new THREE.MeshBasicMaterial({
+                    color: SEMANTIC_COLORS[i],
+                    wireframe: true,
+                    side: THREE.DoubleSide,
+                }));
+            }
         }
     }
     initPhysics(physics) {
@@ -10896,6 +10929,7 @@ class MeshDetector extends Script {
             if (!meshes.has(xrMesh)) {
                 this.xrMeshToThreeMesh.delete(xrMesh);
                 this.threeMeshToXrMesh.delete(threeMesh);
+                threeMesh.geometry.dispose();
                 this.remove(threeMesh);
             }
         }
@@ -10918,7 +10952,10 @@ class MeshDetector extends Script {
         }
     }
     createMesh(frame, xrMesh) {
-        const material = this._debugMaterial || new THREE.MeshBasicMaterial({ visible: false });
+        const semanticLabel = xrMesh.semanticLabel;
+        const material = (semanticLabel && this.debugMaterials.get(semanticLabel)) ||
+            this.fallbackDebugMaterial ||
+            this.defaultMaterial;
         const mesh = new DetectedMesh(xrMesh, material);
         this.updateMeshPose(frame, xrMesh, mesh);
         return mesh;
