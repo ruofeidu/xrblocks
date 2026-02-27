@@ -96,7 +96,7 @@ export class Math3D extends xb.Script {
 
     this.keyboard = new Keyboard();
     this.add(this.keyboard);
-    this.keyboard.position.set(0, -0.3, -0.);
+    this.keyboard.position.set(0, -0.3, 0);
 
     const startFn = this.mathObjects[0].functionText;
     
@@ -191,7 +191,7 @@ export class Math3D extends xb.Script {
       try {
         z = zFunction(x, y);
         // Clamp the value to stay between -Z_LIMIT and Z_LIMIT
-        z = Math.max(-Z_LIMIT, Math.min(Z_LIMIT, z));
+        z = xb.clamp(z, -Z_LIMIT, Z_LIMIT);
         
         // Handle cases where the math results in NaN (not a number)
         if (isNaN(z)) z = 0; 
