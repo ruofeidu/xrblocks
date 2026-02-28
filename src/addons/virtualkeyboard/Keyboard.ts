@@ -16,7 +16,7 @@ interface RowLayout {
   specialKeys: SpecialKey[];
 }
 
-interface KeyboardButtonOptions extends xb.ButtonOptions {
+interface KeyboardButtonOptions extends xb.TextButtonOptions {
   originalKey: string;
   shiftKey: string|null;
 }
@@ -207,8 +207,7 @@ class Keyboard extends xb.Script {
   }
 
   private addKey(
-      row: xb.GridRow, data: string|SpecialKey,
-      shiftChar: string|null = null): void {
+      row: any, data: string|SpecialKey, shiftChar: string|null = null): void {
     const isObject = typeof data === 'object';
     const weight = isObject ? (data.weight || KEY_WIDTH) : KEY_WIDTH;
     const backgroundColor = isObject ?
