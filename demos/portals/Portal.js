@@ -205,6 +205,11 @@ export class Portal extends THREE.Object3D {
           float diskAlpha = smoothstep(1.0, 0.94, r);
           if (diskAlpha <= 0.0) discard;
 
+          // Ray from eye through this disc fragment (for stereo parallax).
+          // Approach inspired by iq's portal technique (shadertoy.com/view/4sX3Rn).
+          vec3 discPt = vec3(p * ${PORTAL_RADIUS.toFixed(1)}, 0.0);
+          vec3 rd = normalize(discPt - uCamLocal);
+
           vec3 col = vec3(0.0);
 
           // ---------- scene body ----------
