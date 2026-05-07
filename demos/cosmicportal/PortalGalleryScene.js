@@ -56,8 +56,24 @@ export class PortalGalleryScene extends xb.Script {
       this.portals.push(portal);
 
       // Floating label above the portal.
-      const label = new xb.LabelView({text: scene.name, fontColor: '#eaf6ff'});
-      label.position.set(x, userY + Portal.RADIUS + 0.18, z);
+      const label = new xb.SpatialPanel({
+        width: 0.5,
+        height: 0.14,
+        backgroundColor: '#1e2533cc',
+        draggable: false,
+        useBorderlessShader: true,
+      });
+      const grid = label.addGrid();
+      grid.addRow({weight: 0.15});
+      grid.addRow({weight: 0.7}).addText({
+        text: scene.name,
+        fontColor: '#ffffff',
+        fontSize: 0.09,
+        textAlign: 'center',
+      });
+      grid.addRow({weight: 0.15});
+      label.position.set(x, userY + Portal.RADIUS + 0.12, z);
+      label.lookAt(0, userY, 0);
       this.add(label);
       this.labels.push(label);
     }
@@ -119,6 +135,7 @@ export class PortalGalleryScene extends xb.Script {
         l.position.y = p.position.y + Portal.RADIUS + 0.18;
         l.position.x = p.position.x;
         l.position.z = p.position.z;
+        l.lookAt(cam.position);
       }
     }
   }
