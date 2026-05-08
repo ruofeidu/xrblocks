@@ -114,8 +114,8 @@ export class PortalGalleryScene extends xb.Script {
 
     // Exit label shown above cosmic portal in immersive mode.
     this._exitLabel = new xb.SpatialPanel({
-      width: 0.45,
-      height: 0.14,
+      width: 0.7,
+      height: 0.22,
       backgroundColor: '#44ff88cc',
       draggable: false,
       useBorderlessShader: true,
@@ -125,7 +125,7 @@ export class PortalGalleryScene extends xb.Script {
     exitGrid.addRow({weight: 0.7}).addText({
       text: '↩ EXIT',
       fontColor: '#ffffff',
-      fontSize: 0.09,
+      fontSize: 0.16,
       textAlign: 'center',
     });
     exitGrid.addRow({weight: 0.15});

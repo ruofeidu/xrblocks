@@ -40,10 +40,13 @@ export class ForestImmersive extends THREE.Object3D {
       const portalQuat = new THREE.Quaternion().setFromRotationMatrix(
         this._entryMatrix
       );
+      // vWorldDir is in world space (sphere is at world position = camera with
+      // no rotation). To get a portal-local ray direction we only need to undo
+      // the portal's own rotation — the camera quaternion does NOT belong here.
       const portalQuatInv = portalQuat.clone().invert();
-      const camQuat = camera.getWorldQuaternion(new THREE.Quaternion());
-      const localQuat = portalQuatInv.multiply(camQuat);
-      const rotMat4 = new THREE.Matrix4().makeRotationFromQuaternion(localQuat);
+      const rotMat4 = new THREE.Matrix4().makeRotationFromQuaternion(
+        portalQuatInv
+      );
       mat.uniforms.uViewRotation.value.setFromMatrix4(rotMat4);
     }
 
@@ -140,64 +143,99 @@ export class ForestImmersive extends THREE.Object3D {
           return smoothstep(0.05, 0.0, d);
         }
 
-        // Tree silhouette in cylindrical (azimuth, height) space.
-        // Returns ~1 inside trunk/canopy.
-        float treeAt(float az, float y, float seed, float dist) {
-          // Trunk centered at azimuth 0, with width that tapers up.
-          float trunkW = 0.012 * (1.0 - smoothstep(0.0, 0.85, y) * 0.55);
-          float trunk = step(abs(az), trunkW)
-                      * step(0.0, y) * step(y, 0.85);
-          // Pine canopy: triangular, broadest at base.
-          float canopyTop = 1.05 + hash(vec2(seed, 1.7)) * 0.20;
-          float canopyBase = 0.35;
-          float canopyH = canopyTop - canopyBase;
-          float canopySlope = (canopyTop - y) / canopyH;
-          float canopyW = 0.085 * canopySlope;
-          float canopy = step(abs(az), canopyW)
-                       * step(canopyBase, y) * step(y, canopyTop);
-          // Add slight noise jitter to canopy edge.
-          float edgeNoise = (hash(vec2(seed * 13.7, floor(y * 60.0))) - 0.5) * 0.012;
-          canopy *= step(abs(az) + edgeNoise, canopyW);
-          return clamp(trunk + canopy, 0.0, 1.0);
+        float raySphere(vec3 ro, vec3 rd, vec3 c, float rad) {
+          vec3 oc = ro - c;
+          float b = dot(oc, rd);
+          float d = b * b - (dot(oc, oc) - rad * rad);
+          if (d < 0.0) return -1.0;
+          return -b - sqrt(d);
         }
 
-        // Ring of trees around the user.
-        // azimuth in [-PI, PI], altitude in radians (0 = horizon).
-        // Returns combined silhouette mask (0..1), output greyscale tint.
-        vec3 forestRing(vec3 rd) {
-          float az = atan(rd.x, -rd.z);    // azimuth, 0 = forward
-          float alt = asin(clamp(rd.y, -1.0, 1.0));
-          // Project to cylindrical (treeY around 0..1.2 maps to alt 0..~0.5).
-          // Each tree occupies a slice of azimuth space.
-          float density = 28.0;            // trees around full circle
-          float slice = az * density / (2.0 * 3.14159265);
-          float cellIdx = floor(slice);
-          float local = fract(slice) - 0.5; // azimuth-within-slice in [-0.5, 0.5]
-          float seed = cellIdx + 17.0;
-          // Each tree gets a random horizontal jitter and depth (size).
-          float jitter = (hash(vec2(seed, 3.1)) - 0.5) * 0.5;
-          float distVar = 0.65 + hash(vec2(seed, 5.7)) * 0.7; // 0.65..1.35
+        // Ray–vertical-cylinder intersection. Cylinder axis = Y, at xz=c,
+        // radius r, between yMin and yMax. Returns nearest positive t or -1.
+        float rayCylinder(vec3 ro, vec3 rd, vec2 c, float r,
+                          float yMin, float yMax) {
+          vec2 d = rd.xz;
+          vec2 oc = ro.xz - c;
+          float a = dot(d, d);
+          if (a < 1e-6) return -1.0;
+          float b = dot(oc, d);
+          float disc = b * b - a * (dot(oc, oc) - r * r);
+          if (disc < 0.0) return -1.0;
+          float t = (-b - sqrt(disc)) / a;
+          if (t < 0.0) return -1.0;
+          float hy = ro.y + rd.y * t;
+          if (hy < yMin || hy > yMax) return -1.0;
+          return t;
+        }
 
-          // Map altitude to "tree height coord" (0 at horizon, ~1 at top of canopy).
-          // Closer trees rise higher in the FOV.
-          float y = alt / (0.32 / distVar);
-          float az2 = local * 0.18 * distVar;
+        // GROUND_Y is 1.6m below eye level (portal-local origin = eye level).
+        const float GROUND_Y = -1.6;
 
-          float m = treeAt(az2, y, seed, distVar);
-          // Slight neighbour overlap for variety.
-          float seedR = cellIdx + 18.0;
-          float jitterR = (hash(vec2(seedR, 3.1)) - 0.5) * 0.5;
-          float distR = 0.65 + hash(vec2(seedR, 5.7)) * 0.7;
-          float yR = alt / (0.32 / distR);
-          float az2R = (local - 1.0) * 0.18 * distR;
-          float mR = treeAt(az2R, yR, seedR, distR);
+        // Test ray against one tree at world xz = pos. Returns hit t (or -1)
+        // and writes hit type via outId: 1=trunk, 2=canopy.
+        float rayTree(vec3 ro, vec3 rd, vec2 pos, float scale, out int outId) {
+          outId = 0;
+          float best = 1e9;
+          // Trunk from ground up to canopy base.
+          float trunkTopY = GROUND_Y + 1.4 * scale;
+          float trunkR = 0.10 * scale;
+          float t = rayCylinder(ro, rd, pos, trunkR, GROUND_Y, trunkTopY);
+          if (t > 0.0 && t < best) { best = t; outId = 1; }
+          // Canopy: 4 stacked spheres, broad at base, narrow at top (pine).
+          for (int k = 0; k < 4; k++) {
+            float fk = float(k);
+            float cy = trunkTopY + (0.4 + fk * 0.55) * scale;
+            float cr = (0.95 - fk * 0.18) * scale;
+            float ts = raySphere(ro, rd, vec3(pos.x, cy, pos.y), cr);
+            if (ts > 0.0 && ts < best) { best = ts; outId = 2; }
+          }
+          return (best < 1e9) ? best : -1.0;
+        }
 
-          float mask = max(m, mR);
-          // Color: very dark, slight green
-          vec3 trunkCol = vec3(0.020, 0.025, 0.015);
-          // Backlit edge: faint cool rim from sky behind.
-          float rim = (1.0 - mask) * 0.0;
-          return mix(vec3(0.0), trunkCol, mask) + vec3(0.0, rim * 0.04, rim * 0.06);
+        // Forest: 16 fixed trees around the portal-local origin. Positions are
+        // hashed from index, NOT relative to user — they stay put as user walks.
+        vec4 forest3D(vec3 ro, vec3 rd) {
+          float bestT = 1e9; int bestId = 0; vec2 bestPos = vec2(0.0);
+          float bestScale = 1.0;
+          for (int i = 0; i < 18; i++) {
+            float fi = float(i);
+            // Two concentric rings of trees: 8 inner (4-7m), 10 outer (8-13m).
+            float ringT = (fi < 8.0) ? fi / 8.0 : (fi - 8.0) / 10.0;
+            float ang = ringT * 6.28318 + hash(vec2(fi, 1.7)) * 0.6;
+            float radius = (fi < 8.0)
+                ? mix(4.0, 7.0, hash(vec2(fi, 3.3)))
+                : mix(8.0, 13.0, hash(vec2(fi, 5.1)));
+            vec2 pos = vec2(cos(ang), sin(ang)) * radius;
+            float scale = 1.6 + hash(vec2(fi, 9.7)) * 1.4;
+            int id;
+            float t = rayTree(ro, rd, pos, scale, id);
+            if (t > 0.0 && t < bestT) {
+              bestT = t; bestId = id; bestPos = pos; bestScale = scale;
+            }
+          }
+          if (bestId == 0) return vec4(0.0, 0.0, 0.0, -1.0);
+          vec3 hp = ro + rd * bestT;
+          vec3 col;
+          if (bestId == 1) {
+            float bark = fbm(vec2(hp.y * 6.0,
+                            atan(hp.z - bestPos.y, hp.x - bestPos.x) * 4.0));
+            col = mix(vec3(0.030, 0.022, 0.015),
+                      vec3(0.075, 0.055, 0.035), bark);
+          } else {
+            vec3 trunkTop = vec3(bestPos.x,
+                                 GROUND_Y + 1.4 * bestScale,
+                                 bestPos.y);
+            vec3 n = normalize(hp - trunkTop);
+            float topLight = max(n.y, 0.0);
+            float needles = fbm(hp.xz * 6.0 + hp.y * 3.0);
+            vec3 base = mix(vec3(0.025, 0.050, 0.028),
+                            vec3(0.055, 0.100, 0.050), needles);
+            col = base * (0.45 + topLight * 0.7);
+          }
+          float fog = smoothstep(3.0, 16.0, bestT);
+          col = mix(col, vec3(0.10, 0.08, 0.18), fog * 0.6);
+          return vec4(col, bestT);
         }
 
         // Fireflies: cloud of point lights in a 3D volume around the user.
@@ -225,14 +263,6 @@ export class ForestImmersive extends THREE.Object3D {
             col += vec3(0.85, 1.00, 0.45) * intensity * 0.8;
           }
           return col;
-        }
-
-        float raySphere(vec3 ro, vec3 rd, vec3 c, float rad) {
-          vec3 oc = ro - c;
-          float b = dot(oc, rd);
-          float d = b * b - (dot(oc, oc) - rad * rad);
-          if (d < 0.0) return -1.0;
-          return -b - sqrt(d);
         }
 
         void main() {
@@ -289,27 +319,30 @@ export class ForestImmersive extends THREE.Object3D {
           float mist = fbm3(rd * 4.0 + vec3(uTime * 0.05, 0.0, uTime * 0.03));
           col = mix(col, vec3(0.12, 0.10, 0.20), mistY * mist * 0.55);
 
-          // ---- Ring of pine trees around the user ----
-          // Trees occupy lower hemisphere (rd.y < ~0.5).
-          if (rd.y < 0.6) {
-            vec3 forest = forestRing(rd);
-            // Only apply where forest is "in front" of sky band.
-            float forestMask = max(max(forest.r, forest.g), forest.b);
-            col = mix(col, forest, smoothstep(0.6, 0.5, rd.y));
+          // ---- Ground at y=-1.6 (1.6m below eye level) ----
+          float groundT = -1.0;
+          {
+            float gy = -1.6;
+            if (rd.y < -0.001 && ro.y > gy) {
+              float t = (gy - ro.y) / rd.y;
+              if (t > 0.0 && t < 200.0) {
+                groundT = t;
+                vec3 gp = ro + rd * t;
+                float gn = fbm(gp.xz * 0.4);
+                vec3 ground = mix(vec3(0.03, 0.04, 0.02),
+                                  vec3(0.08, 0.07, 0.04), gn);
+                float fog = smoothstep(0.0, 25.0, t);
+                col = mix(ground, col, fog * 0.7);
+              }
+            }
           }
 
-          // ---- Ground: very dark forest floor ----
-          if (rd.y < 0.0) {
-            // Raycast ray down to y=0 to find ground hit, then noise it.
-            float t = -ro.y / rd.y;
-            if (t > 0.0 && t < 200.0) {
-              vec3 gp = ro + rd * t;
-              float gn = fbm(gp.xz * 0.4);
-              vec3 ground = mix(vec3(0.03, 0.04, 0.02),
-                                vec3(0.08, 0.07, 0.04), gn);
-              // Distance fade into mist
-              float fog = smoothstep(0.0, 25.0, t);
-              col = mix(ground, col, fog * 0.7);
+          // ---- 3D pine trees scattered around user (real raycast) ----
+          // Trees occlude sky AND ground when nearer than groundT.
+          vec4 forest = forest3D(ro, rd);
+          if (forest.a > 0.0) {
+            if (groundT < 0.0 || forest.a < groundT) {
+              col = forest.rgb;
             }
           }
 
