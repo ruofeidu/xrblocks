@@ -157,6 +157,21 @@ export class GamepadSettingsPanel extends LitElement {
   @state() private _focusedIndex = 0;
   private _rafId: number | null = null;
   private _prevStickY = 0;
+  private _navPrevButtons: boolean[] = [];
+
+  private _navJustPressed(gp: xb.GamepadController, index: number): boolean {
+    const down = gp.activeGamepad?.buttons[index]?.pressed ?? false;
+    const wasDown = this._navPrevButtons[index] ?? false;
+    return down && !wasDown;
+  }
+
+  private _navUpdatePrev(gp: xb.GamepadController) {
+    const buttons = gp.activeGamepad?.buttons;
+    if (!buttons) return;
+    for (let i = 0; i < buttons.length; i++) {
+      this._navPrevButtons[i] = buttons[i]?.pressed ?? false;
+    }
+  }
 
   private get _totalItems(): number {
     return Object.keys(ACTION_LABELS).length + 2; // bindings + reset + close
@@ -167,8 +182,10 @@ export class GamepadSettingsPanel extends LitElement {
     this._refreshSnapshot();
     this._focusedIndex = 0;
     this._prevStickY = 0;
+    this._navPrevButtons = [];
     if (this.gamepadController) {
       this.gamepadController.menuActive = true;
+      this._navUpdatePrev(this.gamepadController);
     }
     this._startNavLoop();
   }
@@ -214,8 +231,12 @@ export class GamepadSettingsPanel extends LitElement {
     if (!gp || !gp.userData.connected) return;
 
     // While listening for a rebind, the next button press is consumed by the
-    // capture callback — don't double-handle navigation.
-    if (this._listeningAction !== null) return;
+    // capture callback — don't double-handle navigation. Still update prev
+    // button state so we don't fire a stale rising edge on the next frame.
+    if (this._listeningAction !== null) {
+      this._navUpdatePrev(gp);
+      return;
+    }
 
     // Left stick Y for focus movement (rising-edge debounced).
     const [, ly] = gp.getAxes();
@@ -228,17 +249,19 @@ export class GamepadSettingsPanel extends LitElement {
     this._prevStickY = ly;
 
     // D-pad up/down for focus movement.
-    if (gp.isButtonJustPressed(12)) this._moveFocus(-1);
-    if (gp.isButtonJustPressed(13)) this._moveFocus(1);
+    if (this._navJustPressed(gp, 12)) this._moveFocus(-1);
+    if (this._navJustPressed(gp, 13)) this._moveFocus(1);
 
     // Triggers as alternate up/down.
-    if (gp.isButtonJustPressed(6)) this._moveFocus(-1);
-    if (gp.isButtonJustPressed(7)) this._moveFocus(1);
+    if (this._navJustPressed(gp, 6)) this._moveFocus(-1);
+    if (this._navJustPressed(gp, 7)) this._moveFocus(1);
 
     // A button (button 0) — activate focused item.
-    if (gp.isButtonJustPressed(0)) this._activateFocused();
+    if (this._navJustPressed(gp, 0)) this._activateFocused();
     // B button (button 1) — close panel.
-    if (gp.isButtonJustPressed(1)) this.hide();
+    if (this._navJustPressed(gp, 1)) this.hide();
+
+    this._navUpdatePrev(gp);
   }
 
   private _moveFocus(delta: number) {
@@ -269,6 +292,12 @@ export class GamepadSettingsPanel extends LitElement {
       this.bindings?.setBinding(action, buttonIndex);
       this._listeningAction = null;
       this._refreshSnapshot();
+      // Sync nav prev-buttons to current state so the just-captured press
+      // isn't seen as a fresh rising edge by the next nav poll (which would
+      // e.g. close the menu when B is bound).
+      if (this.gamepadController) {
+        this._navUpdatePrev(this.gamepadController);
+      }
     });
   }
 
