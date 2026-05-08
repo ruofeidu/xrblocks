@@ -207,6 +207,7 @@ export class CyberpunkImmersive extends THREE.Object3D {
           float bestT = 1e9;
           vec3 bestCol = vec3(0.0);
           for (int i = 0; i < 14; i++) {
+            if (i == 10 || i == 11) continue; // park wedge — no building here
             float fi = float(i);
             float seed = fi + 19.0;
             float ang = fi * (6.28318 / 14.0)
@@ -257,6 +258,33 @@ export class CyberpunkImmersive extends THREE.Object3D {
               float topMask = step(0.5, nrm.y);
               c += vec3(1.0, 0.30, 0.55) * topMask
                  * (0.4 + 0.3 * sin(t * 3.0 + seed * 7.0));
+              // ---- Shop fronts on lower 2 stories ----
+              float lowZone = step(uv.y, 0.10) * isSide;
+              vec2 sgrid = vec2(3.0, 2.0);
+              vec2 scell = uv * sgrid;
+              vec2 sf = fract(scell);
+              vec2 si = floor(scell);
+              float swin = step(0.08, sf.x) * step(sf.x, 0.92)
+                         * step(0.15, sf.y) * step(sf.y, 0.92);
+              float doorway = step(abs(sf.x - 0.5), 0.12)
+                            * step(sf.y, 0.55);
+              float shopRoll = hash(si + seed + 13.3);
+              vec3 shopCol = (shopRoll < 0.34)
+                  ? vec3(1.00, 0.80, 0.30)
+                  : (shopRoll < 0.67)
+                      ? vec3(1.00, 0.20, 0.70)
+                      : vec3(0.20, 0.95, 1.00);
+              float interior = 0.65 + 0.35
+                  * sin(t * 3.0 + si.x * 11.0 + si.y * 7.0);
+              float shopMask = swin * (1.0 - doorway * 0.85) * interior;
+              vec3 shopFacade = vec3(0.06, 0.04, 0.05)
+                              + shopCol * shopMask * 2.0;
+              c = mix(c, shopFacade, lowZone);
+              // Store sign band slightly above shop front.
+              float signBand = step(0.105, uv.y) * step(uv.y, 0.135)
+                             * isSide;
+              c += shopCol * signBand
+                 * (1.0 + 0.3 * sin(t * 5.0 + seed));
               bestCol = c;
             }
           }
@@ -299,6 +327,204 @@ export class CyberpunkImmersive extends THREE.Object3D {
               bestCol = base * (0.7 + scan * 0.5) * flicker * shape * 1.4;
             }
           }
+          return vec4(bestCol, bestT);
+        }
+
+        // ---- Street life: cars, hovercars, pedestrians, traffic lights ----
+        // Returns vec4(rgb, t) for the closest hit primitive.
+        vec4 streetLife(vec3 ro, vec3 rd, float t) {
+          float bestT = 1e9;
+          vec3 bestCol = vec3(0.0);
+          vec3 nrm;
+
+          // Ground cars: 8 across two circular lanes, opposite directions.
+          for (int i = 0; i < 8; i++) {
+            float fi = float(i);
+            float lane = mod(fi, 2.0);
+            float r = mix(15.5, 13.8, lane);
+            float dir = mix(1.0, -1.0, lane);
+            float spd = mix(0.20, 0.26, lane);
+            float baseAng = fi * 0.7854 + lane * 0.39;
+            float ang = baseAng + dir * t * spd;
+            // Skip cars currently inside the park wedge.
+            float pd = mod(ang + 1.5708 + 3.14159, 6.28318) - 3.14159;
+            if (abs(pd) < 0.30) continue;
+            vec3 ctr = vec3(cos(ang) * r, -1.40, sin(ang) * r);
+            vec3 hsz = vec3(0.42, 0.18, 0.42);
+            float th = rayBox(ro, rd, ctr, hsz, nrm);
+            if (th > 0.05 && th < bestT) {
+              bestT = th;
+              vec3 fwd = vec3(-sin(ang), 0.0, cos(ang)) * dir;
+              vec3 fwdAxis = (abs(fwd.x) > abs(fwd.z))
+                  ? vec3(sign(fwd.x), 0.0, 0.0)
+                  : vec3(0.0, 0.0, sign(fwd.z));
+              float head = step(0.9, dot(nrm, fwdAxis));
+              float tail = step(0.9, dot(nrm, -fwdAxis));
+              vec3 body = vec3(0.04, 0.03, 0.07);
+              bestCol = body
+                      + vec3(1.00, 0.95, 0.80) * head * 1.8
+                      + vec3(1.00, 0.15, 0.10) * tail * 1.4;
+            }
+          }
+
+          // Hovercars: 4 above ground, opposite layer flow.
+          for (int i = 0; i < 4; i++) {
+            float fi = float(i);
+            float lane = mod(fi, 2.0);
+            float r = mix(12.0, 13.5, lane);
+            float dir = mix(-1.0, 1.0, lane);
+            float spd = mix(0.32, 0.38, lane);
+            float baseAng = fi * 1.5708 + 0.6;
+            float ang = baseAng + dir * t * spd;
+            float pd = mod(ang + 1.5708 + 3.14159, 6.28318) - 3.14159;
+            if (abs(pd) < 0.30) continue;
+            float yH = mix(2.6, 3.6, lane);
+            vec3 ctr = vec3(cos(ang) * r, yH, sin(ang) * r);
+            vec3 hsz = vec3(0.45, 0.16, 0.45);
+            float th = rayBox(ro, rd, ctr, hsz, nrm);
+            if (th > 0.05 && th < bestT) {
+              bestT = th;
+              vec3 fwd = vec3(-sin(ang), 0.0, cos(ang)) * dir;
+              vec3 fwdAxis = (abs(fwd.x) > abs(fwd.z))
+                  ? vec3(sign(fwd.x), 0.0, 0.0)
+                  : vec3(0.0, 0.0, sign(fwd.z));
+              float head = step(0.9, dot(nrm, fwdAxis));
+              float tail = step(0.9, dot(nrm, -fwdAxis));
+              float bottom = step(0.5, -nrm.y);
+              vec3 body = vec3(0.06, 0.05, 0.10);
+              bestCol = body
+                      + vec3(0.20, 0.95, 1.00) * head * 1.6
+                      + vec3(1.00, 0.25, 0.60) * tail * 1.4
+                      + vec3(0.30, 0.95, 1.00) * bottom * 0.7;
+            }
+          }
+
+          // Pedestrians: 12 silhouettes drifting along the sidewalk.
+          for (int i = 0; i < 12; i++) {
+            float fi = float(i);
+            float r = 16.5 + hash(vec2(fi, 7.3)) * 0.7;
+            float dir = (mod(fi, 2.0) < 0.5) ? 1.0 : -1.0;
+            float spd = 0.04 + hash(vec2(fi, 9.1)) * 0.02;
+            float baseAng = fi * 0.5236 + hash(vec2(fi, 3.3)) * 0.3;
+            float ang = baseAng + dir * t * spd;
+            float pd = mod(ang + 1.5708 + 3.14159, 6.28318) - 3.14159;
+            if (abs(pd) < 0.30) continue;
+            float bob = sin(t * 4.0 + fi * 1.7) * 0.04;
+            vec3 ctr = vec3(cos(ang) * r, -1.10 + bob, sin(ang) * r);
+            vec3 hsz = vec3(0.10, 0.32, 0.10);
+            float th = rayBox(ro, rd, ctr, hsz, nrm);
+            if (th > 0.05 && th < bestT) {
+              bestT = th;
+              vec3 hp = ro + rd * th - ctr;
+              float headZ = step(0.22, hp.y);
+              vec3 body = vec3(0.020, 0.018, 0.030);
+              vec3 head = vec3(0.10, 0.08, 0.12);
+              float rim = 1.0 - abs(nrm.y);
+              vec3 neon = vec3(0.45, 0.10, 0.35) * rim * 0.4;
+              bestCol = mix(body, head, headZ) + neon;
+            }
+          }
+
+          // Traffic lights: 4 poles at intersections of the street loop.
+          for (int i = 0; i < 4; i++) {
+            float fi = float(i);
+            float ang = fi * 1.5708 + 0.3927;
+            float r = 14.7;
+            vec3 base = vec3(cos(ang) * r, -1.60, sin(ang) * r);
+            vec3 poleHsz = vec3(0.07, 1.20, 0.07);
+            vec3 poleCtr = base + vec3(0.0, 1.20, 0.0);
+            float th = rayBox(ro, rd, poleCtr, poleHsz, nrm);
+            if (th > 0.05 && th < bestT) {
+              bestT = th;
+              bestCol = vec3(0.04, 0.03, 0.05);
+            }
+            vec3 headHsz = vec3(0.18, 0.18, 0.18);
+            vec3 headCtr = base + vec3(0.0, 2.55, 0.0);
+            float th2 = rayBox(ro, rd, headCtr, headHsz, nrm);
+            if (th2 > 0.05 && th2 < bestT) {
+              bestT = th2;
+              float ph = mod(t + fi * 2.0, 9.0);
+              vec3 lit;
+              if (ph < 3.0) lit = vec3(1.00, 0.10, 0.10);
+              else if (ph < 5.0) lit = vec3(1.00, 0.85, 0.10);
+              else lit = vec3(0.10, 1.00, 0.30);
+              bestCol = vec3(0.04, 0.03, 0.05) + lit * 1.6;
+            }
+          }
+
+          return vec4(bestCol, bestT);
+        }
+
+        // ---- Neon night park: holographic urban green space ----
+        vec4 nightPark(vec3 ro, vec3 rd, float t) {
+          float bestT = 1e9;
+          vec3 bestCol = vec3(0.0);
+          vec3 nrm;
+          // Park sits inside the street ring (cars at r=13.8-15.5) so it
+          // reads as a clear foreground feature, and at azimuth -π/2 so it
+          // lands directly in front of the user (forward = -z, matching the
+          // hologram/sky azimuth convention atan(rd.x, -rd.z)).
+          float parkAng = -1.5708;
+          float parkR = 10.0;
+          vec3 pc = vec3(cos(parkAng) * parkR, -1.6, sin(parkAng) * parkR);
+
+          // Grass slab (6×6, 0.05 tall, emissive cyan-green).
+          float th = rayBox(ro, rd, pc + vec3(0.0, 0.025, 0.0),
+                            vec3(3.0, 0.025, 3.0), nrm);
+          if (th > 0.05 && th < bestT) {
+            bestT = th;
+            bestCol = vec3(0.04, 0.14, 0.10) * 1.3;
+          }
+
+          // Three holographic trees (trunk + canopy).
+          for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float ta = -0.7 + fi * 0.7;
+            vec3 tb = pc + vec3(cos(ta) * 2.0, 0.0, sin(ta) * 2.0);
+            th = rayBox(ro, rd, tb + vec3(0.0, 0.75, 0.0),
+                        vec3(0.075, 0.75, 0.075), nrm);
+            if (th > 0.05 && th < bestT) {
+              bestT = th; bestCol = vec3(0.04, 0.03, 0.05);
+            }
+            th = rayBox(ro, rd, tb + vec3(0.0, 1.80, 0.0),
+                        vec3(0.45, 0.30, 0.45), nrm);
+            if (th > 0.05 && th < bestT) {
+              bestT = th;
+              float hue = sin(t * 0.3 + fi * 2.1) * 0.5 + 0.5;
+              bestCol = mix(vec3(1.00, 0.20, 0.80),
+                            vec3(0.20, 1.00, 0.90), hue) * 1.4;
+            }
+          }
+
+          // Holo-statue: tall emissive prism with colour drift.
+          th = rayBox(ro, rd, pc + vec3(0.0, 0.60, 0.0),
+                      vec3(0.15, 0.60, 0.15), nrm);
+          if (th > 0.05 && th < bestT) {
+            bestT = th;
+            vec3 hp = ro + rd * th - (pc + vec3(0.0, 0.60, 0.0));
+            float vGrad = (hp.y + 0.60) / 1.20;
+            float drift = sin(t * 0.5 + vGrad * 4.0) * 0.5 + 0.5;
+            bestCol = mix(vec3(0.20, 0.40, 1.00),
+                          vec3(1.00, 0.20, 0.90), drift) * 1.6;
+          }
+
+          // Two lamp posts (pole + glowing head).
+          for (int i = 0; i < 2; i++) {
+            float fi = float(i);
+            float la = -0.5 + fi * 1.0;
+            vec3 lb = pc + vec3(cos(la) * 2.8, 0.0, sin(la) * 2.8);
+            th = rayBox(ro, rd, lb + vec3(0.0, 1.10, 0.0),
+                        vec3(0.05, 1.10, 0.05), nrm);
+            if (th > 0.05 && th < bestT) {
+              bestT = th; bestCol = vec3(0.04, 0.03, 0.05);
+            }
+            th = rayBox(ro, rd, lb + vec3(0.0, 2.30, 0.0),
+                        vec3(0.12, 0.08, 0.12), nrm);
+            if (th > 0.05 && th < bestT) {
+              bestT = th; bestCol = vec3(1.00, 0.65, 0.20) * 1.5;
+            }
+          }
+
           return vec4(bestCol, bestT);
         }
 
@@ -390,9 +616,10 @@ export class CyberpunkImmersive extends THREE.Object3D {
         }
 
         // Wet street reflection: when looking down, mirror the sky/buildings.
+        // Plane sits at y = -1.6 to match the base of buildings/cars/peds.
         vec3 wetStreet(vec3 ro, vec3 rd, float t) {
           if (rd.y > -0.05) return vec3(0.0);
-          float gt = -ro.y / rd.y;
+          float gt = (-1.6 - ro.y) / rd.y;
           if (gt < 0.0 || gt > 60.0) return vec3(0.0);
           vec3 gp = ro + rd * gt;
           // Puddle pattern: brighter in puddle areas.
@@ -451,6 +678,16 @@ export class CyberpunkImmersive extends THREE.Object3D {
             opaqueT = boardHit.w;
             opaqueCol = boardHit.rgb;
           }
+          vec4 streetHit = streetLife(ro, rd, t);
+          if (streetHit.w < opaqueT) {
+            opaqueT = streetHit.w;
+            opaqueCol = streetHit.rgb;
+          }
+          vec4 parkHit = nightPark(ro, rd, t);
+          if (parkHit.w < opaqueT) {
+            opaqueT = parkHit.w;
+            opaqueCol = parkHit.rgb;
+          }
           if (opaqueT < 1e8) {
             float fogF = smoothstep(8.0, 50.0, opaqueT);
             col = mix(opaqueCol, col, fogF * 0.4);
@@ -467,7 +704,7 @@ export class CyberpunkImmersive extends THREE.Object3D {
 
           // ---- Wet street (looking down) ----
           if (rd.y < 0.0) {
-            float gt = -ro.y / rd.y;
+            float gt = (-1.6 - ro.y) / rd.y;
             if (gt > 0.0 && gt < opaqueT) {
               vec3 streetCol = wetStreet(ro, rd, t);
               float weight = smoothstep(0.0, -0.05, rd.y);
