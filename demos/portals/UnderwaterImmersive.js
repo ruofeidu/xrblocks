@@ -688,6 +688,9 @@ export class UnderwaterImmersive extends THREE.Object3D {
             float kt = (surfaceY - ro.y) / rd.y;
             if (kt > 0.0) {
               vec3 sp = ro + rd * kt;
+              // Gentle refractive wobble on the surface plane.
+              sp.xz += vec2(sin(t * 0.3 + sp.x * 0.5) * 0.4,
+                            cos(t * 0.25 + sp.z * 0.5) * 0.4);
               float c = caustic(sp.xz, t);
               col = mix(col, vec3(0.95, 1.00, 0.75),
                         c * smoothstep(0.3, 0.95, rd.y) * 0.55);
@@ -712,8 +715,8 @@ export class UnderwaterImmersive extends THREE.Object3D {
             if (t2 > 0.0 && t2 < 80.0) {
               vec3 gp = ro + rd * t2;
               float gn = fbm(gp.xz * 0.15);
-              vec3 ground = mix(vec3(0.05, 0.10, 0.12),
-                                vec3(0.10, 0.18, 0.20), gn);
+              vec3 ground = mix(vec3(0.18, 0.14, 0.08),
+                                vec3(0.30, 0.25, 0.15), gn);
               float fog = smoothstep(0.0, 35.0, t2);
               col = mix(ground, col, fog);
             }
@@ -748,11 +751,12 @@ export class UnderwaterImmersive extends THREE.Object3D {
           // ---- Marine snow ----
           col += vec3(0.95, 0.98, 1.00) * marineSnow(ro, rd, t);
 
-          // ---- Distance haze (blue scattering) ----
-          // Simulate water absorption by mixing toward the depth color
-          // based on view-distance estimate (use ray length to 50m).
-          float haze = 0.55;
-          col = mix(col, midCol, haze * 0.25);
+          // ---- Depth-distance haze (blue scattering) ----
+          // Horizontal rays travel through more water — fade toward deep teal.
+          vec3 deepFog = vec3(0.02, 0.12, 0.22);
+          float viewDist = clamp(1.0 - abs(rd.y), 0.0, 1.0);
+          float haze = viewDist * viewDist * 0.35;
+          col = mix(col, deepFog, haze);
 
           // Tone-map.
           col = col / (col + vec3(1.0));

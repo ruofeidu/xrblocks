@@ -498,6 +498,9 @@ export const UnderwaterScene = {
       float kt = (surfaceY - ro.y) / rd.y;
       if (kt > 0.0) {
         vec3 sp = ro + rd * kt;
+        // Gentle refractive wobble on the surface plane.
+        sp.xz += vec2(sin(t * 0.3 + sp.x * 0.5) * 0.4,
+                      cos(t * 0.25 + sp.z * 0.5) * 0.4);
         float c = caustic2(sp.xz, t);
         col = mix(col, vec3(0.95, 1.00, 0.75),
                   c * smoothstep(0.3, 0.95, rd.y) * 0.55);
@@ -520,8 +523,8 @@ export const UnderwaterScene = {
       if (t2 > 0.0 && t2 < 80.0) {
         vec3 gp = ro + rd * t2;
         float gn = fbm(gp.xz * 0.15);
-        vec3 ground = mix(vec3(0.05, 0.10, 0.12),
-                          vec3(0.10, 0.18, 0.20), gn);
+        vec3 ground = mix(vec3(0.18, 0.14, 0.08),
+                          vec3(0.30, 0.25, 0.15), gn);
         float fog = smoothstep(0.0, 35.0, t2);
         col = mix(ground, col, fog);
       }
@@ -553,7 +556,9 @@ export const UnderwaterScene = {
     // Blue tang school.
     col += blueTangSchool3D(ro, rd, t);
 
-    // Mild blue haze.
-    col = mix(col, midCol, 0.14);
+    // Depth-distance haze — horizontal rays fade toward deep teal.
+    vec3 deepFog = vec3(0.02, 0.12, 0.22);
+    float viewDist = clamp(1.0 - abs(rd.y), 0.0, 1.0);
+    col = mix(col, deepFog, viewDist * viewDist * 0.35);
   `,
 };
