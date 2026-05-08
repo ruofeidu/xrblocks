@@ -9,6 +9,7 @@ import {CyberpunkScene} from './scenes/CyberpunkScene.js';
 import {ForestScene} from './scenes/ForestScene.js';
 import {LavaScene} from './scenes/LavaScene.js';
 import {UnderwaterScene} from './scenes/UnderwaterScene.js';
+import {UnderwaterImmersive} from './UnderwaterImmersive.js';
 
 const SCENES = [
   UnderwaterScene,
@@ -23,6 +24,7 @@ const SCENES = [
 const IMMERSIVE_BY_NAME = {
   Cosmic: CosmicImmersive,
   Forest: ForestImmersive,
+  Underwater: UnderwaterImmersive,
 };
 
 const ARC_RADIUS = 2.2; // distance from user to each portal (meters)
