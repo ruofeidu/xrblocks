@@ -110,6 +110,7 @@ export class Portal extends THREE.Object3D {
     this._ringWarm = ringWarm;
     this._haloInner = haloInner;
     this._haloOuter = haloOuter;
+    this._ringColorExpr = s.ringColorExpr || 'mix(cool, warm, band)';
 
     const sceneUniforms = s.uniforms || {};
     const sceneUniformDecls = Object.entries(sceneUniforms)
@@ -264,11 +265,15 @@ export class Portal extends THREE.Object3D {
       fragmentShader: /* glsl */ `
         uniform float uTime;
         varying vec2 vUv;
+        vec3 hsv2rgb(vec3 c) {
+          vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0/3.0, 1.0/3.0)) * 6.0 - 3.0);
+          return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
+        }
         void main() {
           float band = sin(vUv.x * 30.0 - uTime * 3.0) * 0.5 + 0.5;
           vec3 cool = ${this._ringCool};
           vec3 warm = ${this._ringWarm};
-          vec3 col = mix(cool, warm, band);
+          vec3 col = ${this._ringColorExpr};
           float rim = smoothstep(0.0, 0.5, vUv.y) *
                       smoothstep(1.0, 0.5, vUv.y);
           gl_FragColor = vec4(col * (1.5 + rim * 1.2), 1.0);

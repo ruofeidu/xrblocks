@@ -4,10 +4,12 @@
 export const CosmicScene = {
   name: 'Cosmic',
 
-  ringCool: 'vec3(0.35, 0.7, 1.0)',
-  ringWarm: 'vec3(1.0, 0.55, 0.9)',
-  haloInner: 'vec3(0.4, 0.7, 1.0)',
-  haloOuter: 'vec3(1.0, 0.6, 0.9)',
+  ringCool: 'vec3(0.55, 0.85, 1.30)',
+  ringWarm: 'vec3(1.30, 0.70, 1.15)',
+  ringColorExpr:
+    'hsv2rgb(vec3(fract(vUv.x * 1.0 + uTime * 0.08), 0.85, 1.0)) * (0.9 + band * 0.6)',
+  haloInner: 'vec3(0.65, 0.90, 1.40)',
+  haloOuter: 'vec3(1.30, 0.75, 1.20)',
 
   helpers: /* glsl */ `
     vec3 shadePlanet(vec3 n, vec3 lightDir, vec3 viewDir,
