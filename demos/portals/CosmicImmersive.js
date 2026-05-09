@@ -363,8 +363,8 @@ export class CosmicImmersive extends THREE.Object3D {
                     float rDust = fbm(vec2(ang * 50.0, u * 25.0));
                     rb *= 0.5 + rDust * 0.7;
                     rb *= smoothstep(0.0, 0.05, u) * smoothstep(1.0, 0.95, u);
-                    vec3 lrCol = mix(vec3(0.95, 0.80, 0.50),
-                                     vec3(0.85, 0.90, 1.05), u);
+                    vec3 lrCol = mix(vec3(0.65, 0.80, 0.95),
+                                     vec3(0.85, 0.95, 1.05), u);
                     vec3 lrHit = ro + rd * tLR;
                     vec3 toL = normalize(sunPos - lrHit);
                     float shT = raySphere(lrHit, toL, limbCenter, limbRadius * 1.01);
@@ -454,19 +454,19 @@ export class CosmicImmersive extends THREE.Object3D {
             float lat = asin(clamp(n.y, -1.0, 1.0));
             float bandN = fbm(vec2(lat * 8.0, lon * 0.3 + t * 0.03));
             float bands = sin(lat * 20.0 + bandN * 4.0) * 0.5 + 0.5;
-            vec3 limbA = vec3(0.85, 0.65, 0.40);
-            vec3 limbB = vec3(0.70, 0.45, 0.25);
-            vec3 limbC = vec3(1.00, 0.88, 0.65);
+            vec3 limbA = vec3(0.30, 0.55, 0.85);
+            vec3 limbB = vec3(0.15, 0.30, 0.55);
+            vec3 limbC = vec3(0.65, 0.85, 1.00);
             vec3 base = mix(limbA, limbB, bands);
             base = mix(base, limbC, smoothstep(0.6, 0.9,
                        fbm(vec2(lon * 1.5 + t * 0.06, lat * 1.5))) * 0.5);
-            float grs = smoothstep(0.35, 0.0,
+            float storm = smoothstep(0.35, 0.0,
                 length(vec2(lon - 2.0, lat + 0.15) * vec2(1.0, 1.5)));
-            base = mix(base, vec3(0.85, 0.30, 0.15), grs * 0.6);
+            base = mix(base, vec3(0.90, 0.95, 1.00), storm * 0.5);
             float lambert = max(dot(n, lightDirLimb), 0.0);
             float rim = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
             col = base * (0.20 + lambert * 0.80)
-                + vec3(1.0, 0.80, 0.55) * rim * 0.65;
+                + vec3(0.55, 0.80, 1.00) * rim * 0.65;
           }
 
           // ---- Comets (forward cone only) ----
