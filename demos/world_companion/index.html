@@ -324,7 +324,28 @@
             if (!list.length) {
               return {success: false, error: 'no items provided'};
             }
-            const detected = await xb.core.world.objects.runDetection();
+            const detector = xb.core.world.objects;
+            console.log(
+              '[placeLabel] aiAvailable=',
+              !!xb.core.ai?.isAvailable?.(),
+              'cam=',
+              !!xb.core.deviceCamera,
+              'depth=',
+              !!xb.core.depth
+            );
+            let snapshotOk = null;
+            try {
+              snapshotOk = await xb.core.deviceCamera?.getSnapshot?.({
+                outputFormat: 'base64',
+              });
+            } catch (e) {
+              console.warn('[placeLabel] snapshot test threw', e);
+            }
+            console.log(
+              '[placeLabel] snapshot test:',
+              snapshotOk ? `ok (${snapshotOk.length} chars)` : 'NULL'
+            );
+            const detected = await detector.runDetection();
             console.log(
               '[placeLabel]',
               list,
@@ -332,7 +353,12 @@
               detected.map((d) => d.label)
             );
             if (!detected.length) {
-              return {success: false, error: 'nothing detected in view'};
+              return {
+                success: false,
+                error:
+                  'detection returned empty — check console for camera/AI ' +
+                  'status. May be camera permission, AI key, or depth issue.',
+              };
             }
             const used = new Set();
             const findMatch = (text) => {
