@@ -127,9 +127,8 @@ describe('World', () => {
       expect(session.isActive()).toBe(false);
 
       // After stop, no more frames sent.
-      const sentBefore = (
-        ai.sendRealtimeInput as ReturnType<typeof vi.fn>
-      ).mock.calls.length;
+      const sentBefore = (ai.sendRealtimeInput as ReturnType<typeof vi.fn>).mock
+        .calls.length;
       await vi.advanceTimersByTimeAsync(2000);
       expect(
         (ai.sendRealtimeInput as ReturnType<typeof vi.fn>).mock.calls.length
@@ -149,9 +148,8 @@ describe('World', () => {
       const onText = vi.fn();
       await world.streamScene('hi', {onText});
 
-      const callbacks = (
-        ai.setLiveCallbacks as ReturnType<typeof vi.fn>
-      ).mock.calls[0][0];
+      const callbacks = (ai.setLiveCallbacks as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
       callbacks.onmessage({
         serverContent: {
           modelTurn: {
@@ -181,9 +179,8 @@ describe('World', () => {
       const onAudio = vi.fn();
       await world.streamScene('hi', {onAudio});
 
-      const callbacks = (
-        ai.setLiveCallbacks as ReturnType<typeof vi.fn>
-      ).mock.calls[0][0];
+      const callbacks = (ai.setLiveCallbacks as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
       callbacks.onmessage({
         serverContent: {
           modelTurn: {
@@ -225,9 +222,8 @@ describe('World', () => {
         })
       );
 
-      const callbacks = (
-        ai.setLiveCallbacks as ReturnType<typeof vi.fn>
-      ).mock.calls[0][0];
+      const callbacks = (ai.setLiveCallbacks as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
       await callbacks.onmessage({
         toolCall: {
           functionCalls: [
@@ -256,9 +252,8 @@ describe('World', () => {
       registry.register(fakeCamera(), XRDeviceCamera);
 
       await world.streamScene('hi');
-      const callbacks = (
-        ai.setLiveCallbacks as ReturnType<typeof vi.fn>
-      ).mock.calls[0][0];
+      const callbacks = (ai.setLiveCallbacks as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
       await callbacks.onmessage({
         toolCall: {functionCalls: [{id: 'c2', name: 'mystery', args: {}}]},
       });
@@ -284,9 +279,8 @@ describe('World', () => {
 
       const onToolCall = vi.fn().mockResolvedValue(undefined);
       await world.streamScene('hi', {onToolCall});
-      const callbacks = (
-        ai.setLiveCallbacks as ReturnType<typeof vi.fn>
-      ).mock.calls[0][0];
+      const callbacks = (ai.setLiveCallbacks as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
       const toolCall = {
         functionCalls: [{id: 'c3', name: 'whatever', args: {}}],
       };

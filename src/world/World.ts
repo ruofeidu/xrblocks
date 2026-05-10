@@ -350,8 +350,8 @@ export class World extends Script {
           .join('');
         if (text) options.onText?.(text);
 
-        const audioPart = msg.serverContent?.modelTurn?.parts?.find(
-          (p) => p.inlineData?.mimeType?.startsWith('audio/')
+        const audioPart = msg.serverContent?.modelTurn?.parts?.find((p) =>
+          p.inlineData?.mimeType?.startsWith('audio/')
         );
         const audio = audioPart?.inlineData?.data;
         if (audio) {
@@ -371,9 +371,7 @@ export class World extends Script {
 
     await ai.startLiveSession({
       systemInstruction: {parts: [{text: prompt}]},
-      ...(functionDeclarations.length
-        ? {tools: [{functionDeclarations}]}
-        : {}),
+      ...(functionDeclarations.length ? {tools: [{functionDeclarations}]} : {}),
     });
 
     const sendFrame = async () => {
