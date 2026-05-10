@@ -273,9 +273,10 @@
         const placeLabel = new xb.Tool({
           name: 'placeLabel',
           description:
-            'Run object detection on the current scene and drop a labelled marker ' +
-            'on the object whose name best matches the given text. Use when the ' +
-            'user asks you to identify or point out something in the room.',
+            'Run object detection and drop a marker on the object whose name ' +
+            'best matches the given text. Choose a style: "dot" for casual ' +
+            'noting, "arrow" when the user wants you to point something out ' +
+            '(e.g. "find my bag"), "pulse" for small or hard-to-spot things.',
           parameters: {
             type: 'OBJECT',
             properties: {
@@ -283,10 +284,15 @@
                 type: 'STRING',
                 description: 'Short label, ~3 words, naming what to mark.',
               },
+              style: {
+                type: 'STRING',
+                enum: ['dot', 'arrow', 'pulse'],
+                description: 'Marker style. Defaults to dot.',
+              },
             },
             required: ['text'],
           },
-          onTriggered: async ({text}) => {
+          onTriggered: async ({text, style}) => {
             if (!xb.core.world?.objects) {
               console.warn('[placeLabel] object detector unavailable');
               return {success: false, error: 'object detector unavailable'};
@@ -295,6 +301,7 @@
             console.log(
               '[placeLabel]',
               text,
+              style,
               'detected:',
               detected.map((d) => d.label)
             );
@@ -306,10 +313,14 @@
               detected.find((d) => d.label?.toLowerCase().includes(needle)) ||
               detected.find((d) => needle.includes(d.label?.toLowerCase())) ||
               detected[0];
-            placeMarker(match.position, match.label || text);
+            placeMarker(match.position, match.label || text, style || 'dot');
             return {
               success: true,
-              data: {placed: match.label, requested: text},
+              data: {
+                placed: match.label,
+                requested: text,
+                style: style || 'dot',
+              },
             };
           },
         });
@@ -336,14 +347,27 @@
         return [placeLabel, lookCloser];
       }
 
-      function placeMarker(position, text) {
+      function placeMarker(position, text, style) {
         const group = new THREE.Group();
         group.position.copy(position);
-        const sphere = new THREE.Mesh(
-          new THREE.SphereGeometry(0.04, 16, 16),
-          new THREE.MeshBasicMaterial({color: 0xffd54f})
-        );
-        group.add(sphere);
+        group.userData.style = style;
+        group.userData.t0 = performance.now() / 1000;
+        if (style === 'arrow') {
+          const arrow = buildArrow();
+          arrow.position.set(0, 0.25, 0);
+          group.add(arrow);
+          group.userData.arrow = arrow;
+        } else if (style === 'pulse') {
+          const ring = buildPulseRing();
+          group.add(ring);
+          group.userData.ring = ring;
+        } else {
+          const sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(0.04, 16, 16),
+            new THREE.MeshBasicMaterial({color: 0xffd54f})
+          );
+          group.add(sphere);
+        }
         const label = new Text();
         label.text = text;
         label.fontSize = 0.05;
@@ -352,11 +376,61 @@
         label.outlineColor = 0x000000;
         label.anchorX = 'center';
         label.anchorY = 'bottom';
-        label.position.set(0, 0.06, 0);
+        label.position.set(0, style === 'arrow' ? 0.4 : 0.06, 0);
         group.add(label);
         label.sync();
         labels.add(group);
       }
+
+      function buildArrow() {
+        const group = new THREE.Group();
+        const mat = new THREE.MeshBasicMaterial({color: 0x42a5f5});
+        const stem = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.012, 0.012, 0.12, 12),
+          mat
+        );
+        stem.position.y = 0.08;
+        const tip = new THREE.Mesh(
+          new THREE.ConeGeometry(0.035, 0.06, 16),
+          mat
+        );
+        tip.position.y = 0;
+        tip.rotation.x = Math.PI;
+        group.add(stem);
+        group.add(tip);
+        return group;
+      }
+
+      function buildPulseRing() {
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.05, 0.06, 32),
+          new THREE.MeshBasicMaterial({
+            color: 0xff8a65,
+            transparent: true,
+            opacity: 0.9,
+            side: THREE.DoubleSide,
+          })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        return ring;
+      }
+
+      function animateMarkers() {
+        const now = performance.now() / 1000;
+        for (const g of labels.children) {
+          const dt = now - (g.userData.t0 || now);
+          if (g.userData.style === 'arrow' && g.userData.arrow) {
+            g.userData.arrow.position.y = 0.25 + Math.sin(dt * 3) * 0.02;
+          } else if (g.userData.style === 'pulse' && g.userData.ring) {
+            const phase = (dt % 1.5) / 1.5;
+            const s = 1 + phase * 3;
+            g.userData.ring.scale.setScalar(s);
+            g.userData.ring.material.opacity = 0.9 * (1 - phase);
+          }
+        }
+        requestAnimationFrame(animateMarkers);
+      }
+      requestAnimationFrame(animateMarkers);
 
       async function start() {
         if (session) return;
