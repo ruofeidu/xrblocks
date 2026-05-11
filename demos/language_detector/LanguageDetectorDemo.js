@@ -9,7 +9,7 @@ import {GeminiLiveSource} from './SpeechSources.js';
 
 const PLACEHOLDER =
   'Pinch the mic and say something in any language.\nEach utterance is detected separately.';
-const MAX_UTTERANCES = 12;
+const MAX_UTTERANCES = 6;
 
 export class LanguageDetectorDemo extends xb.Script {
   static dependencies = {camera: THREE.Camera};
@@ -58,15 +58,31 @@ export class LanguageDetectorDemo extends xb.Script {
     // Spacer so the scroller's overflow can't bleed into the status/title.
     grid.addRow({weight: 0.06});
 
-    // Utterance list (smooth scrolling).
+    // Utterance list — pre-built slots so each utterance can have a small
+    // label above and a larger sentence below.
     const listRow = grid.addRow({weight: 0.55});
-    this.listView = new xb.ScrollingTroikaTextView({
-      text: PLACEHOLDER,
-      fontSize: 0.05,
-      textAlign: 'left',
-      fontColor: '#e7eaf2',
-    });
-    listRow.add(this.listView);
+    const listGrid = listRow.addPanel({showEdge: false}).addGrid();
+    this.itemSlots = [];
+    for (let i = 0; i < MAX_UTTERANCES; i++) {
+      const slotRow = listGrid.addRow({weight: 1 / MAX_UTTERANCES});
+      const slotGrid = slotRow.addPanel({showEdge: false}).addGrid();
+      const labelRow = slotGrid.addRow({weight: 0.4});
+      const labelText = labelRow.addText({
+        text: '',
+        fontColor: '#7f95b3',
+        fontSize: 0.022,
+        textAlign: 'left',
+      });
+      const bodyRow = slotGrid.addRow({weight: 0.6});
+      const bodyText = bodyRow.addText({
+        text: '',
+        fontColor: '#ffffff',
+        fontSize: 0.04,
+        textAlign: 'left',
+      });
+      this.itemSlots.push({slotRow, labelText, bodyText});
+    }
+    this.placeholderRow = listRow;
 
     // Spacer above controls.
     grid.addRow({weight: 0.06});
@@ -191,13 +207,28 @@ export class LanguageDetectorDemo extends xb.Script {
   }
 
   _renderList() {
-    if (!this.utterances.length) {
-      this.listView.setText(PLACEHOLDER);
-      return;
+    for (let i = 0; i < this.itemSlots.length; i++) {
+      const slot = this.itemSlots[i];
+      const u = this.utterances[i];
+      if (u) {
+        slot.labelText.setText(
+          `${u.code} · ${u.name.toUpperCase()} · ${Math.round(u.prob * 100)}%`
+        );
+        slot.bodyText.setText(u.text);
+        slot.slotRow.visible = true;
+      } else {
+        // Show placeholder hint in the first empty slot when nothing else.
+        if (i === 0 && !this.utterances.length) {
+          slot.labelText.setText('');
+          slot.bodyText.setText(PLACEHOLDER);
+          slot.slotRow.visible = true;
+        } else {
+          slot.labelText.setText('');
+          slot.bodyText.setText('');
+          slot.slotRow.visible = false;
+        }
+      }
     }
-    const fmt = (u) =>
-      `[${u.code}] ${u.name} ${Math.round(u.prob * 100)}%  ${u.text}`;
-    this.listView.setText(this.utterances.map(fmt).join('\n'));
   }
 
   _renderInterim() {
@@ -208,8 +239,8 @@ export class LanguageDetectorDemo extends xb.Script {
     }
     const live = this.interimLang;
     const tag = live
-      ? `[${live.code}] ${live.name} ${Math.round(live.prob * 100)}%`
-      : '[..] detecting…';
-    this._setStatus(`${tag}  ${this.interim}`);
+      ? `${live.code} · ${live.name} ${Math.round(live.prob * 100)}%`
+      : '·· detecting…';
+    this._setStatus(`${tag}   |  ${this.interim}`);
   }
 }
