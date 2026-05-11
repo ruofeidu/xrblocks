@@ -272,7 +272,7 @@ export class Simulator extends Script {
     this.sparkRenderer =
       this.sparkRenderer || this.registry!.get(SparkRendererHolder)?.renderer;
     if (this.sparkRenderer) {
-      this.sparkRenderer.defaultView.encodeLinear = true;
+      this.sparkRenderer.encodeLinear = true;
     }
     this.renderer.setRenderTarget(this.virtualSceneRenderTarget!);
     this.renderer.clear();
@@ -297,7 +297,7 @@ export class Simulator extends Script {
 
   private renderSimulatorSceneToCanvas(camera: THREE.Camera) {
     if (this.sparkRenderer) {
-      this.sparkRenderer.defaultView.encodeLinear = false;
+      this.sparkRenderer.encodeLinear = false;
     }
     this.renderer.setRenderTarget(null);
     if (this.backgroundVideoQuad) {
