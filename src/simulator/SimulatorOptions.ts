@@ -36,11 +36,12 @@ export class SimulatorOptions {
   defaultMode = SimulatorMode.USER;
   defaultHand = Handedness.LEFT;
   modeToggle = {
+    enabled: false,
     toggleKey: Keycodes.LEFT_SHIFT_CODE as Keycodes | null,
     toggleOrder: DEFAULT_MODE_TOGGLE_ORDER,
   };
   modeIndicator = {
-    enabled: true,
+    enabled: false,
     element: 'xrblocks-simulator-mode-indicator',
   };
   instructions = {
