@@ -176,7 +176,7 @@ export class SimulatorControls {
     }
     this.downKeys.add(event.code as Keycodes);
     if (
-      this.simulatorOptions &&
+      this.simulatorOptions?.modeToggle.enabled &&
       event.code === this.simulatorOptions.modeToggle.toggleKey
     ) {
       this.setSimulatorMode(
