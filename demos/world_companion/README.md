@@ -1,0 +1,37 @@
+# World Companion
+
+A live AR companion that watches and listens, then drops markers on things
+you ask about — no pinching, no tapping. Just talk.
+
+Open a Gemini Live session with the camera streaming, and the model decides
+when to mark something. Say "find my keys" or "what's that on the shelf"
+and it places a label on the matched object. The model picks the marker
+style: `dot` for casual notes, `arrow` for pointing things out, `pulse`
+for small or hard-to-spot things.
+
+## How it differs from Gemini-XRObject
+
+[Gemini-XRObject](https://xrblocks.github.io/docs/samples/Gemini-XRObject/)
+is a one-shot flow: long-pinch → detect what you're holding → tap → ask a
+question.
+
+World Companion is the opposite — Gemini Live is always listening and
+seeing, and it decides when to drop a marker mid-conversation. There's no
+gesture trigger; you just speak. Items the detector can't find aren't
+placed at random — they come back as `anchored: false` so the model can
+say "I don't see that."
+
+## What's new in the SDK
+
+This demo lands two pieces that make the always-on loop possible:
+
+- `world.streamScene` — pipes camera frames into a Gemini Live session
+- `world.lookingAt()` — primitive for "what is the user pointing at right
+  now", used by the `lookCloser` tool
+
+Gemini-XRObject doesn't need either since it's request/response.
+
+## Running
+
+Serve the repo root and open `/demos/world_companion/`. Works in the
+simulator and on Android XR.
