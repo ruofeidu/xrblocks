@@ -9,6 +9,18 @@ and it places a label on the matched object. The model picks the marker
 style: `dot` for casual notes, `arrow` for pointing things out, `pulse`
 for small or hard-to-spot things.
 
+You can ask for several things at once — "label the couch, tv, and coffee
+table" — and they all get placed in a single call via the tool's `items[]`
+array, each with its own style. Labels billboard to the camera so they
+stay readable as you move around.
+
+Object names from the detector and what you say don't always line up —
+"television" vs "tv", "pendant light" vs "floor lamp", "picture" vs
+"painting". Token overlap catches the easy ones, then we fall back to a
+small embedding pass (Gemini `embedContent`) to match by meaning and
+dedupe markers across rephrasings, with a per-page cache so it's mostly
+free after the first call.
+
 ## How it differs from Gemini-XRObject
 
 [Gemini-XRObject](https://xrblocks.github.io/docs/samples/Gemini-XRObject/)
