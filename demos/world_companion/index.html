@@ -322,14 +322,23 @@
           onTriggered: async ({items, text, style}) => {
             const stripQuotes = (k) => k.replace(/^['"]+|['"]+$/g, '');
             const normItem = (it) => {
-              if (!it || typeof it !== 'object') return it;
+              if (typeof it === 'string') {
+                try {
+                  it = JSON.parse(it);
+                } catch {
+                  return null;
+                }
+              }
+              if (!it || typeof it !== 'object') return null;
               const out = {};
               for (const [k, v] of Object.entries(it)) {
                 out[stripQuotes(k)] = v;
               }
               return out;
             };
-            let list = Array.isArray(items) ? items.map(normItem) : [];
+            let list = Array.isArray(items)
+              ? items.map(normItem).filter(Boolean)
+              : [];
             if (text) list.push({text, style});
             if (!list.length) {
               return {success: false, error: 'no items provided'};
@@ -420,11 +429,13 @@
             };
             const expand = (s) => {
               const t = (s || '').toLowerCase().trim();
+              if (!t) return [];
               return [t, ...(SYNONYMS[t] || [])];
             };
             const used = new Set();
             const findMatch = (text) => {
               const needles = expand(text);
+              if (!needles.length) return null;
               const free = detected.filter((d) => !used.has(d));
               for (const needle of needles) {
                 const exact =
