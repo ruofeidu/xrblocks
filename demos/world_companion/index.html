@@ -552,21 +552,22 @@
           }
           return false;
         });
-        if (!existing) {
-          existing = candidates.find(
-            (g) => g.position.distanceTo(position) < 2.0
-          );
-        }
         if (existing) {
-          existing.position.copy(position);
-          existing.userData.t0 = performance.now() / 1000;
-          existing.userData.text = text;
-          const labelChild = existing.children.find((c) => c.isText || c.text);
-          if (labelChild && 'text' in labelChild) {
-            labelChild.text = text;
-            labelChild.sync && labelChild.sync();
+          if (existing.userData.style !== style) {
+            labels.remove(existing);
+          } else {
+            existing.position.copy(position);
+            existing.userData.t0 = performance.now() / 1000;
+            existing.userData.text = text;
+            const labelChild = existing.children.find(
+              (c) => c.isText || c.text
+            );
+            if (labelChild && 'text' in labelChild) {
+              labelChild.text = text;
+              labelChild.sync && labelChild.sync();
+            }
+            return;
           }
-          return;
         }
 
         const group = new THREE.Group();
