@@ -55,12 +55,14 @@ export class WebSocketTransport extends Transport {
   private _opts: WebSocketTransportOptions;
   private _connectOpts?: TransportConnectOptions;
   private _attemptsLeft: number;
+  private _maxAttempts: number;
   private _shouldReconnect = true;
 
   constructor(opts: WebSocketTransportOptions) {
     super();
     this._opts = opts;
-    this._attemptsLeft = opts.reconnectAttempts ?? 5;
+    this._maxAttempts = opts.reconnectAttempts ?? 5;
+    this._attemptsLeft = this._maxAttempts;
   }
 
   get localPeerId(): string {
@@ -111,7 +113,7 @@ export class WebSocketTransport extends Transport {
           case 'welcome':
             this._isOpen = true;
             if (msg.peerId) this._localPeerId = msg.peerId;
-            this._attemptsLeft = this._opts.reconnectAttempts ?? 5;
+            this._attemptsLeft = this._maxAttempts;
             for (const pid of msg.peers ?? []) {
               if (pid !== this._localPeerId && !this._peers.has(pid)) {
                 this._peers.add(pid);
@@ -166,7 +168,12 @@ export class WebSocketTransport extends Transport {
         if (wasOpen) this.dispatchEvent(new Event('close'));
         if (this._shouldReconnect && this._attemptsLeft > 0) {
           this._attemptsLeft -= 1;
-          const delay = RECONNECT_BASE_MS * Math.pow(2, 5 - this._attemptsLeft);
+          // Exponential backoff anchored to the configured max so reconnects
+          // stay slow regardless of how many were configured. Previously the
+          // formula hardcoded the default (5), so e.g. reconnectAttempts: 20
+          // produced sub-millisecond retries.
+          const used = this._maxAttempts - this._attemptsLeft;
+          const delay = RECONNECT_BASE_MS * Math.pow(2, used);
           setTimeout(() => {
             this._open().catch((err) => this.emitError(err));
           }, delay);

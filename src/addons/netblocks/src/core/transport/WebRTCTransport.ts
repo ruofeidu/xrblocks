@@ -295,8 +295,12 @@ export class WebRTCTransport extends Transport {
       if (candidate === this._localPeerId) continue;
       // Only initiate to slots strictly less than ours (see invariant).
       if (candidate >= this._localPeerId) continue;
-      const existing = this._entries.get(candidate);
-      if (existing && existing.dc?.readyState === 'open') continue;
+      // Skip if we have any in-flight or open entry for this slot. Without
+      // checking in-flight (not just ready) handshakes, a slow handshake
+      // gets re-probed on the next 4s tick and we end up with two PCs and
+      // DataChannels per peer; the second silently orphans the first.
+      // Stalled entries are reaped by the handshake timeout in _ensureEntry.
+      if (this._entries.has(candidate)) continue;
       void this._probeAndOffer(candidate);
     }
   }
@@ -572,7 +576,11 @@ export class WebRTCTransport extends Transport {
     candidate?: RTCIceCandidateInit
   ): Promise<void> {
     if (!candidate) return;
-    const entry = this._ensureEntry(remote);
+    // Don't allocate a PC for a peer we never offered to / answered. Prevents
+    // a hostile broker peer from forcing us to create RTCPeerConnections by
+    // forging CANDIDATE messages with arbitrary `src`. Mirrors `_handleAnswer`.
+    const entry = this._entries.get(remote);
+    if (!entry) return;
     if (!entry.pc.remoteDescription) {
       entry.pendingIce.push(candidate);
       return;
