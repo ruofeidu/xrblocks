@@ -59,25 +59,15 @@ export class RemoteUserAvatar extends THREE.Group {
     this.add(this.headPivot, this.handPivots[0], this.handPivots[1]);
 
     // Build the default mesh.
-    const headMat = new THREE.MeshStandardMaterial({
-      color: this.color,
-      roughness: 0.4,
-      metalness: 0.1,
-    });
+    const headMat = new THREE.MeshBasicMaterial({color: this.color});
     this._headSphere = new THREE.Mesh(
       new THREE.SphereGeometry(0.1, 24, 16),
       headMat
     );
     this._headSphere.castShadow = false;
 
-    const handMatA = new THREE.MeshStandardMaterial({
-      color: this.color,
-      roughness: 0.4,
-    });
-    const handMatB = new THREE.MeshStandardMaterial({
-      color: this.color,
-      roughness: 0.4,
-    });
+    const handMatA = new THREE.MeshBasicMaterial({color: this.color});
+    const handMatB = new THREE.MeshBasicMaterial({color: this.color});
     const dotMat = new THREE.MeshBasicMaterial({color: this.color});
 
     this._wristSpheres = [
