@@ -5,7 +5,8 @@
 `netblocks` is a batteries-included addon that turns any xrblocks app into a
 shared, real-time XR experience. It gives you:
 
-- 👥 **Presence** — see other users' heads and hands as live avatars.
+- 👥 **Presence** — see other users' heads and hands as live avatars,
+  with an SDF name label floating above each one.
 - 📦 **Shared objects** — `NetObject` syncs `position`/`quaternion`/`scale`
   with cooperative ownership (claim on grab, release on drop).
 - 📨 **Typed events** — `session.events.emit('chat', payload)` style RPC.
@@ -57,7 +58,8 @@ xb.init();
 ```
 
 Open the same page in two browser tabs and you'll instantly see the other
-tab's head and hands rendered as a colored ball-and-stick avatar.
+tab's head and hands rendered as a colored ball-and-stick avatar with a
+name label hovering above it.
 
 ---
 
@@ -92,6 +94,10 @@ by extending the `Transport` base class.
 A `THREE.Group` whose transform is replicated on a fixed cadence (default
 20 Hz). Owners broadcast; non-owners interpolate. Ownership is cooperative
 — call `session.claim(obj)` on grab and `session.release(obj)` on drop.
+The protocol is race-aware: stale transforms from a previous owner are
+ignored after a claim, releases include a final canonical xform so all
+peers converge on the same resting position, and the sample shows how a
+grabber that loses ownership mid-drag should drop its local override.
 
 ### NetEvents
 
