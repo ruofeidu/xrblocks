@@ -13,10 +13,32 @@
         color: #eee;
         font-family: sans-serif;
       }
+      .more-samples {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        z-index: 10;
+        font-size: 12px;
+        color: #aaa;
+        background: rgba(0, 0, 0, 0.4);
+        padding: 4px 8px;
+        border-radius: 4px;
+        text-decoration: none;
+      }
+      .more-samples:hover {
+        color: #fff;
+        background: rgba(0, 0, 0, 0.6);
+      }
     </style>
   </head>
 
   <body>
+    <a
+      class="more-samples"
+      href="../../src/addons/netblocks/samples/"
+      title="See chat, voice, objects, presence, events, and transports samples"
+      >→ more netblocks samples</a
+    >
     <script type="importmap">
       {
         "imports": {
