@@ -229,6 +229,13 @@ export function base64ToBytes(b64: string): Uint8Array {
     const b = B64_LOOKUP[clean.charCodeAt(i + 1)];
     const c = B64_LOOKUP[clean.charCodeAt(i + 2)];
     const d = B64_LOOKUP[clean.charCodeAt(i + 3)];
+    // The first two sextets are required for any output byte. If the
+    // input contains a non-base64 char in those slots the lookup is -1
+    // and we'd silently emit garbage; bail instead so callers can see
+    // decode failures.
+    if (a === -1 || b === -1) {
+      throw new Error('base64ToBytes: invalid character in input.');
+    }
     if (p < len) bytes[p++] = (a << 2) | (b >> 4);
     if (p < len && c !== -1) bytes[p++] = ((b & 0x0f) << 4) | (c >> 2);
     if (p < len && d !== -1) bytes[p++] = ((c & 0x03) << 6) | d;

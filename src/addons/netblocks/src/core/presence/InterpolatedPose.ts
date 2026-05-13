@@ -40,6 +40,11 @@ export class InterpolatedPose {
 
   /** Push a freshly-received snapshot. */
   push(snapshot: PoseSnapshot, ts: number): void {
+    // Drop snapshots that arrived out of order so a delayed older frame
+    // can't lerp the avatar backwards. Ordered datachannels make this
+    // unlikely today, but unordered transports (or clock skew on a peer
+    // hop) would otherwise produce visible jitter.
+    if (this._next && ts < this._next.ts) return;
     this._prev = this._next ?? {ts, snapshot};
     this._next = {ts, snapshot};
   }

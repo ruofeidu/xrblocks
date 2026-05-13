@@ -112,8 +112,12 @@ export class RemoteUserAvatar extends THREE.Group {
     this._headSphere.visible = false; // until a pose arrives
 
     // Lazy-load troika SDF text for the name label so we don't pay the
-    // import cost in samples that don't need it.
-    this._initNameLabel();
+    // import cost in samples that don't need it. Catch failures so a
+    // missing optional dependency doesn't surface as an unhandled
+    // rejection at construction time.
+    this._initNameLabel().catch((err) => {
+      console.warn('[netblocks] name label init failed:', err);
+    });
   }
 
   private async _initNameLabel(): Promise<void> {
