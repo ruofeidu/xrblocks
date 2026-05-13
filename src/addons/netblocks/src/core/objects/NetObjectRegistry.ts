@@ -29,23 +29,16 @@ export class NetObjectRegistry {
   }
 
   /**
-   * Apply a "claim" message: peer wants ownership. Returns true if the
-   * registry granted the claim. Tie-breaks by preferring the
-   * lexicographically smaller peer id when multiple peers race.
+   * Apply a "claim" message: peer wants ownership. Always grants the
+   * claim — explicit grabs are intentional and should preempt the
+   * previous owner so users can pass objects between each other. (The
+   * older lex-tiebreak only made sense for racing implicit claims.)
    */
   applyClaim(id: string, peerId: string): boolean {
     const obj = this._byId.get(id);
     if (!obj) return false;
-    if (!obj.ownerId) {
-      obj.ownerId = peerId;
-      return true;
-    }
-    if (obj.ownerId === peerId) return true;
-    if (peerId < obj.ownerId) {
-      obj.ownerId = peerId;
-      return true;
-    }
-    return false;
+    obj.ownerId = peerId;
+    return true;
   }
 
   /** Apply a "release" — only the current owner may release. */
