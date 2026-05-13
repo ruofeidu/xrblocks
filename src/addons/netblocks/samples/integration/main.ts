@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import * as xb from 'xrblocks';
 import {Keyboard} from 'xrblocks/addons/virtualkeyboard/Keyboard.js';
-import {WebRTCTransport, NetObject} from 'netblocks';
+import {
+  WebRTCTransport,
+  NetObject,
+  AVATAR_PALETTE,
+  hashStringToIndex,
+} from 'netblocks';
 import {NetSample} from '../Sample';
 
 /**
@@ -28,6 +33,7 @@ const CUBE_COLORS = [0x9177c7, 0x7ac0ff, 0xffb86b, 0x7be3a4];
 
 interface ChatPayload {
   from: string;
+  fromId: string;
   text: string;
   ts: number;
 }
@@ -365,6 +371,10 @@ class IntegrationSample extends NetSample {
       font: '13px system-ui, sans-serif',
       backdropFilter: 'blur(8px)',
       zIndex: '999',
+      // Without this, dragging on the panel selects chat text instead of
+      // grabbing the cube the user was actually aiming at.
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
     } as Partial<CSSStyleDeclaration>);
 
     const header = document.createElement('div');
@@ -405,7 +415,9 @@ class IntegrationSample extends NetSample {
       background: '#13141c',
       color: '#fff',
       font: 'inherit',
-    });
+      userSelect: 'text',
+      WebkitUserSelect: 'text',
+    } as Partial<CSSStyleDeclaration>);
     const send = document.createElement('button');
     send.type = 'submit';
     send.textContent = 'Send';
@@ -439,6 +451,7 @@ class IntegrationSample extends NetSample {
       if (!text) return;
       const payload: ChatPayload = {
         from: this._displayName,
+        fromId: session.localPeerId,
         text,
         ts: Date.now(),
       };
@@ -457,7 +470,16 @@ class IntegrationSample extends NetSample {
       line.style.padding = '2px 0';
       const who = document.createElement('span');
       who.textContent = self ? 'you' : p.from;
-      who.style.color = self ? '#9177c7' : '#7ac0ff';
+      // Match the avatar head color so the sender name in chat lines up
+      // with the body floating in the room. Local "you" uses a fixed
+      // accent so it always reads as self.
+      const colorHex = self
+        ? '#9177c7'
+        : '#' +
+          AVATAR_PALETTE[hashStringToIndex(p.fromId, AVATAR_PALETTE.length)]
+            .toString(16)
+            .padStart(6, '0');
+      who.style.color = colorHex;
       who.style.fontWeight = '600';
       line.appendChild(who);
       line.appendChild(document.createTextNode(`: ${p.text}`));
@@ -543,6 +565,7 @@ class IntegrationSample extends NetSample {
       if (!trimmed) return;
       const payload: ChatPayload = {
         from: this._displayName,
+        fromId: session.localPeerId,
         text: trimmed,
         ts: Date.now(),
       };
