@@ -141,6 +141,7 @@ export default [
           'src/addons/**/cli/**',
           'src/addons/**/server/**',
           'src/addons/**/*.d.ts',
+          'src/addons/**/*.test.{js,ts}',
         ],
       }).map((file) => [
         // This removes `src/` as well as the file extension from
