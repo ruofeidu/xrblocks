@@ -252,15 +252,22 @@
         _renderPeers() {
           const el = document.getElementById('peers');
           el.innerHTML = '';
-          const me = document.createElement('li');
-          me.innerHTML = `<span class="dot" style="background:#9177c7"></span>${this._session.localPeerId.slice(0, 6)} (you)`;
-          el.appendChild(me);
+          el.appendChild(this._peerRow('#9177c7', `${this._session.localPeerId.slice(0, 6)} (you)`));
           for (const [, user] of this._session.users) {
-            const li = document.createElement('li');
             const c = '#' + user.avatar.color.getHexString();
-            li.innerHTML = `<span class="dot" style="background:${c}"></span>${user.displayName ?? user.peerId.slice(0, 6)}`;
-            el.appendChild(li);
+            const label = user.displayName ?? user.peerId.slice(0, 6);
+            el.appendChild(this._peerRow(c, label));
           }
+        }
+
+        _peerRow(color, label) {
+          const li = document.createElement('li');
+          const dot = document.createElement('span');
+          dot.className = 'dot';
+          dot.style.background = color;
+          li.appendChild(dot);
+          li.appendChild(document.createTextNode(label));
+          return li;
         }
 
         _appendChat(from, text) {
@@ -268,7 +275,10 @@
           const row = document.createElement('div');
           row.style.fontSize = '12px';
           row.style.padding = '2px 0';
-          row.innerHTML = `<b>${String(from).slice(0, 6)}</b>: ${text.replace(/[<>&]/g, (c) => ({'<': '&lt;', '>': '&gt;', '&': '&amp;'})[c])}`;
+          const who = document.createElement('b');
+          who.textContent = String(from).slice(0, 6);
+          row.appendChild(who);
+          row.appendChild(document.createTextNode(': ' + text));
           log.appendChild(row);
           log.scrollTop = log.scrollHeight;
         }

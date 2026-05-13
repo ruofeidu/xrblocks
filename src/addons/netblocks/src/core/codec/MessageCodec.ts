@@ -7,7 +7,7 @@
  * and is wrapped in a `pose` envelope so transports can still treat the frame
  * as opaque bytes.
  */
-import {NET_PROTOCOL_VERSION} from '../constants/NetConstants';
+import {MAX_MESSAGE_BYTES, NET_PROTOCOL_VERSION} from '../constants/NetConstants';
 
 export type NetMessage =
   | HelloMessage
@@ -121,6 +121,21 @@ export function encodeMessage(msg: NetMessage): Uint8Array {
 export function decodeMessage(
   data: Uint8Array | ArrayBuffer | string
 ): NetMessage {
+  // Guard against oversized payloads before we allocate a string for them
+  // — a malicious peer could otherwise send 100MB of JSON and OOM every
+  // recipient. The cap is generous (well above any legitimate netblocks
+  // frame); see MAX_MESSAGE_BYTES.
+  const byteLen =
+    typeof data === 'string'
+      ? data.length
+      : data instanceof ArrayBuffer
+        ? data.byteLength
+        : data.byteLength;
+  if (byteLen > MAX_MESSAGE_BYTES) {
+    throw new Error(
+      `netblocks: message exceeds MAX_MESSAGE_BYTES (${byteLen} > ${MAX_MESSAGE_BYTES}).`
+    );
+  }
   const text =
     typeof data === 'string'
       ? data

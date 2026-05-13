@@ -338,7 +338,12 @@ export class NetSession extends EventTarget {
       console.warn('[netblocks] failed to decode message:', err);
       return;
     }
-    msg.from = msg.from ?? detail.peerId;
+    // Trust the transport-attested peer id, never the body. The transport
+    // knows which datachannel/connection a message came in on; the `from`
+    // field on the wire is convenience metadata that a malicious peer
+    // could otherwise set to anything (impersonating, claiming objects,
+    // sending bye to kick others, etc).
+    msg.from = detail.peerId;
     if (msg.from === this.localPeerId) return; // ignore loopback
     let user = this._users.get(msg.from);
     if (!user) {
