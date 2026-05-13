@@ -24,18 +24,11 @@ export interface NetObjectOptions {
   id?: string;
   /** Initial owner peer id. NetSession sets this to the local peer id when the object is created locally. */
   ownerId?: string;
-  /** Broadcast frequency override (Hz). */
-  hz?: number;
 }
-
-const _v = new THREE.Vector3();
-const _q = new THREE.Quaternion();
-const _s = new THREE.Vector3();
 
 export class NetObject extends THREE.Group {
   readonly netId: string;
   ownerId: string;
-  hz?: number;
 
   /** Local-only state object that consumers can populate; sent alongside transforms. */
   state: Record<string, unknown> = {};
@@ -51,7 +44,6 @@ export class NetObject extends THREE.Group {
     super();
     this.netId = opts.id ?? `obj_${makeId(10)}`;
     this.ownerId = opts.ownerId ?? '';
-    this.hz = opts.hz;
     this.name = `NetObject(${this.netId})`;
   }
 
@@ -62,11 +54,14 @@ export class NetObject extends THREE.Group {
 
   /**
    * Snapshot the current local transform to a 10-element array suitable
-   * for inclusion in a NetObjectMessage.
+   * for inclusion in a NetObjectMessage. Symmetric with `setTargetXform`,
+   * which writes back into local position/quaternion/scale.
    */
   toXform(): number[] {
-    this.matrixWorld.decompose(_v, _q, _s);
-    return [_v.x, _v.y, _v.z, _q.x, _q.y, _q.z, _q.w, _s.x, _s.y, _s.z];
+    const p = this.position;
+    const q = this.quaternion;
+    const s = this.scale;
+    return [p.x, p.y, p.z, q.x, q.y, q.z, q.w, s.x, s.y, s.z];
   }
 
   /** Replace the target transform from a wire xform array. */

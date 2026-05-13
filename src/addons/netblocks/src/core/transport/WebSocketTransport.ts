@@ -167,12 +167,12 @@ export class WebSocketTransport extends Transport {
         this._peers.clear();
         if (wasOpen) this.dispatchEvent(new Event('close'));
         if (this._shouldReconnect && this._attemptsLeft > 0) {
-          this._attemptsLeft -= 1;
           // Exponential backoff anchored to the configured max so reconnects
           // stay slow regardless of how many were configured. Previously the
           // formula hardcoded the default (5), so e.g. reconnectAttempts: 20
           // produced sub-millisecond retries.
           const used = this._maxAttempts - this._attemptsLeft;
+          this._attemptsLeft -= 1;
           const delay = RECONNECT_BASE_MS * Math.pow(2, used);
           setTimeout(() => {
             this._open().catch((err) => this.emitError(err));
