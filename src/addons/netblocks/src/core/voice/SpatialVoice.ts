@@ -27,7 +27,7 @@ export class SpatialVoice {
   private _opts: Required<SpatialVoiceOptions>;
 
   /**
-   * @param listener The shared `THREE.AudioListener` to spatialize against —
+   * @param listener - The shared `THREE.AudioListener` to spatialize against —
    *   typically `xb.core.sound.listener`, which CoreSound has already attached
    *   to the camera. SpatialVoice does NOT take ownership: it never adds or
    *   removes the listener from the scene, so disposing SpatialVoice leaves
