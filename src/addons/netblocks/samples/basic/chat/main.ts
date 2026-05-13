@@ -1,4 +1,5 @@
 import * as xb from 'xrblocks';
+import {Keyboard} from 'xrblocks/addons/virtualkeyboard/Keyboard.js';
 import {WebRTCTransport} from 'netblocks';
 import {NetSample} from '../../Sample';
 
@@ -10,9 +11,11 @@ import {NetSample} from '../../Sample';
  * two tabs (or two devices) to chat — WebRTCTransport uses the public
  * PeerJS broker so cross-device works out of the box.
  *
- * The chat UI is a small floating panel in the corner — kept entirely
- * in DOM so the sample reads cleanly. In a real XR app you'd likely
- * render the same data through uiblocks for in-headset display.
+ * The chat UI lives in two places:
+ *   - a small floating DOM panel for desktop / pre-XR;
+ *   - a SpatialPanel + virtual Keyboard inside the WebXR session, so
+ *     headset users can read and type without leaving immersive mode.
+ * Both views share the same underlying message log.
  */
 interface ChatPayload {
   from: string;
@@ -23,6 +26,10 @@ interface ChatPayload {
 class ChatSample extends NetSample {
   private _displayName = `User-${Math.floor(Math.random() * 1000)}`;
   private _log?: HTMLDivElement;
+  private _spatialLog?: xb.ScrollingTroikaTextView;
+  private _spatialLogLines: string[] = [];
+  private _spatialDraft?: xb.TextView;
+  private _keyboard?: Keyboard;
 
   protected getJoinOptions() {
     return {
@@ -137,20 +144,99 @@ class ChatSample extends NetSample {
     session.events.on<ChatPayload>('chat-message', (payload) => {
       this._appendLine(payload, false);
     });
+
+    this._buildSpatialHud(session);
   }
 
   private _appendLine(p: ChatPayload, self: boolean) {
-    if (!this._log) return;
-    const line = document.createElement('div');
-    line.style.padding = '2px 0';
-    const who = document.createElement('span');
-    who.textContent = self ? 'you' : p.from;
-    who.style.color = self ? '#9177c7' : '#7ac0ff';
-    who.style.fontWeight = '600';
-    line.appendChild(who);
-    line.appendChild(document.createTextNode(`: ${p.text}`));
-    this._log.appendChild(line);
-    this._log.scrollTop = this._log.scrollHeight;
+    if (this._log) {
+      const line = document.createElement('div');
+      line.style.padding = '2px 0';
+      const who = document.createElement('span');
+      who.textContent = self ? 'you' : p.from;
+      who.style.color = self ? '#9177c7' : '#7ac0ff';
+      who.style.fontWeight = '600';
+      line.appendChild(who);
+      line.appendChild(document.createTextNode(`: ${p.text}`));
+      this._log.appendChild(line);
+      this._log.scrollTop = this._log.scrollHeight;
+    }
+    this._appendSpatialLine(`${self ? 'you' : p.from}: ${p.text}`);
+  }
+
+  private _appendSpatialLine(text: string) {
+    if (!this._spatialLog) return;
+    this._spatialLogLines.push(text);
+    if (this._spatialLogLines.length > 12) this._spatialLogLines.shift();
+    this._spatialLog.setText(this._spatialLogLines.join('\n'));
+  }
+
+  private _buildSpatialHud(session: NonNullable<this['net']['session']>) {
+    const panel = new xb.SpatialPanel({
+      width: 1.4,
+      height: 0.9,
+      backgroundColor: '#1a1a2add',
+    });
+    const grid = panel.addGrid();
+
+    grid.addRow({weight: 0.12}).addText({
+      text: `💬 ${this._displayName}`,
+      fontSize: 0.05,
+      fontColor: '#bfa9ff',
+      textAlign: 'center',
+    });
+
+    this._spatialLog = new xb.ScrollingTroikaTextView({
+      text: '(start typing on the keyboard below to chat)',
+      fontSize: 0.04,
+      textAlign: 'left',
+    });
+    grid.addRow({weight: 0.7}).add(this._spatialLog);
+
+    this._spatialDraft = grid.addRow({weight: 0.18}).addText({
+      text: '› ',
+      fontSize: 0.04,
+      fontColor: '#7ac0ff',
+      textAlign: 'left',
+    });
+
+    panel.position.set(-1.2, 1.5, -1.5);
+    panel.rotation.y = Math.PI / 8;
+    this.add(panel);
+
+    this._buildKeyboard(session);
+  }
+
+  private _buildKeyboard(session: NonNullable<this['net']['session']>) {
+    // Subclass to override init() (which would otherwise reset the
+    // keyboard's transform to its default position above the user).
+    class PositionedKeyboard extends Keyboard {
+      override init(): void {
+        super.init();
+        const sub = (this as unknown as {subspace: xb.SpatialPanel}).subspace;
+        sub.position.set(-0.7, 0.7, -0.7);
+        sub.scale.setScalar(0.6);
+        sub.rotation.set(-Math.PI / 6, 0, 0);
+      }
+    }
+    const keyboard = new PositionedKeyboard();
+    this._keyboard = keyboard;
+    xb.add(keyboard);
+    keyboard.onTextChanged = (text: string) => {
+      this._spatialDraft?.setText(`› ${text}`);
+    };
+    keyboard.onEnterPressed = (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      const payload: ChatPayload = {
+        from: this._displayName,
+        text: trimmed,
+        ts: Date.now(),
+      };
+      session.events.emit('chat-message', payload);
+      this._appendLine(payload, true);
+      keyboard.clearText();
+    };
   }
 }
 
