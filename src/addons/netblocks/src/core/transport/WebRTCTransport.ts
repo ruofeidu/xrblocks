@@ -210,7 +210,10 @@ export class WebRTCTransport extends Transport {
    * Attempt to register `candidateId` with the broker. Resolves on `OPEN`,
    * rejects on `ID-TAKEN` or any other failure (caller will try the next slot).
    */
-  private _tryClaimSlot(brokerBase: string, candidateId: string): Promise<void> {
+  private _tryClaimSlot(
+    brokerBase: string,
+    candidateId: string
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const url = this._brokerUrlForId(brokerBase, candidateId);
       const ws = new WebSocket(url);
@@ -237,7 +240,8 @@ export class WebRTCTransport extends Transport {
           this._signaling = ws;
           ws.addEventListener('message', (e) => this._handleSignal(e));
           ws.addEventListener('close', () => {
-            if (this._isOpen) this.emitError(new Error('Signaling channel closed.'));
+            if (this._isOpen)
+              this.emitError(new Error('Signaling channel closed.'));
           });
           resolve();
         } else if (parsed.type === 'ID-TAKEN') {
@@ -385,10 +389,12 @@ export class WebRTCTransport extends Transport {
         if (msg.dst) this._teardown(msg.dst);
         break;
       case 'OFFER':
-        if (src && msg.payload?.sdp) await this._handleOffer(src, msg.payload.sdp);
+        if (src && msg.payload?.sdp)
+          await this._handleOffer(src, msg.payload.sdp);
         break;
       case 'ANSWER':
-        if (src && msg.payload?.sdp) await this._handleAnswer(src, msg.payload.sdp);
+        if (src && msg.payload?.sdp)
+          await this._handleAnswer(src, msg.payload.sdp);
         break;
       case 'CANDIDATE':
         if (src && msg.payload?.candidate)
