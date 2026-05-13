@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as xb from 'xrblocks';
 import {BroadcastChannelTransport} from 'netblocks';
 import {NetSample} from '../../Sample';
 
@@ -20,6 +21,12 @@ import {NetSample} from '../../Sample';
 class VoiceSample extends NetSample {
   private _voiceOn = false;
   private _btn?: HTMLButtonElement;
+  private _keys = new Set<string>();
+  private _yaw = 0;
+  private _pitch = 0;
+  private _dragging = false;
+  private _lastT = 0;
+  private _moveCamera?: THREE.Camera;
 
   protected getJoinOptions() {
     return {
@@ -34,11 +41,69 @@ class VoiceSample extends NetSample {
   protected onSession(session: NonNullable<this['net']['session']>) {
     this.add(new THREE.HemisphereLight(0xffffff, 0x202030, 1.0));
     const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(2, 48),
+      new THREE.CircleGeometry(4, 48),
       new THREE.MeshStandardMaterial({color: 0x303040, roughness: 0.9})
     );
     floor.rotation.x = -Math.PI / 2;
     this.add(floor);
+
+    // Place each tab at a distinct point around a small circle so two
+    // browser tabs on the same machine actually demo as spatial. In XR
+    // the headset's real pose takes over and overrides this.
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 1.5;
+    const camera = xb.core?.camera as THREE.Camera | undefined;
+    if (camera) {
+      camera.position.set(
+        Math.cos(angle) * radius,
+        1.6,
+        Math.sin(angle) * radius
+      );
+      this._yaw = angle + Math.PI; // face the centre
+      this._pitch = 0;
+      this._moveCamera = camera;
+      this._applyLook();
+    }
+
+    // Minimal WASD + mouse-drag look so the camera (and therefore the
+    // local listener pose broadcast to peers) actually moves around in
+    // a 2D browser window. In XR the real headset pose takes over.
+    window.addEventListener('keydown', (e) =>
+      this._keys.add(e.key.toLowerCase())
+    );
+    window.addEventListener('keyup', (e) =>
+      this._keys.delete(e.key.toLowerCase())
+    );
+    const canvas = document.querySelector('canvas');
+    const target = canvas ?? document.body;
+    target.addEventListener('mousedown', () => (this._dragging = true));
+    window.addEventListener('mouseup', () => (this._dragging = false));
+    window.addEventListener('mousemove', (e) => {
+      if (!this._dragging) return;
+      this._yaw -= e.movementX * 0.003;
+      this._pitch = Math.max(
+        -Math.PI / 2 + 0.05,
+        Math.min(Math.PI / 2 - 0.05, this._pitch - e.movementY * 0.003)
+      );
+      this._applyLook();
+    });
+
+    const hint = document.createElement('div');
+    hint.textContent =
+      'WASD / left stick to move · drag mouse / right stick to look';
+    Object.assign(hint.style, {
+      position: 'fixed',
+      top: '12px',
+      left: '12px',
+      padding: '6px 10px',
+      background: 'rgba(0,0,0,0.55)',
+      color: '#fff',
+      font: '12px system-ui, sans-serif',
+      borderRadius: '6px',
+      pointerEvents: 'none',
+      zIndex: '999',
+    } as Partial<CSSStyleDeclaration>);
+    document.body.appendChild(hint);
 
     this._btn = document.createElement('button');
     this._btn.textContent = '🎙️ Enable voice';
@@ -72,6 +137,57 @@ class VoiceSample extends NetSample {
         }
       }
     });
+  }
+  private _applyLook() {
+    const cam = this._moveCamera;
+    if (!cam) return;
+    const e = new THREE.Euler(this._pitch, this._yaw, 0, 'YXZ');
+    cam.quaternion.setFromEuler(e);
+  }
+
+  update(time?: number, frame?: XRFrame) {
+    super.update(time, frame);
+    const cam = this._moveCamera;
+    if (!cam) return;
+    const now = time ?? performance.now();
+    const dt = this._lastT ? Math.min(0.1, (now - this._lastT) / 1000) : 0;
+    this._lastT = now;
+    if (!dt) return;
+    const speed = 2.5; // m/s
+    const lookSpeed = 2.0; // rad/s
+
+    // Gamepad: left stick = move, right stick = look. Use xrblocks's
+    // GamepadController so deadzone + active-pad selection match the
+    // rest of the platform.
+    const axes = xb.core?.input?.gamepadController?.getAxes?.() ?? [0, 0, 0, 0];
+    const [gpMoveX, gpMoveY, gpLookX, gpLookY] = axes;
+    if (gpLookX || gpLookY) {
+      this._yaw -= gpLookX * lookSpeed * dt;
+      this._pitch = Math.max(
+        -Math.PI / 2 + 0.05,
+        Math.min(Math.PI / 2 - 0.05, this._pitch - gpLookY * lookSpeed * dt)
+      );
+      this._applyLook();
+    }
+
+    const fwd = new THREE.Vector3();
+    cam.getWorldDirection(fwd);
+    fwd.y = 0;
+    fwd.normalize();
+    const right = new THREE.Vector3(fwd.z, 0, -fwd.x);
+    const move = new THREE.Vector3();
+    if (this._keys.has('w') || this._keys.has('arrowup')) move.add(fwd);
+    if (this._keys.has('s') || this._keys.has('arrowdown')) move.sub(fwd);
+    if (this._keys.has('d') || this._keys.has('arrowright')) move.add(right);
+    if (this._keys.has('a') || this._keys.has('arrowleft')) move.sub(right);
+    if (gpMoveX || gpMoveY) {
+      move.addScaledVector(fwd, -gpMoveY);
+      move.addScaledVector(right, gpMoveX);
+    }
+    if (move.lengthSq() > 0) {
+      move.normalize().multiplyScalar(speed * dt);
+      cam.position.add(move);
+    }
   }
 }
 

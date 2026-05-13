@@ -30,8 +30,8 @@ export class SpatialVoice {
     this.listener = new THREE.AudioListener();
     camera.add(this.listener);
     this._opts = {
-      refDistance: opts.refDistance ?? 1,
-      rolloffFactor: opts.rolloffFactor ?? 1,
+      refDistance: opts.refDistance ?? 0.5,
+      rolloffFactor: opts.rolloffFactor ?? 2,
       maxDistance: opts.maxDistance ?? 20,
     };
   }
@@ -47,6 +47,10 @@ export class SpatialVoice {
     audio.setRolloffFactor(this._opts.rolloffFactor);
     audio.setMaxDistance(this._opts.maxDistance);
     audio.setDistanceModel('inverse');
+    // HRTF panning gives proper left/right/front/back localization. This
+    // is three.js's default but make it explicit so spatial cues survive
+    // any future default change.
+    audio.panner.panningModel = 'HRTF';
 
     // three.js doesn't have a first-class "use a MediaStream" path that works
     // across all browsers; the safest cross-browser route is to build a
