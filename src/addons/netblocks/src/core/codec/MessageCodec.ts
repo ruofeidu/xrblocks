@@ -84,6 +84,14 @@ export interface NetObjectClaimMessage extends BaseMessage {
 export interface NetObjectReleaseMessage extends BaseMessage {
   type: 'netobject.release';
   id: string;
+  /**
+   * Optional final canonical transform. When present, receivers snap the
+   * object to this xform on release so peers whose interpolation hadn't
+   * converged don't end up showing a stale resting position.
+   */
+  xform?: number[];
+  /** Optional small JSON state payload, capped by MAX_MESSAGE_BYTES. */
+  state?: unknown;
 }
 
 export interface RpcMessage extends BaseMessage {

@@ -78,6 +78,18 @@ export class NetObject extends THREE.Group {
   }
 
   /**
+   * Snap the local transform immediately to a wire xform array and clear
+   * any pending interpolation target. Used on release so the object lands
+   * exactly where the previous owner left it.
+   */
+  snapToXform(x: number[]): void {
+    this.position.set(x[0], x[1], x[2]);
+    this.quaternion.set(x[3], x[4], x[5], x[6]);
+    this.scale.set(x[7], x[8], x[9]);
+    this._hasTarget = false;
+  }
+
+  /**
    * Smoothly drive the local transform toward the target. Called by
    * NetSession on non-owner peers. `t` is the per-frame lerp coefficient
    * (typically dt * 12).

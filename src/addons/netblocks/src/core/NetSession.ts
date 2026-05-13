@@ -237,17 +237,16 @@ export class NetSession extends EventTarget {
   /** Release ownership of an object (e.g., on release). */
   release(obj: NetObject): void {
     if (this.netObjects.applyRelease(obj.netId, this.localPeerId)) {
-      // Send a final canonical xform before relinquishing ownership so any
-      // peer whose interpolation hadn't converged snaps to the same resting
-      // position; otherwise tabs can be left showing the cube in different
-      // places when both peers stop dragging at the same time.
+      // Embed a final canonical xform inside the release so receivers can
+      // snap on release in a single message. Sending xform separately first
+      // wasn't enough — the receiver only lerps ~20% per frame, so by the
+      // time the release arrived the object was still mid-interpolation.
       this._sendNet({
-        type: 'netobject',
+        type: 'netobject.release',
         id: obj.netId,
         xform: obj.toXform(),
         state: Object.keys(obj.state).length ? obj.state : undefined,
       });
-      this._sendNet({type: 'netobject.release', id: obj.netId});
     }
   }
 
@@ -475,9 +474,14 @@ export class NetSession extends EventTarget {
       case 'netobject.claim':
         this.netObjects.applyClaim(msg.id, msg.from);
         break;
-      case 'netobject.release':
-        this.netObjects.applyRelease(msg.id, msg.from);
+      case 'netobject.release': {
+        if (this.netObjects.applyRelease(msg.id, msg.from)) {
+          const obj = this.netObjects.get(msg.id);
+          if (obj && msg.xform) obj.snapToXform(msg.xform);
+          if (obj && msg.state) Object.assign(obj.state, msg.state);
+        }
         break;
+      }
       case 'rpc':
         this.events._dispatch(msg as RpcMessage);
         break;
