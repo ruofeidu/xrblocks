@@ -26,9 +26,15 @@ export class SpatialVoice {
   private _primersByPeer = new Map<string, HTMLAudioElement>();
   private _opts: Required<SpatialVoiceOptions>;
 
-  constructor(camera: THREE.Camera, opts: SpatialVoiceOptions = {}) {
-    this.listener = new THREE.AudioListener();
-    camera.add(this.listener);
+  /**
+   * @param listener The shared `THREE.AudioListener` to spatialize against —
+   *   typically `xb.core.sound.listener`, which CoreSound has already attached
+   *   to the camera. SpatialVoice does NOT take ownership: it never adds or
+   *   removes the listener from the scene, so disposing SpatialVoice leaves
+   *   CoreSound's audio path untouched.
+   */
+  constructor(listener: THREE.AudioListener, opts: SpatialVoiceOptions = {}) {
+    this.listener = listener;
     this._opts = {
       refDistance: opts.refDistance ?? 0.5,
       rolloffFactor: opts.rolloffFactor ?? 4,
@@ -111,6 +117,6 @@ export class SpatialVoice {
 
   dispose(): void {
     for (const id of [...this._byPeer.keys()]) this.detach(id);
-    this.listener.parent?.remove(this.listener);
+    // Listener is owned by CoreSound (or whoever passed it in); don't detach.
   }
 }
