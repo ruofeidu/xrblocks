@@ -15,9 +15,11 @@ export const DEFAULT_PRESENCE_HZ = 20;
  * sample InterpolatedPose at `now - PRESENCE_RENDER_DELAY_MS` so there is
  * always a buffered next snapshot beyond the render time, which keeps
  * interpolation in the (0, 1] range instead of constantly extrapolating.
- * Sized at ~1.5 packet intervals at the default 20Hz cadence.
+ * Sized at ~2 packet intervals at the default 20Hz cadence to give
+ * cross-device WebRTC transports enough headroom to absorb wifi jitter
+ * without snapping the avatar.
  */
-export const PRESENCE_RENDER_DELAY_MS = 75;
+export const PRESENCE_RENDER_DELAY_MS = 100;
 
 /** Frequency at which net object transforms are broadcast (Hz). */
 export const DEFAULT_NETOBJECT_HZ = 20;
