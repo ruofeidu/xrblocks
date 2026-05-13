@@ -17,6 +17,8 @@
  */
 import * as THREE from 'three';
 
+import {makeId} from '../utils/IdUtils';
+
 export interface NetObjectOptions {
   /** Stable id for this object across peers. Defaults to a fresh random id. */
   id?: string;
@@ -47,7 +49,7 @@ export class NetObject extends THREE.Group {
 
   constructor(opts: NetObjectOptions = {}) {
     super();
-    this.netId = opts.id ?? `obj_${Math.random().toString(36).slice(2, 10)}`;
+    this.netId = opts.id ?? `obj_${makeId(10)}`;
     this.ownerId = opts.ownerId ?? '';
     this.hz = opts.hz;
     this.name = `NetObject(${this.netId})`;

@@ -100,6 +100,9 @@ export class NetSession extends EventTarget {
   private _spatialVoice?: SpatialVoice;
   private _isOpen = false;
   private _capabilities = {...DEFAULT_CAPABILITIES};
+  private _onTransportPeerJoin: (e: Event) => void;
+  private _onTransportPeerLeave: (e: Event) => void;
+  private _onTransportMessage: (e: Event) => void;
 
   constructor(
     transport: Transport,
@@ -124,19 +127,19 @@ export class NetSession extends EventTarget {
     this.voice.onTrack((peerId, stream) => this._onVoiceTrack(peerId, stream));
     this.voice.onTrackRemoved((peerId) => this._spatialVoice?.detach(peerId));
 
-    this.transport.addEventListener('peer-join', (e) =>
+    this.transport.addEventListener('peer-join', (this._onTransportPeerJoin = (e) =>
       this._onPeerJoin(
         (e as CustomEvent<TransportPeerEventDetail>).detail.peerId
       )
-    );
-    this.transport.addEventListener('peer-leave', (e) =>
+    ));
+    this.transport.addEventListener('peer-leave', (this._onTransportPeerLeave = (e) =>
       this._onPeerLeave(
         (e as CustomEvent<TransportPeerEventDetail>).detail.peerId
       )
-    );
-    this.transport.addEventListener('message', (e) =>
+    ));
+    this.transport.addEventListener('message', (this._onTransportMessage = (e) =>
       this._onMessage((e as CustomEvent<TransportMessageEventDetail>).detail)
-    );
+    ));
   }
 
   get isOpen(): boolean {
@@ -186,6 +189,12 @@ export class NetSession extends EventTarget {
     this._sendNet({type: 'bye'});
     this.voice.disable();
     this.transport.close();
+    // Detach our transport listeners so the transport (which may outlive
+    // the session — e.g., a sample that re-opens with a fresh session)
+    // doesn't keep firing into a closed session.
+    this.transport.removeEventListener('peer-join', this._onTransportPeerJoin);
+    this.transport.removeEventListener('peer-leave', this._onTransportPeerLeave);
+    this.transport.removeEventListener('message', this._onTransportMessage);
     for (const t of this._pendingJoinTimers.values()) clearTimeout(t);
     this._pendingJoinTimers.clear();
     for (const [, user] of this._users) {
@@ -331,6 +340,11 @@ export class NetSession extends EventTarget {
   }
 
   private _onMessage(detail: TransportMessageEventDetail): void {
+    // Drop messages that arrive after close() — some transports buffer
+    // events that hadn't been flushed yet, and dispatching user-join /
+    // applying state into a closed session would surface as confusing
+    // post-close events on the host app.
+    if (!this._isOpen) return;
     let msg: NetMessage;
     try {
       msg = decodeMessage(detail.data);

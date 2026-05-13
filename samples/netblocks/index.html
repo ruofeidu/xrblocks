@@ -137,12 +137,20 @@
           this.add(floor);
 
           // Connect over WebRTC so voice works (BroadcastChannel for chat-only).
-          const session = await this.net.joinRoom('xrblocks-shared-room', {
-            transport: new WebRTCTransport(),
-            displayName:
-              localStorage.getItem('netblocks-name') ??
-              `User-${Math.floor(Math.random() * 1000)}`,
-          });
+          let session;
+          try {
+            session = await this.net.joinRoom('xrblocks-shared-room', {
+              transport: new WebRTCTransport(),
+              displayName:
+                localStorage.getItem('netblocks-name') ??
+                `User-${Math.floor(Math.random() * 1000)}`,
+            });
+          } catch (err) {
+            console.error('[netblocks-sample] joinRoom failed:', err);
+            const status = document.getElementById('peers');
+            if (status) status.textContent = `failed to join room: ${err.message ?? err}`;
+            return;
+          }
           this._session = session;
 
           // Spawn three deterministic cubes — every peer sees the same set.
