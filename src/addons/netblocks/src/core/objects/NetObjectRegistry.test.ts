@@ -55,6 +55,16 @@ describe('NetObjectRegistry', () => {
       reg.applyClaim('cube-1', 'peer-A');
       expect(obj._hasTarget).toBe(true);
     });
+
+    it('clears _pendingFinal when ownership transfers — the new owner is about to broadcast their own pose', () => {
+      const reg = new NetObjectRegistry();
+      const obj = new NetObject({id: 'cube-1', ownerId: 'peer-A'});
+      obj.setTargetXform([1, 2, 3, 0, 0, 0, 1, 1, 1, 1]);
+      obj._pendingFinal = true;
+      reg.add(obj);
+      reg.applyClaim('cube-1', 'peer-B');
+      expect(obj._pendingFinal).toBe(false);
+    });
   });
 
   describe('applyRelease', () => {

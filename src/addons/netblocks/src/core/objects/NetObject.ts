@@ -40,6 +40,25 @@ export class NetObject extends THREE.Group {
   _hasTarget = false;
   _lastSendMs = 0;
 
+  /**
+   * True once this object has had any locally-observed motion (owner
+   * broadcast, remote update, or snapshot apply). NetSession only echoes
+   * `_dirty` objects in late-join snapshots — pristine constructor copies
+   * have no useful state to share, and broadcasting them would cause peers
+   * who already moved the object to snap back to defaults.
+   */
+  _dirty = false;
+
+  /**
+   * Set on receipt of `netobject.release`. Allows the interpolation loop
+   * to keep stepping toward the final transform after `ownerId` has been
+   * cleared, so the unrendered tail of motion (we render ~100ms behind
+   * real-time) doesn't appear as a visible jump on let-go. Cleared when
+   * the local position has converged to the target, by `applyClaim`, or
+   * by an immediate snap (`snapToXform`).
+   */
+  _pendingFinal = false;
+
   constructor(opts: NetObjectOptions = {}) {
     super();
     this.netId = opts.id ?? `obj_${makeId(10)}`;
@@ -70,29 +89,47 @@ export class NetObject extends THREE.Group {
     this._targetQuaternion.set(x[3], x[4], x[5], x[6]);
     this._targetScale.set(x[7], x[8], x[9]);
     this._hasTarget = true;
+    this._dirty = true;
   }
 
   /**
    * Snap the local transform immediately to a wire xform array and clear
-   * any pending interpolation target. Used on release so the object lands
-   * exactly where the previous owner left it.
+   * any pending interpolation target. Used by snapshot catch-up so the
+   * late joiner lands exactly on the current pose without a visible lerp
+   * from defaults.
    */
   snapToXform(x: number[]): void {
     this.position.set(x[0], x[1], x[2]);
     this.quaternion.set(x[3], x[4], x[5], x[6]);
     this.scale.set(x[7], x[8], x[9]);
     this._hasTarget = false;
+    this._pendingFinal = false;
+    this._dirty = true;
   }
 
   /**
    * Smoothly drive the local transform toward the target. Called by
    * NetSession on non-owner peers. `t` is the per-frame lerp coefficient
-   * (typically dt * 12).
+   * (typically dt * 12). When `_pendingFinal` is set (post-release), the
+   * caller continues stepping until we converge; once we're within a
+   * sub-millimetre threshold we copy exactly and clear the flag so we
+   * stop doing pointless math.
    */
   stepInterpolation(t: number): void {
     if (!this._hasTarget) return;
-    this.position.lerp(this._targetPosition, Math.min(1, t));
-    this.quaternion.slerp(this._targetQuaternion, Math.min(1, t));
-    this.scale.lerp(this._targetScale, Math.min(1, t));
+    const k = Math.min(1, t);
+    this.position.lerp(this._targetPosition, k);
+    this.quaternion.slerp(this._targetQuaternion, k);
+    this.scale.lerp(this._targetScale, k);
+    if (
+      this._pendingFinal &&
+      this.position.distanceToSquared(this._targetPosition) < 1e-6
+    ) {
+      this.position.copy(this._targetPosition);
+      this.quaternion.copy(this._targetQuaternion);
+      this.scale.copy(this._targetScale);
+      this._pendingFinal = false;
+      this._hasTarget = false;
+    }
   }
 }

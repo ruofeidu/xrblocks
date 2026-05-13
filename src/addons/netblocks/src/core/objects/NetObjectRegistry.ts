@@ -42,7 +42,10 @@ export class NetObjectRegistry {
       // Drop any stale interp target buffered from a previous remote-owner
       // period; otherwise the new ownership state would lerp the object
       // back toward an ancient position before the new owner sends one.
+      // Also abandon any post-release interpolation in flight — the new
+      // owner is about to take over and broadcast their own pose.
       obj._hasTarget = false;
+      obj._pendingFinal = false;
     }
     return true;
   }

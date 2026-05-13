@@ -7,6 +7,7 @@ import {
   decodeMessage,
   makeHello,
   HelloMessage,
+  NetObjectSnapshotMessage,
   PoseMessage,
 } from './MessageCodec';
 
@@ -30,6 +31,29 @@ describe('MessageCodec', () => {
         type: 'pose',
         data: 'AAECAwQF', // arbitrary base64
         from: 'peer-B',
+      };
+      const decoded = decodeMessage(encodeMessage(msg));
+      expect(decoded).toEqual(msg);
+    });
+
+    it('round-trips a netobject.snapshot message', () => {
+      const msg: NetObjectSnapshotMessage = {
+        type: 'netobject.snapshot',
+        from: 'peer-A',
+        to: 'peer-B',
+        objects: [
+          {
+            id: 'cube-1',
+            xform: [1, 2, 3, 0, 0, 0, 1, 1, 1, 1],
+            ownerId: 'peer-A',
+            state: {color: 'red'},
+          },
+          {
+            id: 'cube-2',
+            xform: [4, 5, 6, 0, 0, 0, 1, 1, 1, 1],
+            ownerId: '',
+          },
+        ],
       };
       const decoded = decodeMessage(encodeMessage(msg));
       expect(decoded).toEqual(msg);

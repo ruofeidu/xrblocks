@@ -22,6 +22,7 @@ export type NetMessage =
   | NetObjectMessage
   | NetObjectClaimMessage
   | NetObjectReleaseMessage
+  | NetObjectSnapshotMessage
   | RpcMessage
   | VoiceSignalMessage;
 
@@ -95,6 +96,24 @@ export interface NetObjectReleaseMessage extends BaseMessage {
   xform?: number[];
   /** Optional small JSON state payload, capped by MAX_MESSAGE_BYTES. */
   state?: unknown;
+}
+
+/**
+ * Late-join state catch-up: existing peers send this to a newly-joined peer
+ * right after the welcome handshake so the joiner sees the current
+ * transform/owner/state of every replicated object instead of the stale
+ * constructor defaults. Only the owner of an object would otherwise be
+ * broadcasting `netobject` updates, so unowned (post-release) objects have
+ * no other path to reach a late joiner.
+ */
+export interface NetObjectSnapshotMessage extends BaseMessage {
+  type: 'netobject.snapshot';
+  objects: Array<{
+    id: string;
+    xform: number[];
+    ownerId: string;
+    state?: unknown;
+  }>;
 }
 
 export interface RpcMessage extends BaseMessage {

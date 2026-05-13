@@ -81,4 +81,47 @@ describe('NetObject', () => {
       expect(obj.position.x).toBeCloseTo(10, 5);
     });
   });
+
+  describe('_dirty flag', () => {
+    it('starts false on a fresh NetObject', () => {
+      expect(new NetObject()._dirty).toBe(false);
+    });
+
+    it('is set by setTargetXform', () => {
+      const obj = new NetObject();
+      obj.setTargetXform([1, 2, 3, 0, 0, 0, 1, 1, 1, 1]);
+      expect(obj._dirty).toBe(true);
+    });
+
+    it('is set by snapToXform', () => {
+      const obj = new NetObject();
+      obj.snapToXform([1, 2, 3, 0, 0, 0, 1, 1, 1, 1]);
+      expect(obj._dirty).toBe(true);
+    });
+  });
+
+  describe('_pendingFinal', () => {
+    it('starts false on a fresh NetObject', () => {
+      expect(new NetObject()._pendingFinal).toBe(false);
+    });
+
+    it('snapToXform clears _pendingFinal', () => {
+      const obj = new NetObject();
+      obj._pendingFinal = true;
+      obj.snapToXform([1, 2, 3, 0, 0, 0, 1, 1, 1, 1]);
+      expect(obj._pendingFinal).toBe(false);
+    });
+
+    it('stepInterpolation finalises and clears _pendingFinal once converged', () => {
+      const obj = new NetObject();
+      obj.position.set(0, 0, 0);
+      obj.setTargetXform([1, 0, 0, 0, 0, 0, 1, 1, 1, 1]);
+      obj._pendingFinal = true;
+      // Run enough steps for the lerp to converge below 1mm.
+      for (let i = 0; i < 200; i++) obj.stepInterpolation(0.5);
+      expect(obj._pendingFinal).toBe(false);
+      expect(obj._hasTarget).toBe(false);
+      expect(obj.position.x).toBeCloseTo(1, 6);
+    });
+  });
 });

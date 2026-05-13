@@ -27,6 +27,7 @@ import {
   encodeMessage,
   HelloMessage,
   NetMessage,
+  NetObjectSnapshotMessage,
   PeerCapabilities,
   RpcMessage,
   VoiceSignalMessage,
@@ -286,6 +287,7 @@ export class NetSession extends EventTarget {
       if (obj.ownerId === this.localPeerId) {
         if (now - obj._lastSendMs >= period) {
           obj._lastSendMs = now;
+          obj._dirty = true;
           this._sendNet({
             type: 'netobject',
             id: obj.netId,
@@ -293,11 +295,11 @@ export class NetSession extends EventTarget {
             state: Object.keys(obj.state).length ? obj.state : undefined,
           });
         }
-      } else if (obj.ownerId && obj._hasTarget) {
-        // Only interpolate when a remote peer owns the object. If no
-        // one owns it (post-release), leave the cube where the last
-        // owner put it — otherwise we'd drift back toward a stale
-        // target buffered from before the most recent claim.
+      } else if ((obj.ownerId || obj._pendingFinal) && obj._hasTarget) {
+        // Interpolate while a remote peer owns the object, OR while we're
+        // settling onto a final post-release pose. The render-delay buffer
+        // means we'd otherwise see the unrendered tail of motion as a
+        // visible snap-forward at let-go.
         // ~12 Hz convergence per second of dt; we don't have dt here so use a
         // fixed fraction tuned for 60+ fps host applications.
         obj.stepInterpolation(0.2);
@@ -433,6 +435,31 @@ export class NetSession extends EventTarget {
             capabilities: u.capabilities,
           })),
         } as WelcomeMessage);
+        // Catch the new peer up on any replicated objects we know about.
+        // Without this, objects that no peer currently owns (or that the
+        // joiner happens to own at the same id but with stale defaults)
+        // would stay at their constructor positions on the joiner until
+        // somebody claims them again. We only include `_dirty` objects —
+        // pristine constructor copies have nothing useful to share, and
+        // echoing them back would clobber the joiner's own (or the other
+        // peer's) authoritative state with defaults.
+        const snapObjects: NetObjectSnapshotMessage['objects'] = [];
+        for (const obj of this.netObjects.values()) {
+          if (!obj._dirty) continue;
+          snapObjects.push({
+            id: obj.netId,
+            xform: obj.toXform(),
+            ownerId: obj.ownerId,
+            state: Object.keys(obj.state).length ? obj.state : undefined,
+          });
+        }
+        if (snapObjects.length > 0) {
+          this._sendNet({
+            type: 'netobject.snapshot',
+            to: msg.from,
+            objects: snapObjects,
+          } as NetObjectSnapshotMessage);
+        }
         break;
       }
       case 'welcome':
@@ -481,11 +508,14 @@ export class NetSession extends EventTarget {
           obj.ownerId = msg.from;
         }
         if (obj.ownerId !== this.localPeerId) {
-          // Only accept xform updates from the current owner. A netobject
-          // message from anyone else is necessarily stale (in-flight from
-          // a previous owner whose release/claim has since been processed)
-          // and applying it would lerp the object back to an old position.
-          if (obj.ownerId && msg.from !== obj.ownerId) {
+          // Only accept xform updates from the current owner. Any other
+          // sender is necessarily stale (in-flight from a previous owner
+          // whose release/claim has since been processed). We also reject
+          // when nobody owns the object — a `netobject` with no owner
+          // can only be a leftover from before a release, and applying
+          // it would revive `_hasTarget` and undo the post-release final
+          // we're settling onto.
+          if (msg.from !== obj.ownerId) {
             break;
           }
           obj.setTargetXform(msg.xform);
@@ -499,8 +529,32 @@ export class NetSession extends EventTarget {
       case 'netobject.release': {
         if (this.netObjects.applyRelease(msg.id, msg.from)) {
           const obj = this.netObjects.get(msg.id);
-          if (obj && msg.xform) obj.snapToXform(msg.xform);
+          if (obj && msg.xform) {
+            // Don't snap. We render ~100ms behind the owner's real-time
+            // motion, so a hard snap to the final pose at let-go shows
+            // up as a visible jump-forward of the unrendered tail. Set
+            // it as a target and let the interp loop finish under the
+            // `_pendingFinal` gate.
+            obj.setTargetXform(msg.xform);
+            obj._pendingFinal = true;
+          }
           if (obj && msg.state) Object.assign(obj.state, msg.state);
+        }
+        break;
+      }
+      case 'netobject.snapshot': {
+        // Late-join catch-up. Apply each entry, but never clobber objects
+        // we already own — our local state is canonical for those, and a
+        // remote peer's snapshot of them is by definition stale.
+        for (const entry of msg.objects) {
+          const obj = this.netObjects.get(entry.id);
+          if (!obj) continue;
+          if (obj.ownerId === this.localPeerId) continue;
+          obj.snapToXform(entry.xform);
+          obj.ownerId = entry.ownerId;
+          if (entry.state) {
+            Object.assign(obj.state, entry.state as Record<string, unknown>);
+          }
         }
         break;
       }
