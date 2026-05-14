@@ -1,6 +1,6 @@
 import * as xb from 'xrblocks';
 import {Keyboard} from 'xrblocks/addons/virtualkeyboard/Keyboard.js';
-import {WebRTCTransport} from 'netblocks';
+import {BroadcastChannelTransport} from 'netblocks';
 import {NetSample} from '../../Sample';
 
 /**
@@ -8,8 +8,9 @@ import {NetSample} from '../../Sample';
  *
  * Plain text chat over `session.events`. Each message is one
  * `chat-message` RPC carrying `{ from, text, ts }`. Open this page in
- * two tabs (or two devices) to chat — WebRTCTransport uses the public
- * PeerJS broker so cross-device works out of the box.
+ * two tabs to chat — BroadcastChannelTransport keeps the demo
+ * self-contained with no signaling broker. Swap in `WebRTCTransport`
+ * (with your own `signalingUrl` for production) for cross-device.
  *
  * The chat UI lives in two places:
  *   - a small floating DOM panel for desktop / pre-XR;
@@ -35,7 +36,7 @@ class ChatSample extends NetSample {
     return {
       roomId: 'netblocks-sample-chat',
       options: {
-        transport: new WebRTCTransport(),
+        transport: new BroadcastChannelTransport(),
         displayName: this._displayName,
       },
     };

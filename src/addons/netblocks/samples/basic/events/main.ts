@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {WebRTCTransport} from 'netblocks';
+import {BroadcastChannelTransport} from 'netblocks';
 import {NetSample} from '../../Sample';
 
 /**
@@ -33,7 +33,7 @@ class EventsSample extends NetSample {
     return {
       roomId: 'netblocks-sample-events',
       options: {
-        transport: new WebRTCTransport(),
+        transport: new BroadcastChannelTransport(),
         displayName: `User-${Math.floor(Math.random() * 1000)}`,
       },
     };

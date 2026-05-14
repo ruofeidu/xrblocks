@@ -58,13 +58,14 @@
       <strong>two browser tabs</strong> so you can see yourself across both.
     </p>
     <div class="tip">
-      💡 Every sample uses <code>WebRTCTransport</code>, which works
-      cross-machine via the public PeerJS broker — no server setup needed. Swap
-      in <code>BroadcastChannelTransport</code> for a zero-network same-origin
-      demo, or <code>WebSocketTransport</code> with the bundled
-      <code>server/relay.js</code> for self-hosted relay. Voice signaling rides
-      on whichever transport you pick, while audio always flows directly via
-      WebRTC peer connections.
+      💡 Every sample defaults to <code>BroadcastChannelTransport</code>, which
+      connects tabs on the same origin with no signaling server. Swap in
+      <code>WebRTCTransport</code> (provide your own
+      <code>signalingUrl</code> for production) for cross-device, or
+      <code>WebSocketTransport</code> with the bundled
+      <code>server/relay.js</code> for a self-hosted relay. Voice signaling
+      rides on whichever transport you pick, while audio always flows directly
+      via WebRTC peer connections.
     </div>
 
     <h2>Basic</h2>

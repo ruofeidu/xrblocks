@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as xb from 'xrblocks';
 import {Keyboard} from 'xrblocks/addons/virtualkeyboard/Keyboard.js';
 import {
-  WebRTCTransport,
+  BroadcastChannelTransport,
   NetObject,
   AVATAR_PALETTE,
   hashStringToIndex,
@@ -89,13 +89,12 @@ class IntegrationSample extends NetSample {
     return {
       roomId: 'netblocks-sample-integration',
       options: {
-        transport: new WebRTCTransport(),
+        // BroadcastChannel keeps the showcase self-contained: open the page
+        // in two tabs and they see each other with no signaling broker.
+        // Swap in `new WebRTCTransport()` (and provide your own broker
+        // with `signalingUrl` for production) to demo across devices.
+        transport: new BroadcastChannelTransport(),
         displayName: this._displayName,
-        // WebRTC has more jitter than the in-process BroadcastChannel
-        // transport, so bump the broadcast rate to keep the interpolated
-        // pose buffer (sized at 1.5x packet interval) from running dry on
-        // a delayed frame.
-        presenceHz: 30,
       },
     };
   }

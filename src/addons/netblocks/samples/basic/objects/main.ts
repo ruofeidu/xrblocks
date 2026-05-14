@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as xb from 'xrblocks';
-import {WebRTCTransport, NetObject} from 'netblocks';
+import {BroadcastChannelTransport, NetObject} from 'netblocks';
 import {NetSample} from '../../Sample';
 
 /**
@@ -36,7 +36,7 @@ class ObjectsSample extends NetSample {
     return {
       roomId: 'netblocks-sample-objects',
       options: {
-        transport: new WebRTCTransport(),
+        transport: new BroadcastChannelTransport(),
         displayName: `User-${Math.floor(Math.random() * 1000)}`,
       },
     };

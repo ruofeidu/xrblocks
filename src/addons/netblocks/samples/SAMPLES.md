@@ -8,10 +8,11 @@ action.
 ## Basic samples
 
 - **presence** — `basic/presence/index.html`
-  Minimal demo. Shows how to join a room with `WebRTCTransport` (the
-  default for all basic samples) and how each peer's head appears as a
-  default avatar (hands appear too when a peer is in XR with hand
-  tracking).
+  Minimal demo. Shows how to join a room with `BroadcastChannelTransport`
+  (the default for all basic samples — same-origin tabs only, no
+  signaling broker) and how each peer's head appears as a default avatar
+  (hands appear too when a peer is in XR with hand tracking). Swap in
+  `WebRTCTransport` for cross-device.
 
 - **objects** — `basic/objects/index.html`
   Demonstrates `NetObject`. A shared cube hovers in the middle of the room;
