@@ -107,8 +107,11 @@ for a fully wired example.
 ### NetCore
 
 The single facade you instantiate per app. Holds the active `NetSession`
-and exposes `joinRoom`, `leaveRoom`, and `update`. Also exposes two
-session-spanning shortcuts:
+and exposes `joinRoom`, `leaveRoom`, `send`, and `update`. `joinRoom`
+defaults to `WebRTCTransport` when no `transport` option is given, so
+`net.joinRoom('lobby')` is enough for the common case. `send(topic,
+data)` is shorthand for `session.events.emit(topic, data)`. Also
+exposes two session-spanning shortcuts:
 
 - `xb.core.net.peers` — `list()`, `remoteUsers`, `on('join'|'leave', cb)`,
   and `events` (the active session's RPC bus, for `emit`/`on` of custom

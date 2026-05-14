@@ -108,4 +108,16 @@ describe('Peers facade', () => {
     expect(onJoin).toHaveBeenCalledTimes(1);
     expect(onJoin.mock.calls[0][0].peerId).toBe('peer-r');
   });
+
+  it('net.send broadcasts via session.events', async () => {
+    const transport = new FakeTransport();
+    await net.joinRoom('room', {transport});
+    const sendSpy = vi.spyOn(transport, 'send');
+    net.send('chat', {text: 'hi'});
+    expect(sendSpy).toHaveBeenCalled();
+  });
+
+  it('net.send throws before joinRoom', () => {
+    expect(() => net.send('chat', 'hi')).toThrow(/joinRoom/);
+  });
 });

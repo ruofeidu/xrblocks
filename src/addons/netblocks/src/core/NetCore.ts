@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {LocalUser, Peers} from './Peers';
 import {NetSession, NetSessionOptions} from './NetSession';
 import {Transport} from './transport/Transport';
+import {WebRTCTransport} from './transport/WebRTCTransport';
 
 /**
  * NetCore is the public entry point for the netblocks addon. The easiest
@@ -29,8 +30,13 @@ import {Transport} from './transport/Transport';
  * ```
  */
 export interface JoinRoomOptions extends NetSessionOptions {
-  /** Required: the transport to use. */
-  transport: Transport;
+  /**
+   * Transport to use. Defaults to a fresh `WebRTCTransport()` so
+   * `joinRoom('lobby')` works for the common case; pass
+   * `BroadcastChannelTransport` for same-tab demos or
+   * `WebSocketTransport` for relay-backed setups.
+   */
+  transport?: Transport;
 }
 
 export class NetCore {
@@ -56,11 +62,15 @@ export class NetCore {
     this.user = new LocalUser(this);
   }
 
-  /** Connect to a room with the given transport. Disposes any prior session. */
-  async joinRoom(roomId: string, opts: JoinRoomOptions): Promise<NetSession> {
+  /** Connect to a room. Defaults to a fresh WebRTCTransport when omitted. */
+  async joinRoom(
+    roomId: string,
+    opts: JoinRoomOptions = {}
+  ): Promise<NetSession> {
     if (this.session) this.leaveRoom();
     const {transport, ...sessionOpts} = opts;
-    this.session = new NetSession(transport, this._root, sessionOpts);
+    const t = transport ?? new WebRTCTransport();
+    this.session = new NetSession(t, this._root, sessionOpts);
     this.peers._onSessionChanged();
     await this.session.open(roomId);
     return this.session;
@@ -71,6 +81,17 @@ export class NetCore {
     this.session?.close();
     this.session = undefined;
     this.peers._onSessionChanged();
+  }
+
+  /**
+   * Broadcast `data` on `topic` to every connected peer. Shorthand for
+   * `session.events.emit(topic, data)`. Throws if not joined.
+   */
+  send(topic: string, data: unknown): void {
+    if (!this.session) {
+      throw new Error('[netblocks] net.send() called before joinRoom()');
+    }
+    this.session.events.emit(topic, data);
   }
 
   /** Per-frame tick. Driven automatically when registered via `enableNet()`. */
