@@ -24,6 +24,16 @@
         pointer-events: none;
         max-width: 360px;
       }
+      #hud a.picker {
+        color: #9177c7;
+        text-decoration: none;
+        pointer-events: auto;
+        opacity: 0.85;
+      }
+      #hud a.picker:hover {
+        opacity: 1;
+        text-decoration: underline;
+      }
       #hud b {
         color: #9177c7;
       }
@@ -32,7 +42,7 @@
 
   <body>
     <div id="hud">
-      <b>netblocks · objects</b><br />
+      <a class="picker" href="../../">← netblocks</a> · <b>objects</b><br />
       Open this page in two tabs to see multiplayer in action.
     </div>
     <script type="importmap">
