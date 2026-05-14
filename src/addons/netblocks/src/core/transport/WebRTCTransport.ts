@@ -110,10 +110,11 @@ export class WebRTCTransport extends Transport {
       }
     }
     if (!claimed) {
-      throw new Error(
+      const msg =
         `WebRTCTransport: room "${opts.roomId}" is full ` +
-          `(>${MAX_SLOTS} peers) or the signaling broker is unreachable.`
-      );
+        `(>${MAX_SLOTS} peers) or the signaling broker is unreachable.`;
+      console.warn(`[netblocks/webrtc] ${msg}`);
+      throw new Error(msg);
     }
 
     this._isOpen = true;
