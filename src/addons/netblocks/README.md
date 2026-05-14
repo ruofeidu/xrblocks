@@ -263,6 +263,14 @@ See [`samples/SAMPLES.md`](./samples/SAMPLES.md). Highlights:
   presence + objects + chat + emoji-burst RPC + voice. (Top-level
   headline sample.)
 
+All samples default to `BroadcastChannelTransport` (two tabs in the same
+browser, no signaling, no rate-limit risk). A small HUD lets you "Start
+new room" — that flips the URL to `?room=ABCD`, switches the sample to
+`WebRTCTransport`, and gives you a 4-character code to share with a
+friend on another device. The library's `joinRoom` default is still
+`WebRTCTransport`; only the in-tree samples opt into local mode for
+zero-friction first-run.
+
 ---
 
 ## Design choices and trade-offs
