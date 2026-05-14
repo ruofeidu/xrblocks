@@ -90,9 +90,9 @@ class IntegrationSample extends NetSample {
       roomId: 'netblocks-sample-integration',
       options: {
         // BroadcastChannel keeps the showcase self-contained: open the page
-        // in two tabs and they see each other with no signaling broker.
-        // Swap in `new WebRTCTransport()` (and provide your own broker
-        // with `signalingUrl` for production) to demo across devices.
+        // in two tabs and they see each other with no signaling broker. To
+        // play across devices, click "Start new room" in the top-right HUD
+        // and share the link — the framework swaps in WebRTCTransport.
         transport: new BroadcastChannelTransport(),
         displayName: this._displayName,
       },

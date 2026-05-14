@@ -8,8 +8,9 @@ import {NetSample} from '../../Sample';
  * heads appear as default avatars (hands too when a peer is in XR with
  * hand tracking). Open this page in two tabs to see yourself across
  * both — the head spheres render the simulator camera pose, and any
- * hand joints reported by WebXR appear as fingertip dots. Swap in
- * `WebRTCTransport` for cross-device.
+ * hand joints reported by WebXR appear as fingertip dots. To play with
+ * friends across devices, click "Start new room" in the top-right HUD
+ * and share the link.
  */
 class PresenceSample extends NetSample {
   protected getJoinOptions() {

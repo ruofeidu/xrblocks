@@ -9,8 +9,9 @@ import {NetSample} from '../../Sample';
  * Push-to-talk spatial voice chat. The audio itself flows over direct
  * WebRTC peer connections; the SDP/ICE handshake is signalled through
  * NetSession's transport — here, BroadcastChannelTransport — so this
- * sample works between two tabs without any external broker. Swap in
- * `WebRTCTransport` for cross-device.
+ * sample works between two tabs without any external broker. To play
+ * with friends across devices, click "Start new room" in the top-right
+ * HUD and share the link.
  *
  * The audio is parented to each remote user's avatar head, so as you walk
  * around (or in XR, as the speaker walks around), their voice pans
