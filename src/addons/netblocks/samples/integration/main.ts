@@ -17,6 +17,7 @@ import {NetSample} from '../Sample';
  *   - see each other as live ball-and-stick avatars (presence)
  *   - grab and toss shared cubes (NetObjects with cooperative ownership)
  *   - chat over the typed events bus
+ *   - fire shared emoji bursts (typed-events RPC) with B / grip
  *   - hear each other spatialized via WebRTC voice
  *
  * Movement, look, and the on-screen reticle come from the standard

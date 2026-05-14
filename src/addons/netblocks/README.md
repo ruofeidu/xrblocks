@@ -208,7 +208,8 @@ See [`samples/SAMPLES.md`](./samples/SAMPLES.md). Highlights:
   it in XR.
 - `samples/basic/transports` — switch transports at runtime.
 - `samples/netblocks/` — assembled "shared room" demo combining
-  presence + objects + chat + voice. (Top-level headline sample.)
+  presence + objects + chat + emoji-burst RPC + voice. (Top-level
+  headline sample.)
 
 ---
 
