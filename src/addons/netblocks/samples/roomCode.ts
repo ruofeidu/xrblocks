@@ -46,8 +46,8 @@ export function buildRoomCodeHud(currentCode: string | null) {
   const root = document.createElement('div');
   Object.assign(root.style, {
     position: 'fixed',
-    top: '16px',
-    right: '16px',
+    top: '48px',
+    left: '12px',
     padding: '12px 14px',
     background: 'rgba(20,20,30,0.85)',
     color: '#eee',
@@ -156,19 +156,19 @@ function renderConnected(root: HTMLDivElement, code: string) {
   codeRow.appendChild(codeEl);
   root.appendChild(codeRow);
 
-  const copyBtn = makeButton('📋 Copy link');
-  copyBtn.style.width = '100%';
-  copyBtn.style.marginBottom = '6px';
-  copyBtn.addEventListener('click', async () => {
+  const codeBtn = makeButton('📋 Copy code');
+  codeBtn.style.width = '100%';
+  codeBtn.style.marginBottom = '6px';
+  codeBtn.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText(location.href);
-      copyBtn.textContent = '✓ Copied';
-      setTimeout(() => (copyBtn.textContent = '📋 Copy link'), 1500);
+      await navigator.clipboard.writeText(code);
+      codeBtn.textContent = '✓ Copied';
+      setTimeout(() => (codeBtn.textContent = '📋 Copy code'), 1500);
     } catch {
-      copyBtn.textContent = location.href;
+      codeBtn.textContent = code;
     }
   });
-  root.appendChild(copyBtn);
+  root.appendChild(codeBtn);
 
   const leaveBtn = makeButton('Leave');
   leaveBtn.style.width = '100%';
