@@ -461,6 +461,16 @@ export class WebRTCTransport extends Transport {
       }
       if (!this._peers.has(remote)) {
         this._peers.add(remote);
+        // Warn once we approach the room cap. _peers excludes the local
+        // peer, so size === MAX_SLOTS - 1 means every slot is full.
+        if (this._peers.size === MAX_SLOTS - 1) {
+          console.warn(
+            `[netblocks/webrtc] room "${this._roomId}" has hit the ` +
+              `${MAX_SLOTS}-peer mesh cap; further joiners will fail to ` +
+              `claim a slot. For larger rooms use a relay transport ` +
+              `(WebSocketTransport) instead.`
+          );
+        }
         this.emitPeerJoin(remote);
       }
     });
