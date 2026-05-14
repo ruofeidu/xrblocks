@@ -58,6 +58,8 @@ const ROOM_PREFIX = 'xrbnet';
 const MAX_SLOTS = 12;
 /** How often we re-probe still-unconnected slots (ms). */
 const DISCOVERY_INTERVAL_MS = 4000;
+/** Cap for the discovery interval after backoff on idle ticks (ms). */
+const DISCOVERY_MAX_INTERVAL_MS = 30000;
 /** Time after which a stalled OFFER is considered dead and the PC torn down. */
 const HANDSHAKE_TIMEOUT_MS = 8000;
 /** PeerJS broker reaps WS connections that don't ping; must stay under 60s. */
@@ -72,7 +74,8 @@ export class WebRTCTransport extends Transport {
   private _opts: WebRTCTransportOptions;
   private _peers = new Set<string>();
   private _entries = new Map<string, PeerEntry>();
-  private _discoveryTimer?: ReturnType<typeof setInterval>;
+  private _discoveryTimer?: ReturnType<typeof setTimeout>;
+  private _discoveryIntervalMs = DISCOVERY_INTERVAL_MS;
   private _heartbeatTimer?: ReturnType<typeof setInterval>;
   constructor(opts: WebRTCTransportOptions = {}) {
     super();
@@ -122,11 +125,30 @@ export class WebRTCTransport extends Transport {
 
     // Periodically OFFER to every other slot id; occupied slots respond,
     // empty slots time out and are reaped by `_handshakeTimeout`.
-    this._discoveryTimer = setInterval(
-      () => this._discover(roomHash),
-      DISCOVERY_INTERVAL_MS
-    );
-    this._discover(roomHash);
+    // Schedules itself with backoff so an idle room doesn't hammer the
+    // broker (and trip per-IP rate limits like Cloudflare's WAF).
+    const tick = () => {
+      if (!this._isOpen) return;
+      const before = this._peers.size;
+      this._discover(roomHash);
+      // Settle a beat so any in-flight probes that find a peer can
+      // resolve before we decide whether to back off. The probe has its
+      // own 3s cap so peer count converges quickly.
+      const delayMs = this._discoveryIntervalMs;
+      this._discoveryTimer = setTimeout(() => {
+        if (!this._isOpen) return;
+        if (this._peers.size === before) {
+          this._discoveryIntervalMs = Math.min(
+            this._discoveryIntervalMs * 2,
+            DISCOVERY_MAX_INTERVAL_MS
+          );
+        } else {
+          this._discoveryIntervalMs = DISCOVERY_INTERVAL_MS;
+        }
+        tick();
+      }, delayMs);
+    };
+    tick();
 
     // PeerJS broker disconnects clients that don't send periodic heartbeats.
     // Without this our long-lived signaling WS dies after ~30s, freeing our
@@ -145,7 +167,7 @@ export class WebRTCTransport extends Transport {
   close(): void {
     if (!this._isOpen) return;
     this._isOpen = false;
-    if (this._discoveryTimer) clearInterval(this._discoveryTimer);
+    if (this._discoveryTimer) clearTimeout(this._discoveryTimer);
     if (this._heartbeatTimer) clearInterval(this._heartbeatTimer);
     this._signaling?.close();
     this._signaling = undefined;
@@ -298,7 +320,7 @@ export class WebRTCTransport extends Transport {
       if (candidate >= this._localPeerId) continue;
       // Skip if we have any in-flight or open entry for this slot. Without
       // checking in-flight (not just ready) handshakes, a slow handshake
-      // gets re-probed on the next 4s tick and we end up with two PCs and
+      // gets re-probed on the next tick and we end up with two PCs and
       // DataChannels per peer; the second silently orphans the first.
       // Stalled entries are reaped by the handshake timeout in _ensureEntry.
       if (this._entries.has(candidate)) continue;
@@ -462,6 +484,7 @@ export class WebRTCTransport extends Transport {
       }
       if (!this._peers.has(remote)) {
         this._peers.add(remote);
+        this._discoveryIntervalMs = DISCOVERY_INTERVAL_MS;
         // Warn once we approach the room cap. _peers excludes the local
         // peer, so size === MAX_SLOTS - 1 means every slot is full.
         if (this._peers.size === MAX_SLOTS - 1) {
