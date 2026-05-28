@@ -12,13 +12,6 @@ on:
       - 'tsconfig*.json'
       - '.github/workflows/docs-build-check.yml'
   pull_request:
-    paths:
-      - 'docs/**'
-      - 'src/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig*.json'
-      - '.github/workflows/docs-build-check.yml'
 
 jobs:
   build-docs:
