@@ -20,21 +20,6 @@ on:
       - 'package-lock.json'
       - '.github/workflows/lint-format-check.yml'
   pull_request:
-    paths:
-      - '**/*.cjs'
-      - '**/*.html'
-      - '**/*.js'
-      - '**/*.json'
-      - '**/*.md'
-      - '**/*.mdx'
-      - '**/*.ts'
-      - '**/*.css'
-      - 'eslint.config.mjs'
-      - '.prettierrc.json'
-      - '.prettierignore'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/lint-format-check.yml'
 
 jobs:
   lint:

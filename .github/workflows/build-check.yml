@@ -15,16 +15,6 @@ on:
       - 'vitest.config.ts'
       - '.github/workflows/build-check.yml'
   pull_request:
-    paths:
-      - 'src/**'
-      - 'demos/**/*.ts'
-      - 'samples/**/*.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig*.json'
-      - 'rollup.config.js'
-      - 'vitest.config.ts'
-      - '.github/workflows/build-check.yml'
 
 jobs:
   build:
