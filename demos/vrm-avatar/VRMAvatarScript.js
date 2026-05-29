@@ -85,11 +85,19 @@ export class VRMAvatarScript extends xb.Script {
 
     if (this._idleUrl) {
       console.log('[VRMAvatarScript] Loading idle animation…');
-      await this._avatar.loadGLBAnimation('idle', this._idleUrl, this._tposeUrl);
+      await this._avatar.loadGLBAnimation(
+        'idle',
+        this._idleUrl,
+        this._tposeUrl
+      );
     }
     if (this._walkUrl) {
       console.log('[VRMAvatarScript] Loading walk animation…');
-      await this._avatar.loadGLBAnimation('walk', this._walkUrl, this._tposeUrl);
+      await this._avatar.loadGLBAnimation(
+        'walk',
+        this._walkUrl,
+        this._tposeUrl
+      );
     }
 
     this.add(this._avatar.root);

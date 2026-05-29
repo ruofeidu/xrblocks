@@ -277,7 +277,8 @@ export class VRMAvatar {
 
     // Load the pristine T-pose reference scene exactly once to guarantee perfect rest pose evaluation
     if (!this._restGlbScene) {
-      if (!tposeUrl) throw new Error('[VRMAvatar] tposeUrl is required to load animations.');
+      if (!tposeUrl)
+        throw new Error('[VRMAvatar] tposeUrl is required to load animations.');
       const tposeGltf = await loader.loadAsync(tposeUrl);
       this._restGlbScene = tposeGltf.scene;
     }
