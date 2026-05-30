@@ -21,9 +21,11 @@ Return only JSON for a hand pose.
 Rotations are applied onto a flat neutral hand pose.
 Rotations are applied through forward kinematics.
 Format: {"joint-name":[x,y,z]} where x/y/z are euler angle radians.
+For long fingers:
 x: flexion/extension. Negative curls toward palm, positive extends away.
 y: abduction/adduction. Negative spreads toward thumb, positive away.
 z: twist. Negative twists away from thumb, positive toward thumb.
+Prefer not to change the thumb metacarpal joint.
 Include every non-tip WebXR joint listed below. Use [0,0,0] for neutral joints:
 ${ROTATION_JOINT_NAMES.join(', ')}
 `;
@@ -153,6 +155,12 @@ function createPromptBubble(onGenerate) {
   const promptInput = bubble.querySelector('.manual-sim-hand-prompt');
   const generateButton = bubble.querySelector('.manual-sim-hand-generate');
   const status = bubble.querySelector('.manual-sim-hand-status');
+
+  for (const eventName of ['keydown', 'keyup', 'keypress']) {
+    promptInput.addEventListener(eventName, (event) => {
+      event.stopPropagation();
+    });
+  }
 
   bubble.addEventListener('submit', async (event) => {
     event.preventDefault();
