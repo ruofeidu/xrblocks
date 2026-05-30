@@ -298,19 +298,13 @@ function createSidebar(onRotationChange, onReset, getJsonData) {
   const header = document.createElement('header');
   header.className = 'manual-sim-hand-header';
 
-  const title = document.createElement('h1');
-  title.textContent = 'Manual Sim Hand';
-
-  const subtitle = document.createElement('p');
-  subtitle.textContent = 'Shared hand joint angles';
-
   const resetButton = document.createElement('button');
   resetButton.className = 'manual-sim-hand-reset';
   resetButton.type = 'button';
   resetButton.textContent = 'Reset';
   resetButton.addEventListener('click', onReset);
 
-  header.append(title, subtitle, resetButton);
+  header.append(resetButton);
   sidebar.append(header);
 
   const tabs = document.createElement('nav');
