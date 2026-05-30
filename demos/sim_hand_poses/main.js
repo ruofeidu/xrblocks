@@ -125,26 +125,7 @@ function formatJsonValue(value, indentLevel = 0) {
 }
 
 async function copyText(text) {
-  if (navigator.clipboard) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textArea = document.createElement('textarea');
-  textArea.value = text;
-  textArea.style.position = 'fixed';
-  textArea.style.opacity = '0';
-  document.body.append(textArea);
-  textArea.select();
-  document.execCommand('copy');
-  textArea.remove();
-}
-
-function parseAiResponse(response) {
-  if (!response?.text) {
-    throw new Error('AI returned an empty response.');
-  }
-  return JSON.parse(response.text);
+  await navigator.clipboard.writeText(text);
 }
 
 function formatJointName(jointName) {
@@ -161,7 +142,7 @@ function createPromptBubble(onGenerate) {
     <input
       class="manual-sim-hand-prompt"
       type="text"
-      value="Point: index finger extended forward, thumb slightly raised, other fingers curled"
+      value=""
       aria-label="Gesture generation prompt"
     />
     <button class="manual-sim-hand-generate" type="submit">Generate</button>
@@ -319,13 +300,7 @@ function createSidebar(onRotationChange, onReset, getJsonData) {
   resetButton.className = 'manual-sim-hand-reset';
   resetButton.type = 'button';
   resetButton.textContent = 'Reset';
-  resetButton.addEventListener('click', () => {
-    for (const input of sidebar.querySelectorAll('input[type="range"]')) {
-      input.value = '0';
-      input.nextElementSibling.value = '0';
-    }
-    onReset();
-  });
+  resetButton.addEventListener('click', onReset);
 
   header.append(title, subtitle, resetButton);
   sidebar.append(header);
@@ -501,59 +476,6 @@ class GestureHUD extends xb.Script {
 
 async function start() {
   const handRotations = createZeroRotationJson();
-  let updateJsonViews = () => {};
-  const syncControlsToRotations = () => {
-    for (const input of document.querySelectorAll(
-      '.manual-sim-hand-slider input[type="range"]'
-    )) {
-      const jointName = input.dataset.joint;
-      const axis = input.dataset.axis;
-      const axisIndex = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-      const degrees = Math.round(
-        (handRotations[jointName]?.[axisIndex] ?? 0) / DEG_TO_RAD
-      );
-      input.value = String(degrees);
-      input.nextElementSibling.value = String(degrees);
-    }
-  };
-  const applyHandRotations = () => {
-    const hands = xb.core?.simulator?.hands;
-    if (hands) {
-      hands.setLeftHandRotations(handRotations);
-      hands.setRightHandRotations(handRotations);
-    }
-    updateJsonViews();
-  };
-  updateJsonViews = createSidebar(
-    (jointName, axis, value) => {
-      const axisIndex = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-      handRotations[jointName][axisIndex] = value;
-      applyHandRotations();
-    },
-    () => {
-      for (const rotation of Object.values(handRotations)) {
-        rotation[0] = 0;
-        rotation[1] = 0;
-        rotation[2] = 0;
-      }
-      applyHandRotations();
-    },
-    () => {
-      const hands = xb.core?.simulator?.hands;
-      return {
-        raw: {
-          left: hands?.leftHandTargetJoints
-            ? cleanJointsForJson(hands.leftHandTargetJoints)
-            : [],
-          right: hands?.rightHandTargetJoints
-            ? cleanJointsForJson(hands.rightHandTargetJoints)
-            : [],
-        },
-        rotations: cleanRotationsForJson(handRotations),
-      };
-    }
-  );
-
   const options = new xb.Options();
   options.enableReticles();
   options.enableHands();
@@ -563,11 +485,58 @@ async function start() {
   options.gestures.provider = 'heuristics';
   options.gestures.setGestureEnabled('point', true);
   options.gestures.setGestureEnabled('spread', true);
-  options.hands.enabled = true;
   options.hands.visualization = true;
   options.hands.visualizeJoints = true;
   options.hands.visualizeMeshes = true;
   options.simulator.defaultMode = xb.SimulatorMode.POSE;
+
+  xb.add(new ManualSimHandScene());
+  xb.add(new GestureHUD());
+  await xb.init(options);
+
+  let updateJsonViews = () => {};
+
+  const applyHandRotations = () => {
+    xb.core.simulator.hands.setLeftHandRotations(handRotations);
+    xb.core.simulator.hands.setRightHandRotations(handRotations);
+    updateJsonViews();
+  };
+
+  const syncControlsToRotations = () => {
+    for (const input of document.querySelectorAll(
+      '.manual-sim-hand-slider input[type="range"]'
+    )) {
+      const axisIndex = ['x', 'y', 'z'].indexOf(input.dataset.axis);
+      const degrees = Math.round(
+        handRotations[input.dataset.joint][axisIndex] / DEG_TO_RAD
+      );
+      input.value = String(degrees);
+      input.nextElementSibling.value = String(degrees);
+    }
+  };
+
+  updateJsonViews = createSidebar(
+    (jointName, axis, value) => {
+      handRotations[jointName][['x', 'y', 'z'].indexOf(axis)] = value;
+      applyHandRotations();
+    },
+    () => {
+      for (const rotation of Object.values(handRotations)) {
+        rotation.fill(0);
+      }
+      syncControlsToRotations();
+      applyHandRotations();
+    },
+    () => ({
+      raw: {
+        left: cleanJointsForJson(xb.core.simulator.hands.leftHandTargetJoints),
+        right: cleanJointsForJson(
+          xb.core.simulator.hands.rightHandTargetJoints
+        ),
+      },
+      rotations: cleanRotationsForJson(handRotations),
+    })
+  );
 
   createPromptBubble(async (description) => {
     xb.core.options.ai.gemini.config = {
@@ -579,10 +548,10 @@ async function start() {
       prompt: JSON.stringify({description}),
     });
     const generatedRotations = xb.parseSimulatorHandPoseRotations(
-      parseAiResponse(response)
+      JSON.parse(response.text)
     );
     for (const jointName of ROTATION_JOINT_NAMES) {
-      const generatedRotation = generatedRotations[jointName] ?? [0, 0, 0];
+      const generatedRotation = generatedRotations[jointName];
       handRotations[jointName][0] = generatedRotation[0];
       handRotations[jointName][1] = generatedRotation[1];
       handRotations[jointName][2] = generatedRotation[2];
@@ -590,11 +559,6 @@ async function start() {
     syncControlsToRotations();
     applyHandRotations();
   });
-
-  xb.add(new ManualSimHandScene());
-  xb.add(new GestureHUD());
-  await xb.init(options);
-  updateJsonViews();
 }
 
 document.addEventListener('DOMContentLoaded', start);

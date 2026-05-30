@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
 import {HAND_JOINT_NAMES} from '../input/components/HandJointNames';
+import {Handedness} from '../input/Hands';
 import {Input} from '../input/Input';
 import type {DeepReadonly} from '../utils/Types';
 
@@ -15,10 +16,7 @@ import {
   SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT,
   SimulatorHandPose,
 } from './handPoses/HandPoses';
-import {
-  resolveLeftHandPoseRotations,
-  resolveRightHandPoseRotations,
-} from './handPoses/HandPoseFK';
+import {resolveSimulatorHandPoseRotations} from './handPoses/HandPoseFK';
 import {SimulatorControllerState} from './SimulatorControllerState';
 import {SimulatorXRHand} from './SimulatorXRHand';
 
@@ -160,7 +158,7 @@ export class SimulatorHands {
     this.updateHandPosePanel();
   }
 
-  setLeftHandRotations(rotations: Readonly<SimulatorHandPoseRotations>) {
+  setLeftHandRotations(rotations: SimulatorHandPoseRotations) {
     if (this.leftHandPose === SimulatorHandPose.PINCHING) {
       this.input.dispatchEvent({
         type: 'selectend',
@@ -171,11 +169,14 @@ export class SimulatorHands {
       });
     }
     this.leftHandPose = undefined;
-    this.leftHandTargetJoints = resolveLeftHandPoseRotations(rotations);
+    this.leftHandTargetJoints = resolveSimulatorHandPoseRotations(
+      Handedness.LEFT,
+      rotations
+    );
     this.updateHandPosePanel();
   }
 
-  setRightHandRotations(rotations: Readonly<SimulatorHandPoseRotations>) {
+  setRightHandRotations(rotations: SimulatorHandPoseRotations) {
     if (this.rightHandPose === SimulatorHandPose.PINCHING) {
       this.input.dispatchEvent({
         type: 'selectend',
@@ -186,7 +187,10 @@ export class SimulatorHands {
       });
     }
     this.rightHandPose = undefined;
-    this.rightHandTargetJoints = resolveRightHandPoseRotations(rotations);
+    this.rightHandTargetJoints = resolveSimulatorHandPoseRotations(
+      Handedness.RIGHT,
+      rotations
+    );
     this.updateHandPosePanel();
   }
 

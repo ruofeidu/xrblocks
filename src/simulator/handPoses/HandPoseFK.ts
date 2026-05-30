@@ -163,15 +163,3 @@ export function resolveSimulatorHandPoseRotations(
     rotations
   );
 }
-
-export function resolveLeftHandPoseRotations(
-  rotations: SimulatorHandPoseRotations
-) {
-  return resolveSimulatorHandPoseRotations(Handedness.LEFT, rotations);
-}
-
-export function resolveRightHandPoseRotations(
-  rotations: SimulatorHandPoseRotations
-) {
-  return resolveSimulatorHandPoseRotations(Handedness.RIGHT, rotations);
-}
