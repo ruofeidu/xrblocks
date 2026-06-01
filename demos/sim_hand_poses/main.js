@@ -30,7 +30,6 @@ For the thumb:
 x: positive flexes across palm, negative extends/repositions.
 y: positive abducts away from palm, negative adducts back toward palm.
 z: positive rolls into opposition/internal rotation, negative repositions/external rotation away.
-Prefer not to change the thumb metacarpal joint.
 Include every non-tip WebXR joint listed below. Use [0,0,0] for neutral joints:
 ${ROTATION_JOINT_NAMES.join(', ')}
 `;

@@ -109,11 +109,17 @@ function createRestJoints(
 const LEFT_REST_JOINTS = createRestJoints(LEFT_HAND_NEUTRAL);
 const RIGHT_REST_JOINTS = createRestJoints(RIGHT_HAND_NEUTRAL);
 
+// conversion into the neutral hand pose standard
+// TODO: could directly encode these into the actual quaternions
 function getRawFKRotation(
   jointName: JointName,
   rotation: SimulatorHandPoseRotations[JointName] = [0, 0, 0]
 ): SimulatorHandJointRotationArray {
   const [x, y, z] = rotation;
+
+  if (jointName === 'thumb-metacarpal') {
+    return [y, x, -z];
+  }
 
   if (jointName.startsWith('thumb-')) {
     return [-x, -y, -z];
