@@ -147,7 +147,8 @@ class Keyboard extends xb.Script {
   private applyZOrder(entity: THREE.Object3D, order: number = 1000): void {
     entity.renderOrder = order;
     if ('object3D' in entity) {
-      (entity as {object3D: {renderOrder: number}}).object3D.renderOrder = order;
+      (entity as {object3D: {renderOrder: number}}).object3D.renderOrder =
+        order;
     }
 
     if (entity.children) {
