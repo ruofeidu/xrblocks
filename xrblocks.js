@@ -14,15 +14,15 @@
  * limitations under the License.
  *
  * @file xrblocks.js
- * @version v0.11.0
- * @commitid 7ea68fa
- * @builddate 2026-03-27T00:45:45.049Z
+ * @version v0.15.0
+ * @commitid 04046df
+ * @builddate 2026-06-02T01:49:01.500Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
  * 1. Include the following importmap for maximum compatibility:
-    "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/",
+    "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
     "troika-three-text": "https://cdn.jsdelivr.net/gh/protectwise/troika@028b81cf308f0f22e5aa8e78196be56ec1997af5/packages/troika-three-text/src/index.js",
     "troika-three-utils": "https://cdn.jsdelivr.net/gh/protectwise/troika@v0.52.4/packages/troika-three-utils/src/index.js",
     "troika-worker-utils": "https://cdn.jsdelivr.net/gh/protectwise/troika@v0.52.4/packages/troika-worker-utils/src/index.js",
@@ -1110,8 +1110,9 @@ function parseBase64DataURL(dataURL) {
     }
 }
 
-const GEMINI_DEFAULT_FLASH_MODEL = 'gemini-2.5-flash';
-const GEMINI_DEFAULT_LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
+const GEMINI_DEFAULT_FLASH_MODEL = 'gemini-3.5-flash';
+const GEMINI_DEFAULT_LIVE_MODEL = 'gemini-3.1-flash-live-preview';
+const GEMINI_DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 class GeminiOptions {
     constructor() {
         this.apiKey = '';
@@ -1404,7 +1405,7 @@ class Gemini extends BaseAIModel {
         console.error('Failed to query with exponential backoff:', lastError);
         return null;
     }
-    async generate(prompt, type = 'image', systemInstruction = 'Generate an image', model = 'gemini-2.5-flash-image') {
+    async generate(prompt, type = 'image', systemInstruction = 'Generate an image', model = GEMINI_DEFAULT_IMAGE_MODEL) {
         if (!this.isAvailable())
             return;
         let contents;
@@ -1833,7 +1834,7 @@ const DEFAULT_DEVICE_CAMERA_WIDTH = 1280;
  * Corresponds to a 720p resolution.
  */
 const DEFAULT_DEVICE_CAMERA_HEIGHT = 720;
-const XR_BLOCKS_ASSETS_PATH = 'https://cdn.jsdelivr.net/gh/xrblocks/assets@a500427f2dfc12312df1a75860460244bab3a146/';
+const XR_BLOCKS_ASSETS_PATH = 'https://cdn.jsdelivr.net/gh/xrblocks/assets@02bbbf2093d20bcefdac18c65d3ff0f2b94b7535/';
 
 /**
  * Recursively freezes an object and all its nested properties, making them
@@ -2066,7 +2067,7 @@ function getCameraParametersSnapshot(camera, xrCameras, deviceCamera, targetDevi
  * Raycasts to the depth mesh to find the world position and normal at a given UV coordinate.
  * @param rgbUv - The UV coordinate to raycast from.
  * @param depthMeshSnapshot - The depth mesh to raycast against.
- * @param depthTransformParameters - The depth transform parameters.
+ * @param cameraParametersSnapshot - Parameters of the device camera relative to the render camera's world.
  * @returns The world position, normal, and depth at the given UV coordinate.
  */
 function transformRgbUvToWorld(rgbUv, depthMeshSnapshot, cameraParametersSnapshot) {
@@ -2091,54 +2092,77 @@ function transformRgbUvToWorld(rgbUv, depthMeshSnapshot, cameraParametersSnapsho
     };
 }
 /**
- * Asynchronously crops a base64 encoded image using a THREE.Box2 bounding box.
- * This function creates an in-memory image, draws a specified portion of it to
- * a canvas, and then returns the canvas content as a new base64 string.
- * @param base64Image - The base64 string of the source image. Can be a raw
- *     string or a full data URI.
- * @param boundingBox - The bounding box with relative coordinates (0-1) for
- *     cropping.
- * @returns A promise that resolves with the base64 string of the cropped image.
+ * Helper function to prepare a canvas for the bounding box for rendering purposes.
+ * Calculates the clamped bounding box and returns the canvas, context, and dimensions.
  */
-async function cropImage(base64Image, boundingBox) {
-    if (!base64Image) {
-        throw new Error('No image data provided for cropping.');
-    }
-    const img = new Image();
-    await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = (err) => {
-            console.error('Error loading image for cropping:', err);
-            reject(new Error('Failed to load image for cropping.'));
-        };
-        img.src = base64Image.startsWith('data:image')
-            ? base64Image
-            : `data:image/png;base64,${base64Image}`;
-    });
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    // Create a unit box and find the intersection to clamp coordinates.
+function createBoundingBoxCanvasResult(width, height, boundingBox) {
     const unitBox = new THREE.Box2(new THREE.Vector2(0, 0), new THREE.Vector2(1, 1));
     const clampedBox = boundingBox.clone().intersect(unitBox);
     const cropSize = new THREE.Vector2();
     clampedBox.getSize(cropSize);
-    // If the resulting crop area has no size, return an empty image.
     if (cropSize.x === 0 || cropSize.y === 0) {
-        return 'data:image/png;base64,';
+        return null;
     }
-    // Calculate absolute pixel values from relative coordinates.
-    const sourceX = img.width * clampedBox.min.x;
-    const sourceY = img.height * clampedBox.min.y;
-    const sourceWidth = img.width * cropSize.x;
-    const sourceHeight = img.height * cropSize.y;
-    // Set canvas size to the cropped image size.
+    const sourceX = Math.floor(width * clampedBox.min.x);
+    const sourceY = Math.floor(height * clampedBox.min.y);
+    const sourceWidth = Math.ceil(width * cropSize.x);
+    const sourceHeight = Math.ceil(height * cropSize.y);
+    const canvas = document.createElement('canvas');
     canvas.width = sourceWidth;
     canvas.height = sourceHeight;
-    // Draw the cropped portion of the source image onto the canvas.
-    ctx.drawImage(img, sourceX, sourceY, sourceWidth, sourceHeight, // Source rectangle
-    0, 0, sourceWidth, sourceHeight // Destination rectangle
-    );
-    return canvas.toDataURL('image/png');
+    const ctx = canvas.getContext('2d');
+    return { canvas, ctx, sourceX, sourceY, sourceWidth, sourceHeight };
+}
+/**
+ * Asynchronously crops an image (provided as a base64 string or ImageData) using a THREE.Box2 bounding box.
+ * This function draws a specified portion of the image to a canvas and returns the canvas content as a new base64 string.
+ * @param imageSource - The source image as a base64 string or ImageData object.
+ * @param boundingBox - The bounding box with relative coordinates (0-1) for cropping.
+ * @returns A promise that resolves with the base64 string of the cropped image.
+ */
+async function cropImage(imageSource, boundingBox) {
+    if (!imageSource) {
+        throw new Error('No image data provided for cropping.');
+    }
+    let width;
+    let height;
+    let drawOp;
+    if (typeof imageSource === 'string') {
+        const img = new Image();
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = (err) => {
+                console.error('Error loading image for cropping:', err);
+                reject(new Error('Failed to load image for cropping.'));
+            };
+            img.src = imageSource.startsWith('data:image')
+                ? imageSource
+                : `data:image/png;base64,${imageSource}`;
+        });
+        width = img.width;
+        height = img.height;
+        drawOp = (ctx, canvasResult) => {
+            ctx.drawImage(img, canvasResult.sourceX, canvasResult.sourceY, canvasResult.sourceWidth, canvasResult.sourceHeight, 0, 0, canvasResult.sourceWidth, canvasResult.sourceHeight);
+        };
+    }
+    else if (imageSource instanceof ImageData) {
+        width = imageSource.width;
+        height = imageSource.height;
+        drawOp = (ctx, canvasResult) => {
+            ctx.putImageData(imageSource, -canvasResult.sourceX, -canvasResult.sourceY, canvasResult.sourceX, canvasResult.sourceY, canvasResult.sourceWidth, canvasResult.sourceHeight);
+        };
+    }
+    else {
+        console.warn('Unsupported image source type for cropping.');
+        return 'data:image/png;base64,';
+    }
+    const canvasResult = createBoundingBoxCanvasResult(width, height, boundingBox);
+    if (!canvasResult) {
+        console.warn('Unable to create CanvasResult for cropping.');
+        return 'data:image/png;base64,';
+    }
+    drawOp(canvasResult.ctx, canvasResult);
+    return canvasResult.canvas.toDataURL('image/png');
 }
 
 /**
@@ -2606,7 +2630,6 @@ class XRDeviceCamera extends VideoStream {
     }
     registerSimulatorCamera(simulatorCamera) {
         this.simulatorCamera = simulatorCamera;
-        this.init();
     }
     startXRCameraAccessFallback_(reason, error) {
         if (!this.isXRCameraAccessGranted_()) {
@@ -2685,13 +2708,25 @@ class Raycaster extends THREE.Raycaster {
         // Sorting function for the raycaster. Should return items from closest to furthest.
         this.sortFunction = defaultSortFunction;
     }
-    /** {@inheritDoc three#Raycaster.intersectObjects} */
+    /**
+     * Intersects a single object with the raycaster, using the custom sort function.
+     * @param object - The object to intersect with.
+     * @param recursive - Whether to intersect with the object's children.
+     * @param intersects - The array to store the intersections in.
+     * @returns The intersections found.
+     */
     intersectObject(object, recursive = true, intersects = []) {
         intersect(object, this, intersects, recursive);
         intersects.sort(this.sortFunction);
         return intersects;
     }
-    /** {@inheritDoc three#Raycaster.intersectObjects} */
+    /**
+     * Intersects multiple objects with the raycaster, using the custom sort function.
+     * @param objects - The objects to intersect with.
+     * @param recursive - Whether to intersect with the objects' children.
+     * @param intersects - The array to store the intersections in.
+     * @returns The intersections found.
+     */
     intersectObjects(objects, recursive = true, intersects = []) {
         for (let i = 0, l = objects.length; i < l; i++) {
             intersect(objects[i], this, intersects, recursive);
@@ -2950,24 +2985,298 @@ class ScreenshotSynthesizer {
     }
 }
 
-class ScriptsManager {
+var ScriptsManagerEventType;
+(function (ScriptsManagerEventType) {
+    ScriptsManagerEventType["EXCEPTION"] = "exception";
+})(ScriptsManagerEventType || (ScriptsManagerEventType = {}));
+class ScriptsManager extends THREE.EventDispatcher {
     constructor(initScriptFunction) {
+        super();
         this.initScriptFunction = initScriptFunction;
         /** The set of all currently initialized scripts. */
         this.scripts = new Set();
-        this.callSelectStartBound = this.callSelectStart.bind(this);
-        this.callSelectEndBound = this.callSelectEnd.bind(this);
-        this.callSelectBound = this.callSelect.bind(this);
-        this.callSqueezeStartBound = this.callSqueezeStart.bind(this);
-        this.callSqueezeEndBound = this.callSqueezeEnd.bind(this);
-        this.callSqueezeBound = this.callSqueeze.bind(this);
-        this.callKeyDownBound = this.callKeyDown.bind(this);
-        this.callKeyUpBound = this.callKeyUp.bind(this);
         /** The set of scripts currently being initialized. */
         this.initializingScripts = new Set();
         this.seenScripts = new Set();
         this.syncPromises = [];
-        this.checkScriptBound = this.checkScript.bind(this);
+        /** Whether to catch all exceptions thrown by developer scripts. */
+        this.catchExceptions = true;
+        /**
+         * Helper for scene traversal to avoid closure allocation.
+         */
+        this.checkScript = (obj) => {
+            if (obj.isXRScript) {
+                const script = obj;
+                this.syncPromises.push(this.initScript(script));
+                this.seenScripts.add(script);
+            }
+        };
+        this.resetUX = () => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.ux.reset();
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'ux.reset');
+                    }
+                }
+                else {
+                    script.ux.reset();
+                }
+            }
+        };
+        this.callSelecting = (controller) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onSelecting({ target: controller });
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onSelecting');
+                    }
+                }
+                else {
+                    script.onSelecting({ target: controller });
+                }
+            }
+        };
+        this.callSqueezing = (controller) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onSqueezing({ target: controller });
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onSqueezing');
+                    }
+                }
+                else {
+                    script.onSqueezing({ target: controller });
+                }
+            }
+        };
+        this.update = (time, frame) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.update(time, frame);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'update');
+                    }
+                }
+                else {
+                    script.update(time, frame);
+                }
+            }
+        };
+        this.physicsStep = () => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.physicsStep();
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'physicsStep');
+                    }
+                }
+                else {
+                    script.physicsStep();
+                }
+            }
+        };
+        this.callSelectStart = (event) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onSelectStart(event);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onSelectStart');
+                    }
+                }
+                else {
+                    script.onSelectStart(event);
+                }
+            }
+        };
+        this.callSelectEnd = (event) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onSelectEnd(event);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onSelectEnd');
+                    }
+                }
+                else {
+                    script.onSelectEnd(event);
+                }
+            }
+        };
+        this.callSelect = (event) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onSelect(event);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onSelect');
+                    }
+                }
+                else {
+                    script.onSelect(event);
+                }
+            }
+        };
+        this.callSqueezeStart = (event) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onSqueezeStart(event);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onSqueezeStart');
+                    }
+                }
+                else {
+                    script.onSqueezeStart(event);
+                }
+            }
+        };
+        this.callSqueezeEnd = (event) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onSqueezeEnd(event);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onSqueezeEnd');
+                    }
+                }
+                else {
+                    script.onSqueezeEnd(event);
+                }
+            }
+        };
+        this.callSqueeze = (event) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onSqueeze(event);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onSqueeze');
+                    }
+                }
+                else {
+                    script.onSqueeze(event);
+                }
+            }
+        };
+        this.callKeyDown = (event) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onKeyDown(event);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onKeyDown');
+                    }
+                }
+                else {
+                    script.onKeyDown(event);
+                }
+            }
+        };
+        this.callKeyUp = (event) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onKeyUp(event);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onKeyUp');
+                    }
+                }
+                else {
+                    script.onKeyUp(event);
+                }
+            }
+        };
+        this.onXRSessionStarted = (session) => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onXRSessionStarted(session);
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onXRSessionStarted');
+                    }
+                }
+                else {
+                    script.onXRSessionStarted(session);
+                }
+            }
+        };
+        this.onXRSessionEnded = () => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onXRSessionEnded();
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onXRSessionEnded');
+                    }
+                }
+                else {
+                    script.onXRSessionEnded();
+                }
+            }
+        };
+        this.onSimulatorStarted = () => {
+            const catchExceptions = this.catchExceptions;
+            for (const script of this.scripts) {
+                if (catchExceptions) {
+                    try {
+                        script.onSimulatorStarted();
+                    }
+                    catch (error) {
+                        this.handleException(error instanceof Error ? error : new Error(String(error)), script, 'onSimulatorStarted');
+                    }
+                }
+                else {
+                    script.onSimulatorStarted();
+                }
+            }
+        };
+    }
+    handleException(error, script, context) {
+        console.error(`An error occurred in script ${script.name || script.constructor.name} [${context}]:`, error);
+        this.dispatchEvent({
+            type: ScriptsManagerEventType.EXCEPTION,
+            scriptName: script.name || script.constructor.name,
+            context,
+            error,
+            timestamp: performance.now(),
+        });
     }
     /**
      * Initializes a script and adds it to the set of scripts which will receive
@@ -2999,16 +3308,6 @@ class ScriptsManager {
         this.initializingScripts.delete(script);
     }
     /**
-     * Helper for scene traversal to avoid closure allocation.
-     */
-    checkScript(obj) {
-        if (obj.isXRScript) {
-            const script = obj;
-            this.syncPromises.push(this.initScript(script));
-            this.seenScripts.add(script);
-        }
-    }
-    /**
      * Finds all scripts in the scene and initializes them or uninitailizes them.
      * Returns a promise which resolves when all new scripts are finished
      * initalizing.
@@ -3017,7 +3316,7 @@ class ScriptsManager {
     syncScriptsWithScene(scene) {
         this.seenScripts.clear();
         this.syncPromises.length = 0;
-        scene.traverse(this.checkScriptBound);
+        scene.traverse(this.checkScript);
         // Delete missing scripts.
         for (const script of this.scripts) {
             if (!this.seenScripts.has(script)) {
@@ -3025,61 +3324,6 @@ class ScriptsManager {
             }
         }
         return Promise.allSettled(this.syncPromises);
-    }
-    callSelectStart(event) {
-        for (const script of this.scripts) {
-            script.onSelectStart(event);
-        }
-    }
-    callSelectEnd(event) {
-        for (const script of this.scripts) {
-            script.onSelectEnd(event);
-        }
-    }
-    callSelect(event) {
-        for (const script of this.scripts) {
-            script.onSelect(event);
-        }
-    }
-    callSqueezeStart(event) {
-        for (const script of this.scripts) {
-            script.onSqueezeStart(event);
-        }
-    }
-    callSqueezeEnd(event) {
-        for (const script of this.scripts) {
-            script.onSqueezeEnd(event);
-        }
-    }
-    callSqueeze(event) {
-        for (const script of this.scripts) {
-            script.onSqueeze(event);
-        }
-    }
-    callKeyDown(event) {
-        for (const script of this.scripts) {
-            script.onKeyDown(event);
-        }
-    }
-    callKeyUp(event) {
-        for (const script of this.scripts) {
-            script.onKeyUp(event);
-        }
-    }
-    onXRSessionStarted(session) {
-        for (const script of this.scripts) {
-            script.onXRSessionStarted(session);
-        }
-    }
-    onXRSessionEnded() {
-        for (const script of this.scripts) {
-            script.onXRSessionEnded();
-        }
-    }
-    onSimulatorStarted() {
-        for (const script of this.scripts) {
-            script.onSimulatorStarted();
-        }
     }
 }
 
@@ -3129,8 +3373,25 @@ class WebXRSessionManager extends THREE.EventDispatcher {
         this.renderer = renderer;
         this.sessionInit = sessionInit;
         this.mode = mode;
-        this.onSessionEndedBound = this.onSessionEndedInternal.bind(this);
         this.waitingForXRSession = false;
+        /** Internal callback for when a session successfully starts. */
+        this.onSessionStartedInternal = async (session) => {
+            session.addEventListener('end', this.onSessionEndedInternal);
+            await this.renderer.xr.setSession(session);
+            this.currentSession = session;
+            // Fire the 'sessionstart' event with the session in the data payload
+            this.dispatchEvent({
+                type: WebXRSessionEventType.SESSION_START,
+                session: session,
+            });
+        };
+        /** Internal callback for when the session ends. */
+        this.onSessionEndedInternal = () => {
+            // Fire the 'sessionend' event
+            this.dispatchEvent({ type: WebXRSessionEventType.SESSION_END });
+            this.currentSession?.removeEventListener('end', this.onSessionEndedInternal);
+            this.currentSession = undefined;
+        };
     }
     /**
      * Checks for WebXR support and availability of the requested session mode.
@@ -3172,7 +3433,7 @@ class WebXRSessionManager extends THREE.EventDispatcher {
             // Automatically start session if 'offerSession' is available
             if (navigator.xr.offerSession !== undefined) {
                 navigator.xr.offerSession(this.mode, this.sessionOptions)
-                    .then(this.onSessionStartedInternal.bind(this))
+                    .then(this.onSessionStartedInternal)
                     .catch((err) => {
                     console.warn(err);
                 });
@@ -3206,7 +3467,10 @@ class WebXRSessionManager extends THREE.EventDispatcher {
             .finally(() => {
             this.waitingForXRSession = false;
         })
-            .then(this.onSessionStartedInternal.bind(this));
+            .then(this.onSessionStartedInternal)
+            .catch((err) => {
+            console.error('Error requesting session', err, 'mode:', this.mode, 'sesionOptions:', this.sessionOptions);
+        });
     }
     /**
      * Ends the WebXR session.
@@ -3227,24 +3491,6 @@ class WebXRSessionManager extends THREE.EventDispatcher {
     }
     getSessionOptions() {
         return this.sessionOptions;
-    }
-    /** Internal callback for when a session successfully starts. */
-    async onSessionStartedInternal(session) {
-        session.addEventListener('end', this.onSessionEndedBound);
-        await this.renderer.xr.setSession(session);
-        this.currentSession = session;
-        // Fire the 'sessionstart' event with the session in the data payload
-        this.dispatchEvent({
-            type: WebXRSessionEventType.SESSION_START,
-            session: session,
-        });
-    }
-    /** Internal callback for when the session ends. */
-    onSessionEndedInternal( /*event*/) {
-        // Fire the 'sessionend' event
-        this.dispatchEvent({ type: WebXRSessionEventType.SESSION_END });
-        this.currentSession?.removeEventListener('end', this.onSessionEndedBound);
-        this.currentSession = undefined;
     }
 }
 
@@ -3426,8 +3672,9 @@ class XREffects {
         renderer.xr.cameraAutoUpdate = false;
         renderer.xr.enabled = false;
         const deltaTime = this.timer.getDelta();
-        if (renderer.xr.getCamera().cameras.length == 2) {
-            for (let camIndex = 0; camIndex < 2; ++camIndex) {
+        const numCameras = renderer.xr.getCamera().cameras.length;
+        if (numCameras > 0) {
+            for (let camIndex = 0; camIndex < numCameras; ++camIndex) {
                 const cam = renderer.xr.getCamera().cameras[camIndex];
                 renderer.setViewport(cam.viewport);
                 renderer.setRenderTarget(renderTargets[camIndex]);
@@ -3439,18 +3686,18 @@ class XREffects {
             renderer.clear();
             renderer.xr.isPresenting = false;
             renderer.autoClearColor = false;
-            for (let eye = 0; eye < 2; eye++) {
+            for (let eye = 0; eye < numCameras; eye++) {
                 for (let i = 0; i < this.passes.length - 1; ++i) {
                     const lastRenderTargetIndex = i % 2;
                     const nextRenderTargetIndex = (i + 1) % 2;
-                    defaultTarget.viewport.set((eye * this.dimensions.x) / 2, 0, this.dimensions.x / 2, this.dimensions.y);
+                    defaultTarget.viewport.set((eye * this.dimensions.x) / numCameras, 0, this.dimensions.x / numCameras, this.dimensions.y);
                     this.passes[i].render(renderer, this.renderTargets[2 * nextRenderTargetIndex + eye], this.renderTargets[2 * lastRenderTargetIndex + eye], deltaTime, 
                     /*maskActive=*/ false, 
                     /*viewId=*/ eye);
                 }
                 if (this.passes.length > 0) {
                     const lastRenderTargetIndex = (this.passes.length - 1) % 2;
-                    defaultTarget.viewport.set((eye * this.dimensions.x) / 2, 0, this.dimensions.x / 2, this.dimensions.y);
+                    defaultTarget.viewport.set((eye * this.dimensions.x) / numCameras, 0, this.dimensions.x / numCameras, this.dimensions.y);
                     this.passes[this.passes.length - 1].render(renderer, defaultTarget, this.renderTargets[2 * lastRenderTargetIndex + eye], deltaTime, 
                     /*maskActive=*/ false, 
                     /*viewId=*/ eye);
@@ -3531,6 +3778,7 @@ uniform float uDebug;
 uniform float uOpacity;
 uniform bool uUsingFloatDepth;
 uniform bool uIsTextureArray;
+uniform mat4 uNormDepthBufferFromNormView;
 
 float saturate(in float x) {
   return clamp(x, 0.0, 1.0);
@@ -3601,13 +3849,13 @@ void main() {
     return;
   }
 
-  vec2 depth_uv = uv;
-  depth_uv.y = 1.0 - depth_uv.y;
+  vec2 view_uv = vec2(uv.x, 1.0 - uv.y);
+  vec2 depth_uv = (uNormDepthBufferFromNormView * vec4(view_uv, 0.0, 1.0)).xy;
 
   float depth = (uIsTextureArray ? DepthArrayGetMeters(uDepthTextureArray, depth_uv) : DepthGetMeters(uDepthTexture, depth_uv)) * 8.0;
   float normalized_depth =
     saturate((depth - uMinDepth) / (uMaxDepth - uMinDepth));
-  gl_FragColor = uOpacity * vec4(TurboColormap(normalized_depth), 1.0);
+  gl_FragColor =  vec4(TurboColormap(normalized_depth), 1.0);
 }
 `,
 };
@@ -3647,13 +3895,16 @@ class DepthMesh extends MeshScript {
                 uOpacity: { value: options.opacity },
                 uDebug: { value: options.showDebugTexture ? 1.0 : 0.0 },
                 uLightDirection: { value: new THREE.Vector3(1.0, 1.0, 1.0).normalize() },
-                uUsingFloatDepth: { value: depthOptions.useFloat32 },
+                uUsingFloatDepth: {
+                    value: depthOptions.dataFormatPreference[0] === 'float32',
+                },
+                uNormDepthBufferFromNormView: { value: new THREE.Matrix4() },
             };
             material = new THREE.ShaderMaterial({
                 uniforms: uniforms,
                 vertexShader: DepthMeshTexturedShader.vertexShader,
                 fragmentShader: DepthMeshTexturedShader.fragmentShader,
-                side: THREE.FrontSide,
+                side: THREE.DoubleSide,
                 transparent: true,
             });
         }
@@ -3708,21 +3959,29 @@ class DepthMesh extends MeshScript {
      * Updates the depth data and geometry positions based on the provided camera
      * and depth data.
      */
-    updateDepth(depthData, projectionMatrixInverse) {
+    updateDepth(depthData, projectionMatrixInverse, depthDataFormat) {
         this.projectionMatrixInverse = projectionMatrixInverse;
         this.minDepth = 8;
         this.maxDepth = 0;
         if (this.options.updateFullResolutionGeometry) {
-            this.updateFullResolutionGeometry(depthData);
+            this.updateFullResolutionGeometry(depthData, depthDataFormat);
         }
         if (this.downsampledGeometry) {
-            this.updateGeometry(depthData, this.downsampledGeometry);
+            this.updateGeometry(depthData, this.downsampledGeometry, depthDataFormat);
         }
         this.minDepthPrev = this.minDepth;
         this.maxDepthPrev = this.maxDepth;
         this.geometry.attributes.position.needsUpdate = true;
         const depthTextureLeft = this.depthTextures?.get(0);
         if (depthTextureLeft && this.depthTextureMaterialUniforms) {
+            this.depthTextureMaterialUniforms.uUsingFloatDepth.value =
+                depthDataFormat === 'float32';
+            if (depthData.normDepthBufferFromNormView) {
+                this.depthTextureMaterialUniforms.uNormDepthBufferFromNormView.value.fromArray(depthData.normDepthBufferFromNormView.matrix);
+            }
+            else {
+                this.depthTextureMaterialUniforms.uNormDepthBufferFromNormView.value.identity();
+            }
             const isTextureArray = depthTextureLeft instanceof THREE.ExternalTexture;
             this.depthTextureMaterialUniforms.uIsTextureArray.value = isTextureArray
                 ? 1.0
@@ -3754,100 +4013,44 @@ class DepthMesh extends MeshScript {
             this.downsampledMesh.updateMatrixWorld();
         }
     }
-    updateGPUDepth(depthData, projectionMatrixInverse) {
-        this.updateDepth(this.convertGPUToGPU(depthData), projectionMatrixInverse);
-    }
-    convertGPUToGPU(depthData) {
-        if (!this.depthTarget) {
-            this.depthTarget = new THREE.WebGLRenderTarget(depthData.width, depthData.height, {
-                format: THREE.RedFormat,
-                type: THREE.FloatType,
-                internalFormat: 'R32F',
-                minFilter: THREE.NearestFilter,
-                magFilter: THREE.NearestFilter,
-                depthBuffer: false,
-            });
-            this.depthTexture = new THREE.ExternalTexture(depthData.texture);
-            const textureProperties = this.renderer.properties.get(this.depthTexture);
-            textureProperties.__webglTexture = depthData.texture;
-            this.gpuPixels = new Float32Array(depthData.width * depthData.height);
-            const depthShader = new THREE.ShaderMaterial({
-                vertexShader: `
-                varying vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    vUv.y = 1.0-vUv.y;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
-                fragmentShader: `
-                precision highp float;
-                precision highp sampler2DArray;
-
-                uniform sampler2DArray uTexture;
-                uniform float uCameraNear;
-                varying vec2 vUv;
-
-                void main() {
-                  float z = texture(uTexture, vec3(vUv, 0)).r;
-                  z = uCameraNear / (1.0 - z);
-                  z = clamp(z, 0.0, 20.0);
-                  gl_FragColor = vec4(z, 0, 0, 1.0);
-                }
-            `,
-                uniforms: {
-                    uTexture: { value: this.depthTexture },
-                    uCameraNear: {
-                        value: depthData.depthNear,
-                    },
-                },
-                blending: THREE.NoBlending,
-                depthTest: false,
-                depthWrite: false,
-                side: THREE.DoubleSide,
-            });
-            const depthMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), depthShader);
-            this.depthScene = new THREE.Scene();
-            this.depthScene.add(depthMesh);
-            this.depthCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        }
-        const originalRenderTarget = this.renderer.getRenderTarget();
-        this.renderer.xr.enabled = false;
-        this.renderer.setRenderTarget(this.depthTarget);
-        this.renderer.render(this.depthScene, this.depthCamera);
-        this.renderer.readRenderTargetPixels(this.depthTarget, 0, 0, depthData.width, depthData.height, this.gpuPixels, 0);
-        this.renderer.xr.enabled = true;
-        this.renderer.setRenderTarget(originalRenderTarget);
-        return {
-            width: depthData.width,
-            height: depthData.height,
-            data: this.gpuPixels.buffer,
-            rawValueToMeters: depthData.rawValueToMeters,
-        };
-    }
     /**
      * Method to manually update the full resolution geometry.
      * Only needed if options.updateFullResolutionGeometry is false.
      */
-    updateFullResolutionGeometry(depthData) {
-        this.updateGeometry(depthData, this.geometry);
+    updateFullResolutionGeometry(depthData, depthDataFormat) {
+        this.updateGeometry(depthData, this.geometry, depthDataFormat);
     }
     /**
      * Internal method to update the geometry of the depth mesh.
      */
-    updateGeometry(depthData, geometry) {
+    updateGeometry(depthData, geometry, depthDataFormat) {
         const width = depthData.width;
         const height = depthData.height;
-        const depthArray = this.depthOptions.useFloat32
+        const depthArray = depthDataFormat === 'float32'
             ? new Float32Array(depthData.data)
             : new Uint16Array(depthData.data);
         const vertexPosition = new THREE.Vector3();
+        const normViewCoord = new THREE.Vector3();
+        const normDepthBufferFromNormView = depthData.normDepthBufferFromNormView
+            ? new THREE.Matrix4().fromArray(depthData.normDepthBufferFromNormView.matrix)
+            : new THREE.Matrix4().identity();
         for (let i = 0; i < geometry.attributes.position.count; ++i) {
             const u = geometry.attributes.uv.array[2 * i];
             const v = geometry.attributes.uv.array[2 * i + 1];
+            let sampleU = u;
+            let sampleV = v;
+            if (depthData.normDepthBufferFromNormView) {
+                normViewCoord.set(u, 1.0 - v, 0);
+                normViewCoord.applyMatrix4(normDepthBufferFromNormView);
+                sampleU = normViewCoord.x;
+                sampleV = normViewCoord.y;
+            }
+            else {
+                sampleV = 1.0 - v;
+            }
             // Grabs the nearest for now.
-            const depthX = Math.round(clamp(u * (width - 1), 0, width - 1));
-            const depthY = Math.round(clamp((1.0 - v) * (height - 1), 0, height - 1));
+            const depthX = Math.round(clamp(sampleU * (width - 1), 0, width - 1));
+            const depthY = Math.round(clamp(sampleV * (height - 1), 0, height - 1));
             const rawDepth = depthArray[depthY * width + depthX];
             let depth = depthData.rawValueToMeters * rawDepth;
             // Finds global min/max.
@@ -4008,7 +4211,8 @@ class DepthOptions {
         };
         // Occlusion pass.
         this.occlusion = { enabled: false };
-        this.useFloat32 = true;
+        this.usagePreference = [];
+        this.dataFormatPreference = ['float32', 'luminance-alpha'];
         this.depthTypeRequest = ['raw'];
         this.matchDepthView = true;
         deepMerge(this, options);
@@ -4084,11 +4288,11 @@ class DepthTextures {
         this.nativeTextures = [];
         this.depthData = [];
     }
-    createDataDepthTextures(depthData, viewId) {
+    createDataDepthTextures(depthData, viewId, depthDataFormat) {
         if (this.dataTextures[viewId]) {
             this.dataTextures[viewId].dispose();
         }
-        if (this.options.useFloat32) {
+        if (depthDataFormat === 'float32') {
             const typedArray = new Float32Array(depthData.width * depthData.height);
             const format = THREE.RedFormat;
             const type = THREE.FloatType;
@@ -4103,13 +4307,13 @@ class DepthTextures {
             this.dataTextures[viewId] = new THREE.DataTexture(typedArray, depthData.width, depthData.height, format, type);
         }
     }
-    updateData(depthData, viewId) {
+    updateData(depthData, viewId, depthDataFormat) {
         if (this.dataTextures.length < viewId + 1 ||
             this.dataTextures[viewId].image.width !== depthData.width ||
             this.dataTextures[viewId].image.height !== depthData.height) {
-            this.createDataDepthTextures(depthData, viewId);
+            this.createDataDepthTextures(depthData, viewId, depthDataFormat);
         }
-        if (this.options.useFloat32) {
+        if (depthDataFormat === 'float32') {
             this.float32Arrays[viewId].set(new Float32Array(depthData.data));
         }
         else {
@@ -4119,7 +4323,7 @@ class DepthTextures {
         this.depthData[viewId] = depthData;
     }
     updateNativeTexture(depthData, renderer, viewId) {
-        if (this.dataTextures.length < viewId + 1) {
+        if (this.nativeTextures.length < viewId + 1) {
             this.nativeTextures[viewId] = new THREE.ExternalTexture(depthData.texture);
         }
         else {
@@ -4135,6 +4339,83 @@ class DepthTextures {
             return this.dataTextures[viewId];
         }
         return this.nativeTextures[viewId];
+    }
+}
+
+class GPUDepthConverter {
+    constructor(renderer) {
+        this.renderer = renderer;
+    }
+    /**
+     * Converts unsigned short GPU depth from Quest 3 to float32 CPU depth.
+     */
+    convertGPUToCPU(depthData) {
+        if (!this.depthTarget) {
+            this.depthTarget = new THREE.WebGLRenderTarget(depthData.width, depthData.height, {
+                format: THREE.RedFormat,
+                type: THREE.FloatType,
+                internalFormat: 'R32F',
+                minFilter: THREE.NearestFilter,
+                magFilter: THREE.NearestFilter,
+                depthBuffer: false,
+            });
+            this.depthTexture = new THREE.ExternalTexture(depthData.texture);
+            const textureProperties = this.renderer.properties.get(this.depthTexture);
+            textureProperties.__webglTexture = depthData.texture;
+            this.gpuPixels = new Float32Array(depthData.width * depthData.height);
+            const depthShader = new THREE.ShaderMaterial({
+                vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    vUv.y = 1.0-vUv.y;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+                fragmentShader: `
+                precision highp float;
+                precision highp sampler2DArray;
+
+                uniform sampler2DArray uTexture;
+                uniform float uCameraNear;
+                varying vec2 vUv;
+
+                void main() {
+                  float z = texture(uTexture, vec3(vUv, 0)).r;
+                  z = uCameraNear / (1.0 - z);
+                  z = clamp(z, 0.0, 20.0);
+                  gl_FragColor = vec4(z, 0, 0, 1.0);
+                }
+            `,
+                uniforms: {
+                    uTexture: { value: this.depthTexture },
+                    uCameraNear: {
+                        value: depthData.depthNear,
+                    },
+                },
+                blending: THREE.NoBlending,
+                depthTest: false,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+            });
+            const depthMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), depthShader);
+            this.depthScene = new THREE.Scene();
+            this.depthScene.add(depthMesh);
+            this.depthCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        }
+        const originalRenderTarget = this.renderer.getRenderTarget();
+        this.renderer.xr.enabled = false;
+        this.renderer.setRenderTarget(this.depthTarget);
+        this.renderer.render(this.depthScene, this.depthCamera);
+        this.renderer.readRenderTargetPixels(this.depthTarget, 0, 0, depthData.width, depthData.height, this.gpuPixels, 0);
+        this.renderer.xr.enabled = true;
+        this.renderer.setRenderTarget(originalRenderTarget);
+        return {
+            width: depthData.width,
+            height: depthData.height,
+            data: this.gpuPixels.buffer,
+            rawValueToMeters: depthData.rawValueToMeters,
+        };
     }
 }
 
@@ -4681,6 +4962,7 @@ class Depth {
         this.options = options;
         this.renderer = renderer;
         this.enabled = options.enabled;
+        this.gpuDepthConverter = new GPUDepthConverter(renderer);
         if (this.options.depthTexture.enabled) {
             this.depthTextures = new DepthTextures(options);
             registry.register(this.depthTextures);
@@ -4809,49 +5091,48 @@ class Depth {
             .invert();
         this.depthViewProjectionMatrices[viewId].multiplyMatrices(this.depthProjectionMatrices[viewId], this.depthViewMatrices[viewId]);
     }
-    updateCPUDepthData(depthData, viewId = 0) {
+    updateCPUDepthData(depthData, viewId, depthDataFormat) {
         this.cpuDepthData[viewId] = depthData;
+        this.depthDataFormat = depthDataFormat;
         this.updateDepthMatrices(depthData, viewId);
         // Updates Depth Array.
-        this.depthArray[viewId] = this.options.useFloat32
-            ? new Float32Array(depthData.data)
-            : new Uint16Array(depthData.data);
+        this.depthArray[viewId] =
+            depthDataFormat === 'float32'
+                ? new Float32Array(depthData.data)
+                : new Uint16Array(depthData.data);
         this.width = depthData.width;
         this.height = depthData.height;
         // Updates Depth Texture.
         if (this.options.depthTexture.enabled && this.depthTextures) {
-            this.depthTextures.updateData(depthData, viewId);
+            this.depthTextures.updateData(depthData, viewId, depthDataFormat);
         }
         if (this.options.depthMesh.enabled && this.depthMesh && viewId == 0) {
             if (this.shouldUpdateDepthMesh()) {
-                this.depthMesh.updateDepth(depthData, this.depthProjectionInverseMatrices[0]);
+                this.depthMesh.updateDepth(depthData, this.depthProjectionInverseMatrices[0], depthDataFormat);
             }
             this.depthMesh.updatePose(this.depthCameraPositions[0], this.depthCameraRotations[0]);
         }
     }
-    updateGPUDepthData(depthData, viewId = 0) {
+    updateGPUDepthData(depthData, viewId) {
         this.gpuDepthData[viewId] = depthData;
         this.updateDepthMatrices(depthData, viewId);
         // For now, assume that we need cpu depth only if depth mesh is enabled.
         // In the future, add a separate option.
         const needCpuDepth = this.options.depthMesh.enabled;
-        const cpuDepth = needCpuDepth && this.depthMesh
-            ? this.depthMesh.convertGPUToGPU(depthData)
+        const cpuDepth = needCpuDepth && this.gpuDepthConverter
+            ? this.gpuDepthConverter.convertGPUToCPU(depthData)
             : null;
         if (cpuDepth) {
-            if (this.depthArray[viewId] == null) {
-                this.depthArray[viewId] = this.options.useFloat32
-                    ? new Float32Array(cpuDepth.data)
-                    : new Uint16Array(cpuDepth.data);
-                this.width = cpuDepth.width;
-                this.height = cpuDepth.height;
+            this.cpuDepthData[viewId] = cpuDepth;
+            this.depthDataFormat = 'float32';
+            if (this.depthArray[viewId] instanceof Float32Array) {
+                this.depthArray[viewId].set(new Float32Array(cpuDepth.data));
             }
             else {
-                // Copies the data from an ArrayBuffer to the existing TypedArray.
-                this.depthArray[viewId].set(this.options.useFloat32
-                    ? new Float32Array(cpuDepth.data)
-                    : new Uint16Array(cpuDepth.data));
+                this.depthArray[viewId] = new Float32Array(cpuDepth.data);
             }
+            this.width = cpuDepth.width;
+            this.height = cpuDepth.height;
         }
         // Updates Depth Texture.
         if (this.options.depthTexture.enabled && this.depthTextures) {
@@ -4860,10 +5141,7 @@ class Depth {
         if (this.options.depthMesh.enabled && this.depthMesh && viewId == 0) {
             if (this.shouldUpdateDepthMesh()) {
                 if (cpuDepth) {
-                    this.depthMesh.updateDepth(cpuDepth, this.depthProjectionInverseMatrices[0]);
-                }
-                else {
-                    this.depthMesh.updateGPUDepth(depthData, this.depthProjectionInverseMatrices[0]);
+                    this.depthMesh.updateDepth(cpuDepth, this.depthProjectionInverseMatrices[0], 'float32');
                 }
             }
             this.depthMesh.updatePose(this.depthCameraPositions[0], this.depthCameraRotations[0]);
@@ -4937,7 +5215,7 @@ class Depth {
                         if (!depthData) {
                             return;
                         }
-                        this.updateCPUDepthData(depthData, viewId);
+                        this.updateCPUDepthData(depthData, viewId, session.depthDataFormat ?? 'luminance-alpha');
                     }
                 }
             }
@@ -4981,6 +5259,16 @@ class Depth {
     pauseDepth(client) {
         this.depthClientsInitialized = true;
         this.depthClients.delete(client);
+    }
+    /**
+     * Manually updates the depth mesh geometry using the cached depth.
+     */
+    updateFullResolutionDepthMesh() {
+        if (this.depthMesh &&
+            this.cpuDepthData.length > 0 &&
+            this.depthDataFormat) {
+            this.depthMesh.updateFullResolutionGeometry(this.cpuDepthData[0], this.depthDataFormat);
+        }
     }
 }
 
@@ -5440,6 +5728,262 @@ class ControllerRayVisual extends THREE.Line {
     raycast() { }
 }
 
+const STORAGE_KEY = 'xrblocks:simulator:gamepad-bindings:v1';
+const DEFAULT_BINDINGS = {
+    select: 0, // A / Cross
+    cycleHandPoseLeft: 14, // D-pad left
+    cycleHandPoseRight: 15, // D-pad right
+    cycleSimulatorMode: 3, // Y
+    toggleUI: 5, // RB / R1
+    toggleHand: 4, // LB / L1
+    moveUp: 6, // LT (analog) — matches keyboard Q
+    moveDown: 7, // RT (analog) — matches keyboard E
+    openSettings: 9, // Start / Menu
+};
+/**
+ * Manages gamepad button-to-action mappings with localStorage persistence.
+ * One button per action — assigning a button removes it from any previous action.
+ */
+class GamepadBindings {
+    constructor() {
+        this.bindings = { ...DEFAULT_BINDINGS };
+        this.load();
+    }
+    getBinding(action) {
+        return this.bindings[action];
+    }
+    getAllBindings() {
+        return { ...this.bindings };
+    }
+    setBinding(action, buttonIndex) {
+        // openSettings must always be bound so users can never lock themselves
+        // out of the menu — silently ignore attempts to rebind or unbind it,
+        // and refuse to assign its button to any other action.
+        if (action === 'openSettings')
+            return;
+        if (buttonIndex === this.bindings.openSettings)
+            return;
+        // Auto-unbind any other action using this button, except openSettings
+        // (same lock-out reason).
+        for (const key of Object.keys(this.bindings)) {
+            if (key !== action &&
+                key !== 'openSettings' &&
+                this.bindings[key] === buttonIndex) {
+                this.bindings[key] = -1;
+            }
+        }
+        this.bindings[action] = buttonIndex;
+        this.save();
+    }
+    resetDefaults() {
+        this.bindings = { ...DEFAULT_BINDINGS };
+        this.save();
+    }
+    load() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw)
+                return;
+            const parsed = JSON.parse(raw);
+            if (parsed?.version !== 1 || typeof parsed.bindings !== 'object')
+                return;
+            for (const key of Object.keys(DEFAULT_BINDINGS)) {
+                if (typeof parsed.bindings[key] === 'number') {
+                    this.bindings[key] = parsed.bindings[key];
+                }
+            }
+        }
+        catch {
+            // localStorage unavailable or corrupted — keep defaults.
+        }
+    }
+    save() {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, bindings: this.bindings }));
+        }
+        catch {
+            // localStorage unavailable — silently continue.
+        }
+    }
+}
+
+const DEADZONE = 0.15;
+/**
+ * Simulates an XR controller using a connected gamepad (Xbox/PS).
+ * The controller ray always points forward from the camera center,
+ * similar to GazeController but with button-driven selection.
+ */
+class GamepadController extends Script {
+    static { this.dependencies = {
+        camera: THREE.Camera,
+    }; }
+    constructor() {
+        super();
+        this.type = 'GamepadController';
+        this.name = 'Gamepad Controller';
+        this.userData = { id: 4, connected: false, selected: false };
+        this.bindings = new GamepadBindings();
+        /** True if the toast has been shown this session. */
+        this.hasShownToast = false;
+        /** When true, normal gamepad UI/select actions are suppressed (modal menu). */
+        this.menuActive = false;
+        this._prevButtons = [];
+        this._risingEdges = [];
+        this._captureCallback = null;
+    }
+    init({ camera }) {
+        this.camera = camera;
+    }
+    /**
+     * Enters capture mode — the next button press will invoke the callback
+     * instead of triggering normal actions, then exit capture mode.
+     */
+    captureNextButtonPress(callback) {
+        this._captureCallback = callback;
+    }
+    cancelCapture() {
+        this._captureCallback = null;
+    }
+    get captureActive() {
+        return this._captureCallback !== null;
+    }
+    update() {
+        super.update();
+        const gp = this._pollGamepad();
+        if (gp && !this.userData.connected) {
+            this.activeGamepad = gp;
+            this.gamepad = gp;
+            this.dispatchEvent({ type: 'connected', target: this });
+        }
+        else if (!gp && this.userData.connected) {
+            this._onDisconnect();
+            return;
+        }
+        if (!gp || !this.userData.connected)
+            return;
+        this.activeGamepad = gp;
+        // Compute rising edges for this frame (before any consumption).
+        for (let i = 0; i < gp.buttons.length; i++) {
+            const down = gp.buttons[i]?.pressed ?? false;
+            const wasDown = this._prevButtons[i] ?? false;
+            this._risingEdges[i] = down && !wasDown;
+        }
+        // Sync pose with camera (center-screen ray, like GazeController).
+        this.position.copy(this.camera.position);
+        this.quaternion.copy(this.camera.quaternion);
+        this.updateMatrixWorld();
+        // Check for capture mode on any rising edge.
+        if (this._captureCallback) {
+            for (let i = 0; i < gp.buttons.length; i++) {
+                if (this._risingEdges[i]) {
+                    const cb = this._captureCallback;
+                    this._captureCallback = null;
+                    cb(i);
+                    this._updatePrevButtons(gp);
+                    return; // Consume all input this frame.
+                }
+            }
+        }
+        // Normal select handling via bindings (suppressed when a modal menu is
+        // active so A-button activates UI rather than firing scene selects).
+        if (!this.menuActive) {
+            const selectBtn = this.bindings.getBinding('select');
+            const selectDown = gp.buttons[selectBtn]?.pressed ?? false;
+            const selectWas = this._prevButtons[selectBtn] ?? false;
+            if (selectDown && !selectWas)
+                this.callSelectStart();
+            if (!selectDown && selectWas)
+                this.callSelectEnd();
+        }
+        this._updatePrevButtons(gp);
+    }
+    callSelectStart() {
+        this.dispatchEvent({ type: 'selectstart', target: this });
+    }
+    callSelectEnd() {
+        this.dispatchEvent({ type: 'selectend', target: this });
+    }
+    connect() {
+        this.dispatchEvent({ type: 'connected', target: this });
+    }
+    disconnect() {
+        this.dispatchEvent({ type: 'disconnected', target: this });
+    }
+    /**
+     * Returns the axes of the active gamepad with deadzone applied.
+     * [leftX, leftY, rightX, rightY]
+     */
+    getAxes() {
+        const gp = this.activeGamepad;
+        if (!gp)
+            return [0, 0, 0, 0];
+        return [
+            GamepadController.applyDeadzone(gp.axes[0] ?? 0),
+            GamepadController.applyDeadzone(gp.axes[1] ?? 0),
+            GamepadController.applyDeadzone(gp.axes[2] ?? 0),
+            GamepadController.applyDeadzone(gp.axes[3] ?? 0),
+        ];
+    }
+    static applyDeadzone(value) {
+        if (!Number.isFinite(value))
+            return 0;
+        if (Math.abs(value) < DEADZONE)
+            return 0;
+        const sign = Math.sign(value);
+        return sign * ((Math.abs(value) - DEADZONE) / (1 - DEADZONE));
+    }
+    /**
+     * Returns the analog value (0..1) of the given button index, or 0 if
+     * unbound or no gamepad. Useful for triggers (which expose .value).
+     */
+    getButtonValue(index) {
+        if (index < 0)
+            return 0;
+        return this.activeGamepad?.buttons[index]?.value ?? 0;
+    }
+    /**
+     * Returns the analog values of the left and right triggers (LT, RT) on a
+     * standard-mapped gamepad, in [0, 1]. Returns [0, 0] when no gamepad.
+     */
+    getTriggers() {
+        const gp = this.activeGamepad;
+        if (!gp)
+            return [0, 0];
+        return [gp.buttons[6]?.value ?? 0, gp.buttons[7]?.value ?? 0];
+    }
+    /**
+     * Returns true if the given button index had a rising edge this frame.
+     * Safe to call from any update order — uses pre-computed edges.
+     */
+    isButtonJustPressed(buttonIndex) {
+        return this._risingEdges[buttonIndex] ?? false;
+    }
+    _updatePrevButtons(gp) {
+        for (let i = 0; i < gp.buttons.length; i++) {
+            this._prevButtons[i] = gp.buttons[i]?.pressed ?? false;
+        }
+    }
+    _pollGamepad() {
+        const gamepads = navigator.getGamepads?.();
+        if (!gamepads)
+            return null;
+        for (const pad of gamepads) {
+            if (pad && pad.connected && pad.mapping === 'standard')
+                return pad;
+        }
+        return null;
+    }
+    _onDisconnect() {
+        if (this.userData.selected) {
+            this.callSelectEnd();
+        }
+        this._prevButtons = [];
+        this._captureCallback = null;
+        this.activeGamepad = null;
+        this.dispatchEvent({ type: 'disconnected', target: this });
+    }
+}
+
 /**
  * A simple utility class for linearly animating a numeric value over
  * time. It clamps the value within a specified min/max range and updates it
@@ -5502,15 +6046,11 @@ class GazeController extends Script {
          * speed.
          */
         this.lastReticlePosition = new THREE.Vector3();
-        /**
-         * A clock to measure the time delta between frames for smooth animation and
-         * movement calculation.
-         */
-        this.clock = new THREE.Clock();
     }
-    static { this.dependencies = { camera: THREE.Camera }; }
-    init({ camera }) {
+    static { this.dependencies = { camera: THREE.Camera, timer: THREE.Timer }; }
+    init({ camera, timer }) {
         this.camera = camera;
+        this.timer = timer;
     }
     /**
      * The main update loop, called every frame by the core engine.
@@ -5522,7 +6062,7 @@ class GazeController extends Script {
         this.position.copy(this.camera.position);
         this.quaternion.copy(this.camera.quaternion);
         this.updateMatrixWorld();
-        const delta = this.clock.getDelta();
+        const delta = this.timer.getDelta();
         this.activationAmount.update(delta);
         const movement = this.lastReticlePosition.distanceTo(this.reticle.position) / delta;
         if (movement > PRESS_MOVEMENT_THRESHOLD) {
@@ -5700,6 +6240,7 @@ class Input {
         this.pivotsEnabled = false;
         this.gazeController = new GazeController();
         this.mouseController = new MouseController();
+        this.gamepadController = new GamepadController();
         this.controllersEnabled = true;
         this.listeners = new Map();
         this.intersectionsForController = new Map();
@@ -5726,6 +6267,8 @@ class Input {
         controllers.push(this.gazeController);
         controllers.push(this.mouseController);
         this.activeControllers.add(this.mouseController);
+        controllers.push(this.gamepadController);
+        this.activeControllers.add(this.gamepadController);
         for (const controller of controllers) {
             this.intersectionsForController.set(controller, []);
         }
@@ -6056,7 +6599,17 @@ class Input {
             return true;
         });
         if (!intersection) {
-            reticle.visible = false;
+            const fallback = this.options.reticles.defaultDistance;
+            if (fallback > 0) {
+                reticle.visible = true;
+                reticle.position
+                    .copy(this.raycaster.ray.origin)
+                    .addScaledVector(this.raycaster.ray.direction, fallback);
+                reticle.quaternion.identity();
+            }
+            else {
+                reticle.visible = false;
+            }
             return;
         }
         reticle.visible = true;
@@ -7356,6 +7909,393 @@ class GestureRecognition extends Script {
     }
 }
 
+/**
+ * Abstract base class for stroke recognition backends.
+ */
+class StrokeRecognizerBackend {
+    constructor(context) {
+        this.context = context;
+    }
+}
+
+const DEFAULT_SUPPORTED_SHAPES = [
+    'Triangle',
+    'Rectangle',
+    'Circle',
+    'V',
+    'Caret',
+];
+/** Calculates the Euclidean distance between two 2D points. */
+function distance(p1, p2) {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+/** Calculates the total length of a path defined by a list of points. */
+function pathLength(points) {
+    let d = 0;
+    for (let i = 1; i < points.length; i++) {
+        d += distance(points[i - 1], points[i]);
+    }
+    return d;
+}
+/** Resamples a path into n evenly spaced points. */
+function resample(points, n) {
+    const interval = pathLength(points) / (n - 1);
+    let D = 0;
+    const newPoints = [points[0]];
+    const pts = points.slice();
+    let i = 1;
+    while (i < pts.length) {
+        const pt1 = pts[i - 1];
+        const pt2 = pts[i];
+        const d = distance(pt1, pt2);
+        if (D + d >= interval) {
+            const t = (interval - D) / d;
+            const q = {
+                x: pt1.x + t * (pt2.x - pt1.x),
+                y: pt1.y + t * (pt2.y - pt1.y),
+            };
+            newPoints.push(q);
+            pts.splice(i, 0, q);
+            D = 0;
+        }
+        else {
+            D += d;
+        }
+        i++;
+    }
+    if (newPoints.length === n - 1) {
+        newPoints.push(pts[pts.length - 1]);
+    }
+    return newPoints;
+}
+/** Calculates the centroid (center of mass) of a list of points. */
+function getCentroid(points) {
+    let x = 0, y = 0;
+    for (let i = 0; i < points.length; i++) {
+        x += points[i].x;
+        y += points[i].y;
+    }
+    return { x: x / points.length, y: y / points.length };
+}
+/** Calculates the bounding box of a list of points. */
+function boundingBox(points) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < points.length; i++) {
+        minX = Math.min(minX, points[i].x);
+        maxX = Math.max(maxX, points[i].x);
+        minY = Math.min(minY, points[i].y);
+        maxY = Math.max(maxY, points[i].y);
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+/** Rotates a list of points by a given angle in radians around their centroid. */
+function rotateBy(points, radians, centroid = getCentroid(points)) {
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const newPoints = [];
+    for (let i = 0; i < points.length; i++) {
+        const qx = (points[i].x - centroid.x) * cos -
+            (points[i].y - centroid.y) * sin +
+            centroid.x;
+        const qy = (points[i].x - centroid.x) * sin +
+            (points[i].y - centroid.y) * cos +
+            centroid.y;
+        newPoints.push({ x: qx, y: qy });
+    }
+    return newPoints;
+}
+/** Rotates a list of points so that the angle between the first point and the centroid is zero. */
+function rotateToZero(points) {
+    const centroid = getCentroid(points);
+    const theta = Math.atan2(points[0].y - centroid.y, points[0].x - centroid.x);
+    return rotateBy(points, -theta, centroid);
+}
+/** Scales a list of points to a standard size (bounding box width/height becomes size). */
+function scaleTo(points, size) {
+    const B = boundingBox(points);
+    const newPoints = [];
+    const EPSILON = 1e-5;
+    const width = Math.max(B.width, EPSILON);
+    const height = Math.max(B.height, EPSILON);
+    for (let i = 0; i < points.length; i++) {
+        const qx = points[i].x * (size / width);
+        const qy = points[i].y * (size / height);
+        newPoints.push({ x: qx, y: qy });
+    }
+    return newPoints;
+}
+/** Translates a list of points so that their centroid matches the given point. */
+function translateTo(points, pt) {
+    const centroid = getCentroid(points);
+    const newPoints = [];
+    for (let i = 0; i < points.length; i++) {
+        const qx = points[i].x + pt.x - centroid.x;
+        const qy = points[i].y + pt.y - centroid.y;
+        newPoints.push({ x: qx, y: qy });
+    }
+    return newPoints;
+}
+/** Calculates the average distance between corresponding points in two paths. */
+function pathDistance(pts1, pts2) {
+    let d = 0;
+    for (let i = 0; i < pts1.length; i++) {
+        d += distance(pts1[i], pts2[i]);
+    }
+    return d / pts1.length;
+}
+/** Calculates the path distance between a candidate path and a template at a specific angle. */
+function distanceAtAngle(points, template, radians, centroid = getCentroid(points)) {
+    const newPoints = rotateBy(points, radians, centroid);
+    return pathDistance(newPoints, template.points);
+}
+/** Finds the minimum path distance between a candidate path and a template by searching for the best angle using Golden Section Search. */
+function distanceAtBestAngle(points, template, a, b, threshold) {
+    const phi = 0.5 * (Math.sqrt(5) - 1);
+    const centroid = getCentroid(points);
+    let x1 = phi * a + (1 - phi) * b;
+    let x2 = (1 - phi) * a + phi * b;
+    let f1 = distanceAtAngle(points, template, x1, centroid);
+    let f2 = distanceAtAngle(points, template, x2, centroid);
+    while (Math.abs(b - a) > threshold) {
+        if (f1 < f2) {
+            b = x2;
+            x2 = x1;
+            f2 = f1;
+            x1 = phi * a + (1 - phi) * b;
+            f1 = distanceAtAngle(points, template, x1, centroid);
+        }
+        else {
+            a = x1;
+            x1 = x2;
+            f1 = f2;
+            x2 = (1 - phi) * a + phi * b;
+            f2 = distanceAtAngle(points, template, x2, centroid);
+        }
+    }
+    return Math.min(f1, f2);
+}
+/**
+ * Implementation of the $1 Unistroke recognizer algorithm.
+ * It recognizes 2D strokes by comparing them against a set of predefined templates
+ * (e.g., Triangle, Rectangle, Circle) after preprocessing them (resampling, rotating, scaling).
+ * Supports bi-directional strokes by checking both forward and backward directions.
+ * Based on https://depts.washington.edu/acelab/proj/dollar/index.html.
+ */
+class OneDollarUnistrokeRecognizer extends StrokeRecognizerBackend {
+    constructor(context) {
+        super(context);
+        this.templates = [];
+        const enabledTemplates = context.supportedShapes || DEFAULT_SUPPORTED_SHAPES;
+        this.populateTemplates(enabledTemplates);
+    }
+    /**
+     * Recognizes a stroke from a list of 2D points by comparing it against stored templates.
+     * Supports both forward and backward matching to handle bi-directional strokes.
+     * @param points - The list of points captured during the stroke.
+     * @returns The recognition result containing the shape name and confidence score.
+     */
+    recognize(points) {
+        const resampledForward = resample(points, 64);
+        const resampledBackward = resampledForward.slice().reverse();
+        const pointsForwardUnrotated = this.scaleAndTranslate(resampledForward);
+        const pointsBackwardUnrotated = pointsForwardUnrotated.slice().reverse();
+        const pointsForwardRotated = this.scaleAndTranslate(rotateToZero(resampledForward));
+        const pointsBackwardRotated = this.scaleAndTranslate(rotateToZero(resampledBackward));
+        let bestDistance = Infinity;
+        let bestTemplateIndex = -1;
+        for (let i = 0; i < this.templates.length; i++) {
+            const useRotation = this.templates[i].useRotation;
+            const ptsForward = useRotation
+                ? pointsForwardRotated
+                : pointsForwardUnrotated;
+            const ptsBackward = useRotation
+                ? pointsBackwardRotated
+                : pointsBackwardUnrotated;
+            // Find the best matching angle for the stroke drawn in the forward direction.
+            // We search within +/- 45 degrees with a step threshold of 2 degrees.
+            const forwardDistance = distanceAtBestAngle(ptsForward, this.templates[i], (-45 * Math.PI) / 180, (45 * Math.PI) / 180, (2 * Math.PI) / 180);
+            // Find the best matching angle for the stroke drawn in the reverse direction.
+            // This allows the user to draw shapes in either direction (e.g. clockwise or counter-clockwise).
+            const backwardDistance = distanceAtBestAngle(ptsBackward, this.templates[i], (-45 * Math.PI) / 180, (45 * Math.PI) / 180, (2 * Math.PI) / 180);
+            if (forwardDistance < bestDistance) {
+                bestDistance = forwardDistance;
+                bestTemplateIndex = i;
+            }
+            if (backwardDistance < bestDistance) {
+                bestDistance = backwardDistance;
+                bestTemplateIndex = i;
+            }
+        }
+        return bestTemplateIndex !== -1
+            ? {
+                recognizedShape: this.templates[bestTemplateIndex].name,
+                confidence: this.calculateConfidence(bestDistance),
+            }
+            : { recognizedShape: 'Unknown', confidence: 0 };
+    }
+    /**
+     * Populates the templates based on the enabled shapes.
+     * @param enabledTemplates - List of shape names to enable.
+     */
+    populateTemplates(enabledTemplates) {
+        if (enabledTemplates.includes('Triangle')) {
+            // Triangle: Automatically generates 3 variations
+            this.addClosedTemplate('Triangle', [
+                { x: 0, y: 0 },
+                { x: 50, y: 100 },
+                { x: 100, y: 0 },
+            ]);
+        }
+        if (enabledTemplates.includes('Rectangle')) {
+            // Rectangle: Automatically generates 4 variations
+            this.addClosedTemplate('Rectangle', [
+                { x: 0, y: 0 },
+                { x: 0, y: 100 },
+                { x: 100, y: 100 },
+                { x: 100, y: 0 },
+            ]);
+        }
+        if (enabledTemplates.includes('V')) {
+            this.addTemplate('V', [
+                { x: 0, y: 100 },
+                { x: 50, y: 0 },
+                { x: 100, y: 100 },
+            ], false);
+        }
+        if (enabledTemplates.includes('Caret')) {
+            this.addTemplate('Caret', [
+                { x: 0, y: 0 },
+                { x: 50, y: 100 },
+                { x: 100, y: 0 },
+            ], false);
+        }
+        if (enabledTemplates.includes('Circle')) {
+            // Circle: Add 4 variations for different starting points
+            for (let offset = 0; offset < 4; offset++) {
+                const circlePoints = [];
+                const startAngle = (offset / 4) * Math.PI * 2;
+                for (let i = 0; i <= 20; i++) {
+                    const angle = startAngle + (i / 20) * Math.PI * 2;
+                    circlePoints.push({
+                        x: Math.cos(angle) * 100,
+                        y: Math.sin(angle) * 100,
+                    });
+                }
+                this.addTemplate('Circle', circlePoints);
+            }
+        }
+    }
+    /**
+     * Adds a template for a closed shape by automatically generating cyclic permutations
+     * of the points to support different starting points.
+     * @param name - The name of the shape.
+     * @param points -  The points defining the shape.
+     * @param useRotation - Whether to use rotation invariance.
+     */
+    addClosedTemplate(name, points, useRotation = true) {
+        const n = points.length;
+        for (let i = 0; i < n; i++) {
+            const permutedPoints = [];
+            for (let j = 0; j <= n; j++) {
+                permutedPoints.push(points[(i + j) % n]);
+            }
+            this.addTemplate(name, permutedPoints, useRotation);
+        }
+    }
+    /**
+     * Adds a template to the recognizer.
+     * @param name - The name of the shape.
+     * @param points - The points defining the shape.
+     * @param useRotation - Whether to use rotation invariance.
+     */
+    addTemplate(name, points, useRotation = true) {
+        this.templates.push({
+            name: name,
+            points: this.preprocess(points, useRotation),
+            useRotation: useRotation,
+        });
+    }
+    /**
+     * Preprocesses a list of points by resampling, optionally rotating to zero,
+     * scaling to a standard size, and translating to the origin.
+     * @param points - The list of points to preprocess.
+     * @param useRotation - Whether to rotate the points to zero.
+     * @returns The preprocessed list of points.
+     */
+    preprocess(points, useRotation = true) {
+        points = resample(points, 64);
+        if (useRotation) {
+            points = rotateToZero(points);
+        }
+        return this.scaleAndTranslate(points);
+    }
+    /**
+     * Scales points to a standard size and translates them to the origin.
+     * @param points - The list of points to scale and translate.
+     * @returns The scaled and translated list of points.
+     */
+    scaleAndTranslate(points) {
+        return translateTo(scaleTo(points, 250), { x: 0, y: 0 });
+    }
+    /**
+     * Calculates the confidence score based on the distance to the best matching template.
+     * @param distance - The distance to the best matching template.
+     * @returns The confidence score between 0 and 1.
+     */
+    calculateConfidence(distance) {
+        const size = 250; // Matching the size in preprocess
+        const diagonal = Math.sqrt(size * size + size * size);
+        const halfDiagonal = 0.5 * diagonal;
+        return 1 - distance / halfDiagonal;
+    }
+}
+
+class StrokeRecognitionOptions {
+    constructor(options) {
+        /** Master switch for the stroke recognition block. */
+        this.enabled = true;
+        /**
+         * Configuration for the stroke recognition provider.
+         */
+        this.providerConfig = {
+            /**
+             * Backing provider that recognizes strokes.
+             *  - 'onedollar': $1 Unistroke recognizer.
+             */
+            provider: 'onedollar',
+            /**
+             * Options specific to the 'onedollar' provider.
+             */
+            onedollar: {
+                supportedShapes: DEFAULT_SUPPORTED_SHAPES,
+            },
+        };
+        /**
+         * Delay in seconds after gesture start before recording points.
+         */
+        this.startDelay = 0.2;
+        /**
+         * Delay in seconds to ignore points before gesture end.
+         */
+        this.endDelay = 0.2;
+        /**
+         * The hand joint to track for stroke recognition.
+         */
+        this.joint = 'index-finger-tip';
+        /**
+         * Maximum number of points to capture in a single stroke.
+         */
+        this.maxPoints = 1000;
+        deepMerge(this, options);
+    }
+    enable() {
+        this.enabled = true;
+        return this;
+    }
+}
+
 const DEBUGGING = false;
 /**
  * Lighting provides XR lighting capabilities within the XR Blocks framework.
@@ -7718,23 +8658,30 @@ const DEFAULT_MODE_TOGGLE_ORDER = {
 class SimulatorOptions {
     constructor(options) {
         this.initialCameraPosition = { x: 0, y: 1.5, z: 0 };
-        this.scenePath = XR_BLOCKS_ASSETS_PATH + 'simulator/scenes/XREmulatorsceneV5_livingRoom.glb';
-        this.scenePlanesPath = XR_BLOCKS_ASSETS_PATH +
-            'simulator/scenes/XREmulatorsceneV5_livingRoom_planes.json';
-        this.videoPath = undefined;
+        this.environments = [
+            {
+                name: 'Living Room',
+                scenePath: XR_BLOCKS_ASSETS_PATH +
+                    'simulator/scenes/XREmulatorsceneV5_livingRoom.glb',
+                scenePlanesPath: XR_BLOCKS_ASSETS_PATH +
+                    'simulator/scenes/XREmulatorsceneV5_livingRoom_planes.json',
+            },
+        ];
+        this.activeEnvironmentIndex = 0;
         this.initialScenePosition = { x: -1.6, y: 0.3, z: 0 };
         this.defaultMode = SimulatorMode.USER;
         this.defaultHand = Handedness.LEFT;
         this.modeToggle = {
+            enabled: false,
             toggleKey: Keycodes.LEFT_SHIFT_CODE,
             toggleOrder: DEFAULT_MODE_TOGGLE_ORDER,
         };
-        this.modeIndicator = {
+        this.simulatorSettingsPanel = {
             enabled: true,
-            element: 'xrblocks-simulator-mode-indicator',
+            element: 'xrblocks-simulator-settings',
         };
         this.instructions = {
-            enabled: true,
+            enabled: false,
             element: 'xrblocks-simulator-instructions',
             customInstructions: [],
         };
@@ -7748,6 +8695,11 @@ class SimulatorOptions {
         };
         this.stereo = {
             enabled: false,
+        };
+        this.deviceCamera = {
+            // Whether to enable the simulator camera feed.
+            // If disabled, the actual device camera will be used instead.
+            enabled: true,
         };
         // Whether to render the main scene to a render texture before rendering the simulator scene
         // or directly to the canvas after rendering the simulator scene.
@@ -7786,6 +8738,27 @@ class SoundOptions {
     constructor() {
         this.speechSynthesizer = new SpeechSynthesizerOptions();
         this.speechRecognizer = new SpeechRecognizerOptions();
+    }
+}
+
+/**
+ * Options for configuring integration with \@pmndrs/uikit.
+ */
+class UIKitOptions {
+    constructor() {
+        /** Whether UIKit support is enabled. */
+        this.enabled = false;
+    }
+    /**
+     * Enables \@pmndrs/uikit integration.
+     *
+     * @param uikit - The imported `@pmndrs/uikit` module instance.
+     * @returns The instance for chaining.
+     */
+    enable(uikit) {
+        this.enabled = true;
+        this.reversePainterSortStable = uikit.reversePainterSortStable;
+        return this;
     }
 }
 
@@ -7842,8 +8815,13 @@ class ObjectsOptions {
                     },
                 },
             },
-            /** Placeholder for a future MediaPipe backend configuration. */
-            mediapipe: {},
+            /** Configuration for MediaPipe backend. */
+            mediapipe: {
+                wasmFilesUrl: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm',
+                // Check https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector#models for other models.
+                modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/int8/latest/efficientdet_lite2.tflite',
+                scoreThreshold: 0.5,
+            },
         };
         if (options) {
             deepMerge(this, options);
@@ -7873,6 +8851,34 @@ class PlanesOptions {
     }
 }
 
+class SoundsOptions {
+    constructor(options) {
+        this.enabled = false;
+        this.showDebugInfo = false;
+        this.backendConfig = {
+            activeBackend: 'mediapipe',
+            mediapipe: {
+                wasmFilesUrl: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-audio@0.10.35/wasm',
+                modelAssetPath: 'https://tfhub.dev/google/lite-model/yamnet/classification/tflite/1?lite-format=tflite',
+                // Control the number of samples that should be accumulated before the MediaPipe Classifier
+                // can classify. Choosing a value that is too low would result in high occurrences of
+                // "Silence" classifications.
+                chunkSamples: 16000,
+            },
+        };
+        if (options) {
+            deepMerge(this, options);
+        }
+    }
+    /**
+     * Enables sound detection.
+     */
+    enable() {
+        this.enabled = true;
+        return this;
+    }
+}
+
 class WorldOptions {
     constructor(options) {
         this.debugging = false;
@@ -7881,6 +8887,7 @@ class WorldOptions {
         this.planes = new PlanesOptions();
         this.objects = new ObjectsOptions();
         this.meshes = new MeshDetectionOptions();
+        this.sounds = new SoundsOptions();
         if (options) {
             deepMerge(this, options);
         }
@@ -7907,6 +8914,14 @@ class WorldOptions {
     enableMeshDetection() {
         this.enabled = true;
         this.meshes.enable();
+        return this;
+    }
+    /**
+     * Enables sound detection.
+     */
+    enableSoundDetection() {
+        this.enabled = true;
+        this.sounds.enable();
         return this;
     }
 }
@@ -7937,6 +8952,12 @@ class InputOptions {
 class ReticleOptions {
     constructor() {
         this.enabled = true;
+        /**
+         * When set to a positive value, the reticle is placed at this distance
+         * (in meters) along the controller ray when no intersection is found,
+         * instead of being hidden. Set to 0 to hide the reticle on miss.
+         */
+        this.defaultDistance = 0;
     }
 }
 /**
@@ -8013,11 +9034,13 @@ class Options {
         this.deviceCamera = new DeviceCameraOptions();
         this.hands = new HandsOptions();
         this.gestures = new GestureRecognitionOptions();
+        this.strokes = new StrokeRecognitionOptions();
         this.reticles = new ReticleOptions();
         this.sound = new SoundOptions();
         this.ai = new AIOptions();
         this.simulator = new SimulatorOptions();
         this.world = new WorldOptions();
+        this.uikit = new UIKitOptions();
         this.physics = new PhysicsOptions();
         this.transition = new XRTransitionOptions();
         this.camera = {
@@ -8029,6 +9052,12 @@ class Options {
          */
         this.usePostprocessing = false;
         this.enableSimulator = true;
+        /**
+         * Whether to catch all exceptions thrown by developer scripts in the main update loop
+         * and physics step, and log them using console.error instead of crashing the application.
+         * When enabled, exceptions in one script will not prevent other scripts or subsystems from updating.
+         */
+        this.catchScriptExceptions = true;
         /**
          * Configuration for the XR session button.
          */
@@ -8069,8 +9098,10 @@ class Options {
      */
     enableVR() {
         this.xrSessionMode = 'immersive-vr';
-        this.simulator.scenePath = null;
-        this.simulator.scenePlanesPath = null;
+        if (this.simulator.environments[this.simulator.activeEnvironmentIndex]) {
+            this.simulator.environments[this.simulator.activeEnvironmentIndex].scenePath = null;
+            this.simulator.environments[this.simulator.activeEnvironmentIndex].scenePlanesPath = null;
+        }
         return this;
     }
     /**
@@ -8143,6 +9174,15 @@ class Options {
     enableGestures() {
         this.enableHands();
         this.gestures.enable();
+        return this;
+    }
+    /**
+     * Enables the stroke recognition block and ensures gestures are available.
+     * @returns The instance for chaining.
+     */
+    enableStrokes() {
+        this.enableGestures();
+        this.strokes.enable();
         return this;
     }
     /**
@@ -8373,486 +9413,6 @@ class SimulatorControllerState {
     }
 }
 
-const { A_CODE: A_CODE$1, D_CODE: D_CODE$1, E_CODE: E_CODE$1, Q_CODE: Q_CODE$1, S_CODE: S_CODE$1, W_CODE: W_CODE$1 } = Keycodes;
-const vector3$6 = new THREE.Vector3();
-const euler$2 = new THREE.Euler();
-class SimulatorControlMode {
-    /**
-     * Create a SimulatorControlMode
-     */
-    constructor(simulatorControllerState, downKeys, hands, setStereoRenderMode, toggleUserInterface) {
-        this.simulatorControllerState = simulatorControllerState;
-        this.downKeys = downKeys;
-        this.hands = hands;
-        this.setStereoRenderMode = setStereoRenderMode;
-        this.toggleUserInterface = toggleUserInterface;
-    }
-    /**
-     * Initialize the simulator control mode.
-     */
-    init({ camera, input, timer, }) {
-        this.camera = camera;
-        this.input = input;
-        this.timer = timer;
-    }
-    onPointerDown(_) { }
-    onPointerUp(_) { }
-    onPointerMove(_) { }
-    onKeyDown(event) {
-        if (event.code == Keycodes.DIGIT_1) {
-            this.setStereoRenderMode(SimulatorRenderMode.STEREO_LEFT);
-        }
-        else if (event.code == Keycodes.DIGIT_2) {
-            this.setStereoRenderMode(SimulatorRenderMode.STEREO_RIGHT);
-        }
-        else if (event.code == Keycodes.BACKQUOTE) {
-            this.toggleUserInterface();
-        }
-    }
-    onModeActivated() { }
-    onModeDeactivated() { }
-    update() {
-        this.updateCameraPosition();
-        this.updateControllerPositions();
-    }
-    updateCameraPosition() {
-        const deltaTime = this.timer.getDelta();
-        const cameraRotation = this.camera.quaternion;
-        const cameraPosition = this.camera.position;
-        const downKeys = this.downKeys;
-        vector3$6
-            .set(Number(downKeys.has(D_CODE$1)) - Number(downKeys.has(A_CODE$1)), Number(downKeys.has(Q_CODE$1)) - Number(downKeys.has(E_CODE$1)), Number(downKeys.has(S_CODE$1)) - Number(downKeys.has(W_CODE$1)))
-            .multiplyScalar(deltaTime)
-            .applyQuaternion(cameraRotation);
-        cameraPosition.add(vector3$6);
-    }
-    updateControllerPositions() {
-        this.camera.updateMatrixWorld();
-        for (let i = 0; i < 2 && i < this.input.controllers.length; i++) {
-            const controller = this.input.controllers[i];
-            controller.position
-                .copy(this.simulatorControllerState.localControllerPositions[i])
-                .applyMatrix4(this.camera.matrixWorld);
-            controller.quaternion
-                .copy(this.simulatorControllerState.localControllerOrientations[i])
-                .premultiply(this.camera.quaternion);
-            controller.updateMatrix();
-            const mesh = i == 0 ? this.hands.leftController : this.hands.rightController;
-            mesh.position.copy(controller.position);
-            mesh.quaternion.copy(controller.quaternion);
-        }
-    }
-    rotateOnPointerMove(event, objectQuaternion, multiplier = 0.002) {
-        euler$2.setFromQuaternion(objectQuaternion, 'YXZ');
-        euler$2.y += event.movementX * multiplier;
-        euler$2.x += event.movementY * multiplier;
-        // Clamp camera pitch to +/-90 deg (+/-1.57 rad) with a 0.01 rad (0.573 deg)
-        // buffer to prevent gimbal lock.
-        const PI_2 = Math.PI / 2;
-        euler$2.x = Math.max(-PI_2 + 0.01, Math.min(PI_2 - 0.01, euler$2.x));
-        objectQuaternion.setFromEuler(euler$2);
-    }
-    enableSimulatorHands() {
-        this.hands.showHands();
-        this.input.dispatchEvent({
-            type: 'connected',
-            target: this.input.controllers[0],
-            data: { handedness: 'left' },
-        });
-        this.input.dispatchEvent({
-            type: 'connected',
-            target: this.input.controllers[1],
-            data: { handedness: 'right' },
-        });
-    }
-    disableSimulatorHands() {
-        this.hands.hideHands();
-        this.input.dispatchEvent({
-            type: 'disconnected',
-            target: this.input.controllers[0],
-            data: { handedness: 'left' },
-        });
-        this.input.dispatchEvent({
-            type: 'disconnected',
-            target: this.input.controllers[1],
-            data: { handedness: 'right' },
-        });
-    }
-}
-
-const vector3$5 = new THREE.Vector3();
-const { A_CODE, D_CODE, E_CODE, Q_CODE, S_CODE, SPACE_CODE, T_CODE, W_CODE } = Keycodes;
-class SimulatorControllerMode extends SimulatorControlMode {
-    onPointerMove(event) {
-        if (event.buttons) {
-            const controllerOrientation = this.simulatorControllerState.localControllerOrientations[this.simulatorControllerState.currentControllerIndex];
-            this.rotateOnPointerMove(event, controllerOrientation, -2e-3);
-        }
-    }
-    update() {
-        this.updateControllerPositions();
-    }
-    onModeActivated() {
-        this.enableSimulatorHands();
-    }
-    updateControllerPositions() {
-        const deltaTime = this.timer.getDelta();
-        const downKeys = this.downKeys;
-        vector3$5
-            .set(Number(downKeys.has(D_CODE)) - Number(downKeys.has(A_CODE)), Number(downKeys.has(Q_CODE)) - Number(downKeys.has(E_CODE)), Number(downKeys.has(S_CODE)) - Number(downKeys.has(W_CODE)))
-            .multiplyScalar(deltaTime);
-        this.simulatorControllerState.localControllerPositions[this.simulatorControllerState.currentControllerIndex].add(vector3$5);
-        super.updateControllerPositions();
-    }
-    toggleControllerIndex() {
-        this.hands.toggleHandedness();
-    }
-    onKeyDown(event) {
-        super.onKeyDown(event);
-        if (event.code == T_CODE) {
-            this.toggleControllerIndex();
-        }
-        else if (event.code == SPACE_CODE) {
-            const controllerSelecting = this.input.controllers[this.simulatorControllerState.currentControllerIndex].userData?.selected;
-            const newSelectingState = !controllerSelecting;
-            if (this.simulatorControllerState.currentControllerIndex == 0) {
-                this.hands.setLeftHandPinching(newSelectingState);
-            }
-            else {
-                this.hands.setRightHandPinching(newSelectingState);
-            }
-        }
-    }
-}
-
-class SimulatorPoseMode extends SimulatorControlMode {
-    onModeActivated() {
-        this.enableSimulatorHands();
-    }
-    onPointerMove(event) {
-        if (event.buttons) {
-            this.rotateOnPointerMove(event, this.camera.quaternion);
-        }
-    }
-}
-
-class SimulatorUserMode extends SimulatorControlMode {
-    onModeActivated() {
-        this.disableSimulatorHands();
-        this.input.mouseController.connect();
-    }
-    onModeDeactivated() {
-        this.input.mouseController.disconnect();
-    }
-    onPointerDown(event) {
-        if (event.buttons & 1) {
-            this.input.mouseController.callSelectStart();
-        }
-    }
-    onPointerUp() {
-        if (this.input.mouseController.userData.selected) {
-            this.input.mouseController.callSelectEnd();
-        }
-    }
-    onPointerMove(event) {
-        this.input.mouseController.updateMousePositionFromEvent(event);
-        if (event.buttons & 2) {
-            this.rotateOnPointerMove(event, this.camera.quaternion);
-        }
-    }
-}
-
-class SetSimulatorModeEvent extends Event {
-    static { this.type = 'setSimulatorMode'; }
-    constructor(simulatorMode) {
-        super(SetSimulatorModeEvent.type, { bubbles: true, composed: true });
-        this.simulatorMode = simulatorMode;
-    }
-}
-
-function preventDefault(event) {
-    event.preventDefault();
-}
-class SimulatorControls {
-    #enabled;
-    get enabled() {
-        return this.#enabled;
-    }
-    set enabled(value) {
-        this.setEnabled(value);
-    }
-    /**
-     * Create the simulator controls.
-     * @param hands - The simulator hands manager.
-     * @param setStereoRenderMode - A function to set the stereo mode.
-     * @param userInterface - The simulator user interface manager.
-     */
-    constructor(simulatorControllerState, hands, setStereoRenderMode, userInterface) {
-        this.simulatorControllerState = simulatorControllerState;
-        this.hands = hands;
-        this.userInterface = userInterface;
-        this.pointerDown = false;
-        this.downKeys = new Set();
-        this.simulatorMode = SimulatorMode.USER;
-        this.#enabled = true;
-        this._onPointerDown = this.onPointerDown.bind(this);
-        this._onPointerUp = this.onPointerUp.bind(this);
-        this._onKeyDown = this.onKeyDown.bind(this);
-        this._onKeyUp = this.onKeyUp.bind(this);
-        this._onPointerMove = this.onPointerMove.bind(this);
-        this._onBlur = this.onBlur.bind(this);
-        const toggleUserInterface = () => {
-            this.userInterface.toggleInterfaceVisible();
-        };
-        this.simulatorModes = {
-            [SimulatorMode.USER]: new SimulatorUserMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface),
-            [SimulatorMode.POSE]: new SimulatorPoseMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface),
-            [SimulatorMode.CONTROLLER]: new SimulatorControllerMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface),
-        };
-        this.simulatorModeControls = this.simulatorModes[this.simulatorMode];
-    }
-    /**
-     * Initialize the simulator controls.
-     */
-    init({ camera, input, timer, renderer, simulatorOptions, }) {
-        for (const mode in this.simulatorModes) {
-            this.simulatorModes[mode].init({ camera, input, timer });
-        }
-        this.renderer = renderer;
-        this.setSimulatorMode(simulatorOptions.defaultMode);
-        this.simulatorControllerState.currentControllerIndex =
-            simulatorOptions.defaultHand === Handedness.LEFT ? 0 : 1;
-        this.simulatorOptions = simulatorOptions;
-        this.connect();
-    }
-    connect() {
-        const domElement = this.renderer.domElement;
-        document.addEventListener('keyup', this._onKeyUp);
-        document.addEventListener('keydown', this._onKeyDown);
-        domElement.addEventListener('pointermove', this._onPointerMove);
-        domElement.addEventListener('pointerdown', this._onPointerDown);
-        domElement.addEventListener('pointerup', this._onPointerUp);
-        domElement.addEventListener('contextmenu', preventDefault);
-        window.addEventListener('blur', this._onBlur);
-        document.addEventListener('visibilitychange', this._onBlur);
-    }
-    update() {
-        this.simulatorModeControls.update();
-    }
-    onPointerMove(event) {
-        if (!this.enabled)
-            return;
-        this.simulatorModeControls.onPointerMove(event);
-    }
-    onPointerDown(event) {
-        if (!this.enabled)
-            return;
-        this.simulatorModeControls.onPointerDown(event);
-        this.pointerDown = true;
-    }
-    onPointerUp(event) {
-        if (!this.enabled)
-            return;
-        this.simulatorModeControls.onPointerUp(event);
-        this.pointerDown = false;
-    }
-    onKeyDown(event) {
-        if (!this.enabled)
-            return;
-        // On macOS, keyup events are not fired for keys held when Command (Meta)
-        // is pressed. Clear all keys to prevent stuck movement.
-        if (event.metaKey ||
-            event.code === 'MetaLeft' ||
-            event.code === 'MetaRight') {
-            this.downKeys.clear();
-            return;
-        }
-        this.downKeys.add(event.code);
-        if (this.simulatorOptions &&
-            event.code === this.simulatorOptions.modeToggle.toggleKey) {
-            this.setSimulatorMode(this.simulatorOptions.modeToggle.toggleOrder[this.simulatorMode]);
-        }
-        this.simulatorModeControls.onKeyDown(event);
-    }
-    onKeyUp(event) {
-        if (!this.enabled)
-            return;
-        this.downKeys.delete(event.code);
-    }
-    onBlur() {
-        this.downKeys.clear();
-    }
-    setSimulatorMode(mode) {
-        this.simulatorMode = mode;
-        this.simulatorModeControls.onModeDeactivated();
-        this.simulatorModeControls = this.simulatorModes[this.simulatorMode];
-        this.simulatorModeControls.onModeActivated();
-        if (this.modeIndicatorElement) {
-            this.modeIndicatorElement.simulatorMode = mode;
-        }
-    }
-    setModeIndicatorElement(element) {
-        element.simulatorMode = this.simulatorMode;
-        element.addEventListener('setSimulatorMode', (event) => {
-            if (event instanceof SetSimulatorModeEvent) {
-                this.setSimulatorMode(event.simulatorMode);
-            }
-        });
-        this.modeIndicatorElement = element;
-    }
-    setEnabled(value) {
-        if (value == this.#enabled) {
-            return;
-        }
-        this.#enabled = value;
-        if (!value) {
-            this.downKeys.clear();
-        }
-    }
-}
-
-class SimulatorDepthMaterial extends THREE.MeshBasicMaterial {
-    onBeforeCompile(shader) {
-        shader.vertexShader = shader.vertexShader
-            .replace('#include <clipping_planes_pars_vertex>', [
-            '#include <clipping_planes_pars_vertex>',
-            'varying vec4 vViewCoordinates;',
-        ].join('\n'))
-            .replace('#include <project_vertex>', ['#include <project_vertex>', 'vViewCoordinates = mvPosition;'].join('\n'));
-        shader.fragmentShader = shader.fragmentShader
-            .replace('#include <clipping_planes_pars_fragment>', [
-            '#include <clipping_planes_pars_fragment>',
-            'varying vec4 vViewCoordinates;',
-        ].join('\n'))
-            .replace('#include <dithering_fragment>', [
-            '#include <dithering_fragment>',
-            'gl_FragColor = vec4(-vViewCoordinates.z, 0.0, 0.0, 1.0);',
-        ].join('\n'));
-    }
-}
-
-class SimulatorDepth {
-    constructor(simulatorScene) {
-        this.simulatorScene = simulatorScene;
-        this.depthWidth = 160;
-        this.depthHeight = 160;
-        this.depthBufferSlice = new Float32Array();
-        /**
-         * If true, copies the rendering camera's projection matrix each frame.
-         */
-        this.autoUpdateDepthCameraProjection = true;
-        /**
-         * If true, copies the rendering camera's transform each frame.
-         */
-        this.autoUpdateDepthCameraTransform = true;
-        this.projectionMatrixArray = new Float32Array(16);
-    }
-    /**
-     * Initialize Simulator Depth.
-     */
-    init(renderer, camera, depth) {
-        this.renderer = renderer;
-        this.camera = camera;
-        this.depth = depth;
-        if (this.camera instanceof THREE.PerspectiveCamera) {
-            this.depthCamera = new THREE.PerspectiveCamera();
-        }
-        else if (this.camera instanceof THREE.OrthographicCamera) {
-            this.depthCamera = new THREE.OrthographicCamera();
-        }
-        else {
-            throw new Error('Unknown camera type');
-        }
-        this.depthCamera.copy(this.camera, /*recursive=*/ false);
-        this.createRenderTarget();
-        this.depthMaterial = new SimulatorDepthMaterial();
-    }
-    createRenderTarget() {
-        this.depthRenderTarget = new THREE.WebGLRenderTarget(this.depthWidth, this.depthHeight, {
-            format: THREE.RedFormat,
-            type: THREE.FloatType,
-        });
-        this.depthBuffer = new Float32Array(this.depthWidth * this.depthHeight);
-    }
-    update() {
-        this.updateDepthCamera();
-        this.renderDepthScene();
-        this.updateDepth();
-    }
-    updateDepthCamera() {
-        const renderingCamera = this.camera;
-        const depthCamera = this.depthCamera;
-        if (this.autoUpdateDepthCameraProjection) {
-            depthCamera.projectionMatrix.copy(renderingCamera.projectionMatrix);
-            depthCamera.projectionMatrixInverse.copy(renderingCamera.projectionMatrixInverse);
-        }
-        if (this.autoUpdateDepthCameraTransform) {
-            depthCamera.position.copy(renderingCamera.position);
-            depthCamera.rotation.order = renderingCamera.rotation.order;
-            depthCamera.quaternion.copy(renderingCamera.quaternion);
-            depthCamera.scale.copy(renderingCamera.scale);
-            depthCamera.matrix.copy(renderingCamera.matrix);
-            depthCamera.matrixWorld.copy(renderingCamera.matrixWorld);
-            depthCamera.matrixWorldInverse.copy(renderingCamera.matrixWorldInverse);
-        }
-    }
-    renderDepthScene() {
-        const originalRenderTarget = this.renderer.getRenderTarget();
-        this.renderer.setRenderTarget(this.depthRenderTarget);
-        this.simulatorScene.overrideMaterial = this.depthMaterial;
-        this.renderer.render(this.simulatorScene, this.depthCamera);
-        this.simulatorScene.overrideMaterial = null;
-        this.renderer.setRenderTarget(originalRenderTarget);
-    }
-    async updateDepth() {
-        // We preventively unbind the PIXEL_PACK_BUFFER before reading from the
-        // render target in case external libraries (Spark.js) left it bound.
-        const context = this.renderer.getContext();
-        context.bindBuffer(context.PIXEL_PACK_BUFFER, null);
-        // Cache the projection matrix and transform of the rendered depth.
-        const projectionMatrix = this.depthCamera.projectionMatrix.clone();
-        const transform = new XRRigidTransform(this.depthCamera.position, this.depthCamera.quaternion);
-        await this.renderer.readRenderTargetPixelsAsync(this.depthRenderTarget, 0, 0, this.depthWidth, this.depthHeight, this.depthBuffer);
-        // Flip the depth buffer.
-        if (this.depthBufferSlice.length != this.depthWidth) {
-            this.depthBufferSlice = new Float32Array(this.depthWidth);
-        }
-        for (let i = 0; i < this.depthHeight / 2; ++i) {
-            const j = this.depthHeight - 1 - i;
-            const i_offset = i * this.depthWidth;
-            const j_offset = j * this.depthWidth;
-            // Copy row i to a temp slice
-            this.depthBufferSlice.set(this.depthBuffer.subarray(i_offset, i_offset + this.depthWidth));
-            // Copy row j to row i
-            this.depthBuffer.copyWithin(i_offset, j_offset, j_offset + this.depthWidth);
-            // Copy the temp slice (original row i) to row j
-            this.depthBuffer.set(this.depthBufferSlice, j_offset);
-        }
-        projectionMatrix.toArray(this.projectionMatrixArray);
-        const depthData = {
-            width: this.depthWidth,
-            height: this.depthHeight,
-            data: this.depthBuffer.buffer,
-            rawValueToMeters: 1.0,
-            projectionMatrix: this.projectionMatrixArray,
-            transform: transform,
-        };
-        this.depth.updateCPUDepthData(depthData, 0);
-    }
-}
-
-// Request to change the hand pose.
-class SimulatorHandPoseChangeRequestEvent extends Event {
-    static { this.type = 'SimulatorHandPoseChangeRequestEvent'; }
-    constructor(pose) {
-        super(SimulatorHandPoseChangeRequestEvent.type, {
-            bubbles: true,
-            composed: true,
-        });
-        this.pose = pose;
-    }
-}
-
 const LEFT_HAND_FIST = [
     { t: [-0.0933, -0.0266, -0.1338], r: [0.1346, -0.1437, 0.0038, 0.9804] },
     { t: [-0.0648, -0.0265, -0.1529], r: [0.0354, -0.3351, -0.1786, 0.9244] },
@@ -8906,6 +9466,261 @@ const RIGHT_HAND_FIST = [
     { t: [0.0529, -0.0353, -0.2127], r: [0.9107, -0.2444, 0.0606, -0.3274] },
     { t: [0.0466, -0.0483, -0.1959], r: [0.9518, -0.3056, -0.0236, 0.0063] },
     { t: [0.0488, -0.0485, -0.1773], r: [0.9518, -0.3056, -0.0236, 0.0063] },
+];
+
+const LEFT_HAND_NEUTRAL = [
+    {
+        t: [-0.05, -0.08, -0.1],
+        r: [0.53411, 0.018204, -0.222429, 0.815436],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.027338, -0.067039, -0.122241],
+        r: [0.394372, -0.415858, -0.220458, 0.789271],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.017754, -0.043135, -0.143554],
+        r: [0.514492, -0.382382, -0.392596, 0.659546],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.043077, -0.032545, -0.149159],
+        r: [0.56159, -0.206804, -0.487, 0.636248],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.067278, -0.017229, -0.159647],
+        r: [0.56161, -0.206811, -0.487017, 0.636271],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.032269, -0.059371, -0.115777],
+        r: [0.567561, -0.097691, -0.203196, 0.791889],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-5609e-6, 0.002735, -0.153999],
+        r: [0.507186, -0.063324, -0.203911, 0.83502],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.007245, 0.035597, -0.172199],
+        r: [0.458663, -0.049313, -0.205676, 0.86312],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.013177, 0.052938, -0.185024],
+        r: [0.397899, -2456e-6, -0.189554, 0.897684],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.016515, 0.069224, -0.201788],
+        r: [0.397916, -2456e-6, -0.189562, 0.897722],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.043623, -0.053662, -0.112719],
+        r: [0.553746, -7309e-6, -0.191796, 0.810263],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.028562, 0.010251, -0.145199],
+        r: [0.472064, 0.017109, -0.111029, 0.874356],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.02549, 0.045618, -0.168513],
+        r: [0.441765, -0.01643, -0.133573, 0.886956],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.021146, 0.069622, -0.187059],
+        r: [0.310755, -5124e-6, -0.143074, 0.939638],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.019044, 0.083146, -0.207534],
+        r: [0.310762, -5124e-6, -0.143078, 0.939662],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.055288, -0.052779, -0.110872],
+        r: [0.521068, 0.080546, -0.193884, 0.827277],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.051159, 0.007143, -0.141754],
+        r: [0.461693, 0.031862, -0.045643, 0.885256],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.051676, 0.039517, -0.165253],
+        r: [0.378491, 0.011831, -0.061086, 0.923512],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.051113, 0.062013, -0.187766],
+        r: [0.260819, 0.021358, -0.083438, 0.961583],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.051187, 0.072388, -0.207475],
+        r: [0.260827, 0.021359, -0.083441, 0.961614],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.066037, -0.054584, -0.108849],
+        r: [0.488069, 0.176432, -0.171185, 0.837447],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.074056, -635e-6, -0.137437],
+        r: [0.440891, 0.100924, 0.027575, 0.891356],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.080655, 0.025614, -0.159345],
+        r: [0.437071, 0.097627, 0.021249, 0.893713],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.085037, 0.043556, -0.172445],
+        r: [0.3904, 0.08214, -0.029839, 0.916297],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.08881, 0.056942, -0.18567],
+        r: [0.390393, 0.082139, -0.029838, 0.916279],
+        s: [1, 1, 1],
+    },
+];
+const RIGHT_HAND_NEUTRAL = [
+    {
+        t: [0.05, -0.08, -0.1],
+        r: [0.53411, -0.018204, 0.222429, 0.815436],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.02714, -0.066906, -0.122492],
+        r: [0.390827, 0.303443, 0.211954, 0.842754],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.012951, -0.037875, -0.148455],
+        r: [0.456561, 0.261457, 0.42092, 0.738834],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.034444, -0.025126, -0.16151],
+        r: [0.531996, 0.128649, 0.517554, 0.657452],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-0.055852, -8059e-6, -0.175472],
+        r: [0.531942, 0.128636, 0.517501, 0.657385],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.032341, -0.059135, -0.115948],
+        r: [0.560925, 0.108731, 0.182482, 0.800152],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.005279, 0.003447, -0.154551],
+        r: [0.501803, 0.014742, 0.185614, 0.844655],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-3678e-6, 0.037362, -0.173626],
+        r: [0.440465, -1003e-6, 0.184485, 0.878535],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-7055e-6, 0.054976, -0.187353],
+        r: [0.439723, -0.035383, 0.16791, 0.881478],
+        s: [1, 1, 1],
+    },
+    {
+        t: [-8779e-6, 0.073092, -0.202432],
+        r: [0.439692, -0.035381, 0.167898, 0.881417],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.043703, -0.053527, -0.112791],
+        r: [0.558877, 0.019041, 0.1763, 0.810031],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.028511, 0.010965, -0.145572],
+        r: [0.432239, -6021e-6, 0.115346, 0.894241],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.024687, 0.044316, -0.172183],
+        r: [0.440799, 0.034254, 0.1351, 0.886651],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.019373, 0.06842, -0.190857],
+        r: [0.424278, 0.040476, 0.143145, 0.893232],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.0149, 0.08625, -0.207445],
+        r: [0.42431, 0.040479, 0.143156, 0.8933],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.055416, -0.052725, -0.110626],
+        r: [0.54139, -0.067994, 0.183816, 0.817666],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.051144, 0.007776, -0.142131],
+        r: [0.43212, -2596e-6, 0.053462, 0.900259],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.049513, 0.038866, -0.167958],
+        r: [0.43004, 0.023258, 0.068866, 0.899852],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.046401, 0.063754, -0.188051],
+        r: [0.405791, 0.02026, 0.093674, 0.908878],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.04415, 0.07964, -0.203715],
+        r: [0.40578, 0.02026, 0.093671, 0.908852],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.066378, -0.054668, -0.108764],
+        r: [0.519054, -0.162615, 0.164965, 0.822762],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.074255, -33e-6, -0.137755],
+        r: [0.373958, -0.03966, -0.015715, 0.926469],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.076808, 0.023101, -0.164096],
+        r: [0.459067, -0.036703, -5892e-6, 0.887605],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.078415, 0.042099, -0.176711],
+        r: [0.469121, -0.020332, 0.049975, 0.881495],
+        s: [1, 1, 1],
+    },
+    {
+        t: [0.079492, 0.057874, -0.187862],
+        r: [0.469173, -0.020334, 0.04998, 0.881592],
+        s: [1, 1, 1],
+    },
 ];
 
 const LEFT_HAND_PINCHING = [
@@ -10088,6 +10903,7 @@ const RIGHT_HAND_VICTORY = [
 // Enum of hand poses.
 var SimulatorHandPose;
 (function (SimulatorHandPose) {
+    SimulatorHandPose["NEUTRAL"] = "neutral";
     SimulatorHandPose["RELAXED"] = "relaxed";
     SimulatorHandPose["PINCHING"] = "pinching";
     SimulatorHandPose["FIST"] = "fist";
@@ -10098,6 +10914,7 @@ var SimulatorHandPose;
     SimulatorHandPose["VICTORY"] = "victory";
 })(SimulatorHandPose || (SimulatorHandPose = {}));
 const SIMULATOR_HAND_POSE_TO_JOINTS_LEFT = Object.freeze({
+    [SimulatorHandPose.NEUTRAL]: LEFT_HAND_NEUTRAL,
     [SimulatorHandPose.RELAXED]: LEFT_HAND_RELAXED,
     [SimulatorHandPose.PINCHING]: LEFT_HAND_PINCHING,
     [SimulatorHandPose.FIST]: LEFT_HAND_FIST,
@@ -10108,6 +10925,7 @@ const SIMULATOR_HAND_POSE_TO_JOINTS_LEFT = Object.freeze({
     [SimulatorHandPose.VICTORY]: LEFT_HAND_VICTORY,
 });
 const SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT = Object.freeze({
+    [SimulatorHandPose.NEUTRAL]: RIGHT_HAND_NEUTRAL,
     [SimulatorHandPose.RELAXED]: RIGHT_HAND_RELAXED,
     [SimulatorHandPose.PINCHING]: RIGHT_HAND_PINCHING,
     [SimulatorHandPose.FIST]: RIGHT_HAND_FIST,
@@ -10118,6 +10936,7 @@ const SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT = Object.freeze({
     [SimulatorHandPose.VICTORY]: RIGHT_HAND_VICTORY,
 });
 const SIMULATOR_HAND_POSE_NAMES = Object.freeze({
+    [SimulatorHandPose.NEUTRAL]: 'Neutral',
     [SimulatorHandPose.RELAXED]: 'Relaxed',
     [SimulatorHandPose.PINCHING]: 'Pinching',
     [SimulatorHandPose.FIST]: 'Fist',
@@ -10127,6 +10946,710 @@ const SIMULATOR_HAND_POSE_NAMES = Object.freeze({
     [SimulatorHandPose.THUMBS_DOWN]: 'Thumbs Down',
     [SimulatorHandPose.VICTORY]: 'Victory',
 });
+
+const { A_CODE: A_CODE$1, D_CODE: D_CODE$1, E_CODE: E_CODE$1, Q_CODE: Q_CODE$1, S_CODE: S_CODE$1, W_CODE: W_CODE$1 } = Keycodes;
+const vector3$6 = new THREE.Vector3();
+const euler$2 = new THREE.Euler();
+const HAND_POSES = Object.values(SimulatorHandPose);
+class SimulatorControlMode {
+    /**
+     * Create a SimulatorControlMode
+     */
+    constructor(simulatorControllerState, downKeys, hands, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode = () => { }) {
+        this.simulatorControllerState = simulatorControllerState;
+        this.downKeys = downKeys;
+        this.hands = hands;
+        this.setStereoRenderMode = setStereoRenderMode;
+        this.toggleUserInterface = toggleUserInterface;
+        this.cycleSimulatorMode = cycleSimulatorMode;
+    }
+    /**
+     * Initialize the simulator control mode.
+     */
+    init({ camera, input, timer, }) {
+        this.camera = camera;
+        this.input = input;
+        this.timer = timer;
+        input.gamepadController.init({ camera });
+    }
+    onPointerDown(_) { }
+    onPointerUp(_) { }
+    onPointerMove(_) { }
+    onKeyDown(event) {
+        if (event.code == Keycodes.DIGIT_1) {
+            this.setStereoRenderMode(SimulatorRenderMode.STEREO_LEFT);
+        }
+        else if (event.code == Keycodes.DIGIT_2) {
+            this.setStereoRenderMode(SimulatorRenderMode.STEREO_RIGHT);
+        }
+        else if (event.code == Keycodes.BACKQUOTE) {
+            this.toggleUserInterface();
+        }
+    }
+    onModeActivated() { }
+    onModeDeactivated() { }
+    update() {
+        this.updateGamepad();
+        this.updateCameraPosition();
+        this.updateControllerPositions();
+    }
+    /**
+     * Poll the gamepad and handle button actions. Called from all modes.
+     */
+    updateGamepad() {
+        const gp = this.input.gamepadController;
+        gp.update();
+        if (gp.userData.connected) {
+            this.updateGamepadUI(gp);
+        }
+    }
+    updateCameraPosition() {
+        const gp = this.input.gamepadController;
+        // While a modal menu owns gamepad input, don't move the camera.
+        if (gp.menuActive)
+            return;
+        const deltaTime = this.timer.getDelta();
+        const cameraRotation = this.camera.quaternion;
+        const cameraPosition = this.camera.position;
+        const downKeys = this.downKeys;
+        vector3$6
+            .set(Number(downKeys.has(D_CODE$1)) - Number(downKeys.has(A_CODE$1)), Number(downKeys.has(Q_CODE$1)) - Number(downKeys.has(E_CODE$1)), Number(downKeys.has(S_CODE$1)) - Number(downKeys.has(W_CODE$1)))
+            .multiplyScalar(deltaTime)
+            .applyQuaternion(cameraRotation);
+        cameraPosition.add(vector3$6);
+        // Gamepad stick input (if connected). Skip while the tab isn't
+        // focused — the Gamepad API delivers state to every tab, so without
+        // this guard the camera moves in background tabs whenever the user
+        // touches the stick in the foreground tab.
+        if (gp.userData.connected && document.hasFocus()) {
+            const [lx, ly, rx, ry] = gp.getAxes();
+            // Left stick → move camera.
+            if (lx !== 0 || ly !== 0) {
+                vector3$6
+                    .set(lx, 0, ly)
+                    .multiplyScalar(deltaTime)
+                    .applyQuaternion(cameraRotation);
+                cameraPosition.add(vector3$6);
+            }
+            // Right stick → look (yaw + pitch).
+            if (rx !== 0 || ry !== 0) {
+                const LOOK_SPEED = 2.0;
+                euler$2.setFromQuaternion(cameraRotation, 'YXZ');
+                euler$2.y -= rx * LOOK_SPEED * deltaTime;
+                euler$2.x -= ry * LOOK_SPEED * deltaTime;
+                const PI_2 = Math.PI / 2;
+                euler$2.x = Math.max(-PI_2 + 0.01, Math.min(PI_2 - 0.01, euler$2.x));
+                cameraRotation.setFromEuler(euler$2);
+            }
+            // Configurable vertical movement bindings (defaults LT/RT, analog).
+            const downVal = gp.getButtonValue(gp.bindings.getBinding('moveDown'));
+            const upVal = gp.getButtonValue(gp.bindings.getBinding('moveUp'));
+            const verticalDelta = (upVal - downVal) * deltaTime;
+            if (verticalDelta !== 0) {
+                cameraPosition.y += verticalDelta;
+            }
+        }
+    }
+    /**
+     * Handle gamepad buttons for simulator UI using configurable bindings.
+     */
+    updateGamepadUI(gp) {
+        // Suppress normal actions during rebind or while a modal menu owns input.
+        if (gp.captureActive || gp.menuActive)
+            return;
+        const b = gp.bindings;
+        if (gp.isButtonJustPressed(b.getBinding('cycleHandPoseLeft'))) {
+            this.cycleHandPose(-1);
+        }
+        if (gp.isButtonJustPressed(b.getBinding('cycleHandPoseRight'))) {
+            this.cycleHandPose(1);
+        }
+        if (gp.isButtonJustPressed(b.getBinding('cycleSimulatorMode'))) {
+            this.cycleSimulatorMode();
+        }
+        if (gp.isButtonJustPressed(b.getBinding('toggleUI'))) {
+            this.toggleUserInterface();
+        }
+        if (gp.isButtonJustPressed(b.getBinding('toggleHand'))) {
+            this.hands.toggleHandedness();
+        }
+        if (gp.isButtonJustPressed(b.getBinding('openSettings'))) {
+            gp.onOpenSettings?.();
+        }
+    }
+    cycleHandPose(direction) {
+        const idx = this.simulatorControllerState.currentControllerIndex;
+        const currentPose = idx === 0 ? this.hands.leftHandPose : this.hands.rightHandPose;
+        const currentIdx = HAND_POSES.indexOf(currentPose ?? HAND_POSES[0]);
+        const nextIdx = (currentIdx + direction + HAND_POSES.length) % HAND_POSES.length;
+        const nextPose = HAND_POSES[nextIdx];
+        if (idx === 0) {
+            this.hands.setLeftHandLerpPose(nextPose);
+        }
+        else {
+            this.hands.setRightHandLerpPose(nextPose);
+        }
+    }
+    updateControllerPositions() {
+        this.camera.updateMatrixWorld();
+        for (let i = 0; i < 2 && i < this.input.controllers.length; i++) {
+            const controller = this.input.controllers[i];
+            controller.position
+                .copy(this.simulatorControllerState.localControllerPositions[i])
+                .applyMatrix4(this.camera.matrixWorld);
+            controller.quaternion
+                .copy(this.simulatorControllerState.localControllerOrientations[i])
+                .premultiply(this.camera.quaternion);
+            controller.updateMatrix();
+            const mesh = i == 0 ? this.hands.leftController : this.hands.rightController;
+            mesh.position.copy(controller.position);
+            mesh.quaternion.copy(controller.quaternion);
+        }
+    }
+    rotateOnPointerMove(event, objectQuaternion, multiplier = 0.002) {
+        euler$2.setFromQuaternion(objectQuaternion, 'YXZ');
+        euler$2.y += event.movementX * multiplier;
+        euler$2.x += event.movementY * multiplier;
+        // Clamp camera pitch to +/-90 deg (+/-1.57 rad) with a 0.01 rad (0.573 deg)
+        // buffer to prevent gimbal lock.
+        const PI_2 = Math.PI / 2;
+        euler$2.x = Math.max(-PI_2 + 0.01, Math.min(PI_2 - 0.01, euler$2.x));
+        objectQuaternion.setFromEuler(euler$2);
+    }
+    enableSimulatorHands() {
+        this.hands.showHands();
+        this.input.dispatchEvent({
+            type: 'connected',
+            target: this.input.controllers[0],
+            data: { handedness: 'left' },
+        });
+        this.input.dispatchEvent({
+            type: 'connected',
+            target: this.input.controllers[1],
+            data: { handedness: 'right' },
+        });
+    }
+    disableSimulatorHands() {
+        this.hands.hideHands();
+        this.input.dispatchEvent({
+            type: 'disconnected',
+            target: this.input.controllers[0],
+            data: { handedness: 'left' },
+        });
+        this.input.dispatchEvent({
+            type: 'disconnected',
+            target: this.input.controllers[1],
+            data: { handedness: 'right' },
+        });
+    }
+}
+
+const vector3$5 = new THREE.Vector3();
+const { A_CODE, D_CODE, E_CODE, Q_CODE, S_CODE, SPACE_CODE, T_CODE, W_CODE } = Keycodes;
+class SimulatorControllerMode extends SimulatorControlMode {
+    onPointerMove(event) {
+        if (event.buttons) {
+            const controllerOrientation = this.simulatorControllerState.localControllerOrientations[this.simulatorControllerState.currentControllerIndex];
+            this.rotateOnPointerMove(event, controllerOrientation, -2e-3);
+        }
+    }
+    update() {
+        this.updateGamepad();
+        this.updateControllerPositions();
+    }
+    onModeActivated() {
+        this.enableSimulatorHands();
+    }
+    updateControllerPositions() {
+        const deltaTime = this.timer.getDelta();
+        const downKeys = this.downKeys;
+        const localPos = this.simulatorControllerState.localControllerPositions[this.simulatorControllerState.currentControllerIndex];
+        vector3$5
+            .set(Number(downKeys.has(D_CODE)) - Number(downKeys.has(A_CODE)), Number(downKeys.has(Q_CODE)) - Number(downKeys.has(E_CODE)), Number(downKeys.has(S_CODE)) - Number(downKeys.has(W_CODE)))
+            .multiplyScalar(deltaTime);
+        localPos.add(vector3$5);
+        // Gamepad: left stick moves hand on XZ; configurable buttons on Y.
+        // Skip when the tab isn't focused so background tabs don't react to
+        // stick input meant for the foreground tab.
+        const gp = this.input.gamepadController;
+        if (gp.userData.connected && !gp.menuActive && document.hasFocus()) {
+            const [lx, ly] = gp.getAxes();
+            const downVal = gp.getButtonValue(gp.bindings.getBinding('moveDown'));
+            const upVal = gp.getButtonValue(gp.bindings.getBinding('moveUp'));
+            vector3$5.set(lx, upVal - downVal, ly).multiplyScalar(deltaTime);
+            localPos.add(vector3$5);
+        }
+        super.updateControllerPositions();
+    }
+    toggleControllerIndex() {
+        this.hands.toggleHandedness();
+    }
+    onKeyDown(event) {
+        super.onKeyDown(event);
+        if (event.code == T_CODE) {
+            this.toggleControllerIndex();
+        }
+        else if (event.code == SPACE_CODE) {
+            const controllerSelecting = this.input.controllers[this.simulatorControllerState.currentControllerIndex].userData?.selected;
+            const newSelectingState = !controllerSelecting;
+            if (this.simulatorControllerState.currentControllerIndex == 0) {
+                this.hands.setLeftHandPinching(newSelectingState);
+            }
+            else {
+                this.hands.setRightHandPinching(newSelectingState);
+            }
+        }
+    }
+}
+
+class SimulatorPoseMode extends SimulatorControlMode {
+    onModeActivated() {
+        this.enableSimulatorHands();
+    }
+    onPointerMove(event) {
+        if (event.buttons) {
+            this.rotateOnPointerMove(event, this.camera.quaternion);
+        }
+    }
+}
+
+class SimulatorUserMode extends SimulatorControlMode {
+    onModeActivated() {
+        this.disableSimulatorHands();
+        this.input.mouseController.connect();
+    }
+    onModeDeactivated() {
+        this.input.mouseController.disconnect();
+    }
+    /**
+     * In User mode, hands are hidden — switch to a hand-visible mode
+     * before cycling so the change is visible.
+     */
+    cycleHandPose(direction) {
+        this.cycleSimulatorMode();
+        super.cycleHandPose(direction);
+    }
+    onPointerDown(event) {
+        if (event.buttons & 1) {
+            this.input.mouseController.callSelectStart();
+        }
+    }
+    onPointerUp() {
+        if (this.input.mouseController.userData.selected) {
+            this.input.mouseController.callSelectEnd();
+        }
+    }
+    onPointerMove(event) {
+        this.input.mouseController.updateMousePositionFromEvent(event);
+        if (event.buttons & 2) {
+            this.rotateOnPointerMove(event, this.camera.quaternion);
+        }
+    }
+}
+
+class SetSimulatorModeEvent extends Event {
+    static { this.type = 'setSimulatorMode'; }
+    constructor(simulatorMode) {
+        super(SetSimulatorModeEvent.type, { bubbles: true, composed: true });
+        this.simulatorMode = simulatorMode;
+    }
+}
+
+function preventDefault(event) {
+    event.preventDefault();
+}
+class SimulatorControls {
+    #enabled;
+    get enabled() {
+        return this.#enabled;
+    }
+    set enabled(value) {
+        this.setEnabled(value);
+    }
+    /**
+     * Create the simulator controls.
+     * @param hands - The simulator hands manager.
+     * @param setStereoRenderMode - A function to set the stereo mode.
+     * @param userInterface - The simulator user interface manager.
+     */
+    constructor(simulatorControllerState, hands, setStereoRenderMode, userInterface) {
+        this.simulatorControllerState = simulatorControllerState;
+        this.hands = hands;
+        this.userInterface = userInterface;
+        this.pointerDown = false;
+        this.downKeys = new Set();
+        this.simulatorMode = SimulatorMode.USER;
+        this.#enabled = true;
+        this.onPointerMove = (event) => {
+            if (!this.enabled)
+                return;
+            this.simulatorModeControls.onPointerMove(event);
+        };
+        this.onPointerDown = (event) => {
+            if (!this.enabled)
+                return;
+            this.simulatorModeControls.onPointerDown(event);
+            this.pointerDown = true;
+        };
+        this.onPointerUp = (event) => {
+            if (!this.enabled)
+                return;
+            this.simulatorModeControls.onPointerUp(event);
+            this.pointerDown = false;
+        };
+        this.onKeyDown = (event) => {
+            if (!this.enabled)
+                return;
+            // On macOS, keyup events are not fired for keys held when Command (Meta)
+            // is pressed. Clear all keys to prevent stuck movement.
+            if (event.metaKey ||
+                event.code === 'MetaLeft' ||
+                event.code === 'MetaRight') {
+                this.downKeys.clear();
+                return;
+            }
+            this.downKeys.add(event.code);
+            if (this.simulatorOptions?.modeToggle.enabled &&
+                event.code === this.simulatorOptions.modeToggle.toggleKey) {
+                this.setSimulatorMode(this.simulatorOptions.modeToggle.toggleOrder[this.simulatorMode]);
+            }
+            this.simulatorModeControls.onKeyDown(event);
+        };
+        this.onKeyUp = (event) => {
+            if (!this.enabled)
+                return;
+            this.downKeys.delete(event.code);
+        };
+        this.onBlur = () => {
+            this.downKeys.clear();
+        };
+        const toggleUserInterface = () => {
+            this.userInterface.toggleInterfaceVisible();
+        };
+        const cycleSimulatorMode = () => {
+            if (!this.simulatorOptions)
+                return;
+            this.setSimulatorMode(this.simulatorOptions.modeToggle.toggleOrder[this.simulatorMode]);
+        };
+        this.simulatorModes = {
+            [SimulatorMode.USER]: new SimulatorUserMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
+            [SimulatorMode.POSE]: new SimulatorPoseMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
+            [SimulatorMode.CONTROLLER]: new SimulatorControllerMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
+        };
+        this.simulatorModeControls = this.simulatorModes[this.simulatorMode];
+    }
+    /**
+     * Initialize the simulator controls.
+     */
+    init({ camera, input, timer, renderer, simulatorOptions, }) {
+        for (const mode in this.simulatorModes) {
+            this.simulatorModes[mode].init({ camera, input, timer });
+        }
+        this.renderer = renderer;
+        this.setSimulatorMode(simulatorOptions.defaultMode);
+        this.simulatorControllerState.currentControllerIndex =
+            simulatorOptions.defaultHand === Handedness.LEFT ? 0 : 1;
+        this.simulatorOptions = simulatorOptions;
+        this.connect();
+    }
+    connect() {
+        const domElement = this.renderer.domElement;
+        document.addEventListener('keyup', this.onKeyUp);
+        document.addEventListener('keydown', this.onKeyDown);
+        domElement.addEventListener('pointermove', this.onPointerMove);
+        domElement.addEventListener('pointerdown', this.onPointerDown);
+        domElement.addEventListener('pointerup', this.onPointerUp);
+        domElement.addEventListener('contextmenu', preventDefault);
+        window.addEventListener('blur', this.onBlur);
+        document.addEventListener('visibilitychange', this.onBlur);
+    }
+    update() {
+        this.simulatorModeControls.update();
+    }
+    setSimulatorMode(mode) {
+        this.simulatorMode = mode;
+        this.simulatorModeControls.onModeDeactivated();
+        this.simulatorModeControls = this.simulatorModes[this.simulatorMode];
+        this.simulatorModeControls.onModeActivated();
+        if (this.simulatorSettingsPanelElement) {
+            this.simulatorSettingsPanelElement.simulatorMode = mode;
+        }
+    }
+    setSimulatorSettingsPanelElement(element) {
+        element.simulatorMode = this.simulatorMode;
+        element.addEventListener('setSimulatorMode', (event) => {
+            if (event instanceof SetSimulatorModeEvent) {
+                this.setSimulatorMode(event.simulatorMode);
+            }
+        });
+        this.simulatorSettingsPanelElement = element;
+    }
+    setEnabled(value) {
+        if (value == this.#enabled) {
+            return;
+        }
+        this.#enabled = value;
+        if (!value) {
+            this.downKeys.clear();
+        }
+    }
+}
+
+class SimulatorDepthMaterial extends THREE.MeshBasicMaterial {
+    onBeforeCompile(shader) {
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <clipping_planes_pars_vertex>', [
+            '#include <clipping_planes_pars_vertex>',
+            'varying vec4 vViewCoordinates;',
+        ].join('\n'))
+            .replace('#include <project_vertex>', ['#include <project_vertex>', 'vViewCoordinates = mvPosition;'].join('\n'));
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <clipping_planes_pars_fragment>', [
+            '#include <clipping_planes_pars_fragment>',
+            'varying vec4 vViewCoordinates;',
+        ].join('\n'))
+            .replace('#include <dithering_fragment>', [
+            '#include <dithering_fragment>',
+            'gl_FragColor = vec4(-vViewCoordinates.z, 0.0, 0.0, 1.0);',
+        ].join('\n'));
+    }
+}
+
+class SimulatorDepth {
+    constructor(simulatorScene) {
+        this.simulatorScene = simulatorScene;
+        this.depthWidth = 160;
+        this.depthHeight = 160;
+        this.depthBufferSlice = new Float32Array();
+        /**
+         * If true, copies the rendering camera's projection matrix each frame.
+         */
+        this.autoUpdateDepthCameraProjection = true;
+        /**
+         * If true, copies the rendering camera's transform each frame.
+         */
+        this.autoUpdateDepthCameraTransform = true;
+        this.projectionMatrixArray = new Float32Array(16);
+    }
+    /**
+     * Initialize Simulator Depth.
+     */
+    init(renderer, camera, depth) {
+        this.renderer = renderer;
+        this.camera = camera;
+        this.depth = depth;
+        if (this.camera instanceof THREE.PerspectiveCamera) {
+            this.depthCamera = new THREE.PerspectiveCamera();
+        }
+        else if (this.camera instanceof THREE.OrthographicCamera) {
+            this.depthCamera = new THREE.OrthographicCamera();
+        }
+        else {
+            throw new Error('Unknown camera type');
+        }
+        this.depthCamera.copy(this.camera, /*recursive=*/ false);
+        this.createRenderTarget();
+        this.depthMaterial = new SimulatorDepthMaterial();
+    }
+    createRenderTarget() {
+        this.depthRenderTarget = new THREE.WebGLRenderTarget(this.depthWidth, this.depthHeight, {
+            format: THREE.RedFormat,
+            type: THREE.FloatType,
+        });
+        this.depthBuffer = new Float32Array(this.depthWidth * this.depthHeight);
+    }
+    update() {
+        this.updateDepthCamera();
+        this.renderDepthScene();
+        this.updateDepth();
+    }
+    updateDepthCamera() {
+        const renderingCamera = this.camera;
+        const depthCamera = this.depthCamera;
+        if (this.autoUpdateDepthCameraProjection) {
+            depthCamera.projectionMatrix.copy(renderingCamera.projectionMatrix);
+            depthCamera.projectionMatrixInverse.copy(renderingCamera.projectionMatrixInverse);
+        }
+        if (this.autoUpdateDepthCameraTransform) {
+            depthCamera.position.copy(renderingCamera.position);
+            depthCamera.rotation.order = renderingCamera.rotation.order;
+            depthCamera.quaternion.copy(renderingCamera.quaternion);
+            depthCamera.scale.copy(renderingCamera.scale);
+            depthCamera.matrix.copy(renderingCamera.matrix);
+            depthCamera.matrixWorld.copy(renderingCamera.matrixWorld);
+            depthCamera.matrixWorldInverse.copy(renderingCamera.matrixWorldInverse);
+        }
+    }
+    renderDepthScene() {
+        const originalRenderTarget = this.renderer.getRenderTarget();
+        this.renderer.setRenderTarget(this.depthRenderTarget);
+        this.simulatorScene.overrideMaterial = this.depthMaterial;
+        this.renderer.render(this.simulatorScene, this.depthCamera);
+        this.simulatorScene.overrideMaterial = null;
+        this.renderer.setRenderTarget(originalRenderTarget);
+    }
+    async updateDepth() {
+        // We preventively unbind the PIXEL_PACK_BUFFER before reading from the
+        // render target in case external libraries (Spark.js) left it bound.
+        const context = this.renderer.getContext();
+        context.bindBuffer(context.PIXEL_PACK_BUFFER, null);
+        // Cache the projection matrix and transform of the rendered depth.
+        const projectionMatrix = this.depthCamera.projectionMatrix.clone();
+        const transform = new XRRigidTransform(this.depthCamera.position, this.depthCamera.quaternion);
+        await this.renderer.readRenderTargetPixelsAsync(this.depthRenderTarget, 0, 0, this.depthWidth, this.depthHeight, this.depthBuffer);
+        // Flip the depth buffer.
+        if (this.depthBufferSlice.length != this.depthWidth) {
+            this.depthBufferSlice = new Float32Array(this.depthWidth);
+        }
+        for (let i = 0; i < this.depthHeight / 2; ++i) {
+            const j = this.depthHeight - 1 - i;
+            const i_offset = i * this.depthWidth;
+            const j_offset = j * this.depthWidth;
+            // Copy row i to a temp slice
+            this.depthBufferSlice.set(this.depthBuffer.subarray(i_offset, i_offset + this.depthWidth));
+            // Copy row j to row i
+            this.depthBuffer.copyWithin(i_offset, j_offset, j_offset + this.depthWidth);
+            // Copy the temp slice (original row i) to row j
+            this.depthBuffer.set(this.depthBufferSlice, j_offset);
+        }
+        projectionMatrix.toArray(this.projectionMatrixArray);
+        const depthData = {
+            width: this.depthWidth,
+            height: this.depthHeight,
+            data: this.depthBuffer.buffer,
+            rawValueToMeters: 1.0,
+            projectionMatrix: this.projectionMatrixArray,
+            transform: transform,
+        };
+        this.depth.updateCPUDepthData(depthData, 0, 'float32');
+    }
+}
+
+// Request to change the hand pose.
+class SimulatorHandPoseChangeRequestEvent extends Event {
+    static { this.type = 'SimulatorHandPoseChangeRequestEvent'; }
+    constructor(pose) {
+        super(SimulatorHandPoseChangeRequestEvent.type, {
+            bubbles: true,
+            composed: true,
+        });
+        this.pose = pose;
+    }
+}
+
+const HAND_JOINT_PARENT = {
+    'thumb-metacarpal': 'wrist',
+    'thumb-phalanx-proximal': 'thumb-metacarpal',
+    'thumb-phalanx-distal': 'thumb-phalanx-proximal',
+    'thumb-tip': 'thumb-phalanx-distal',
+    'index-finger-metacarpal': 'wrist',
+    'index-finger-phalanx-proximal': 'index-finger-metacarpal',
+    'index-finger-phalanx-intermediate': 'index-finger-phalanx-proximal',
+    'index-finger-phalanx-distal': 'index-finger-phalanx-intermediate',
+    'index-finger-tip': 'index-finger-phalanx-distal',
+    'middle-finger-metacarpal': 'wrist',
+    'middle-finger-phalanx-proximal': 'middle-finger-metacarpal',
+    'middle-finger-phalanx-intermediate': 'middle-finger-phalanx-proximal',
+    'middle-finger-phalanx-distal': 'middle-finger-phalanx-intermediate',
+    'middle-finger-tip': 'middle-finger-phalanx-distal',
+    'ring-finger-metacarpal': 'wrist',
+    'ring-finger-phalanx-proximal': 'ring-finger-metacarpal',
+    'ring-finger-phalanx-intermediate': 'ring-finger-phalanx-proximal',
+    'ring-finger-phalanx-distal': 'ring-finger-phalanx-intermediate',
+    'ring-finger-tip': 'ring-finger-phalanx-distal',
+    'pinky-finger-metacarpal': 'wrist',
+    'pinky-finger-phalanx-proximal': 'pinky-finger-metacarpal',
+    'pinky-finger-phalanx-intermediate': 'pinky-finger-phalanx-proximal',
+    'pinky-finger-phalanx-distal': 'pinky-finger-phalanx-intermediate',
+    'pinky-finger-tip': 'pinky-finger-phalanx-distal',
+};
+function createRestJoints(joints) {
+    const restJoints = new Map();
+    HAND_JOINT_NAMES.forEach((jointName, index) => {
+        const joint = joints[index];
+        const position = new THREE.Vector3(joint.t[0], joint.t[1], joint.t[2]);
+        const rotation = new THREE.Quaternion(joint.r[0], joint.r[1], joint.r[2], joint.r[3]);
+        const parentName = HAND_JOINT_PARENT[jointName];
+        if (!parentName) {
+            restJoints.set(jointName, {
+                position,
+                rotation,
+                localOffset: position.clone(),
+                localRotation: rotation.clone(),
+            });
+            return;
+        }
+        const parentRestJoint = restJoints.get(parentName);
+        const inverseParentRotation = parentRestJoint.rotation.clone().invert();
+        const localOffset = position
+            .clone()
+            .sub(parentRestJoint.position)
+            .applyQuaternion(inverseParentRotation);
+        const localRotation = parentRestJoint.rotation
+            .clone()
+            .invert()
+            .multiply(rotation);
+        restJoints.set(jointName, {
+            position,
+            rotation,
+            localOffset,
+            localRotation,
+        });
+    });
+    return restJoints;
+}
+const LEFT_REST_JOINTS = createRestJoints(LEFT_HAND_NEUTRAL);
+const RIGHT_REST_JOINTS = createRestJoints(RIGHT_HAND_NEUTRAL);
+function getHandednessRotation(handedness, rotation = [0, 0, 0]) {
+    if (handedness !== Handedness.RIGHT) {
+        return rotation;
+    }
+    return [rotation[0], -rotation[1], -rotation[2]];
+}
+function resolveHandPoseRotations(handedness, restJoints, rotations) {
+    const finalPositions = new Map();
+    const finalRotations = new Map();
+    const resolvedJoints = [];
+    for (const jointName of HAND_JOINT_NAMES) {
+        const restJoint = restJoints.get(jointName);
+        const rotation = getHandednessRotation(handedness, rotations[jointName]);
+        const offsetRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2], 'XYZ'));
+        const parentName = HAND_JOINT_PARENT[jointName];
+        if (!parentName) {
+            const finalPosition = restJoint.position.clone();
+            const finalRotation = restJoint.rotation.clone().multiply(offsetRotation);
+            finalPositions.set(jointName, finalPosition);
+            finalRotations.set(jointName, finalRotation);
+            resolvedJoints.push({
+                t: finalPosition.toArray(),
+                r: finalRotation.toArray(),
+                s: [1, 1, 1],
+            });
+            continue;
+        }
+        const parentPosition = finalPositions.get(parentName);
+        const parentRotation = finalRotations.get(parentName);
+        const finalPosition = restJoint.localOffset
+            .clone()
+            .applyQuaternion(parentRotation)
+            .add(parentPosition);
+        const finalRotation = parentRotation
+            .clone()
+            .multiply(restJoint.localRotation)
+            .multiply(offsetRotation);
+        finalPositions.set(jointName, finalPosition);
+        finalRotations.set(jointName, finalRotation);
+        resolvedJoints.push({
+            t: finalPosition.toArray(),
+            r: finalRotation.toArray(),
+            s: [1, 1, 1],
+        });
+    }
+    return resolvedJoints;
+}
+function resolveSimulatorHandPoseRotations(handedness, rotations) {
+    return resolveHandPoseRotations(handedness, handedness === Handedness.LEFT ? LEFT_REST_JOINTS : RIGHT_REST_JOINTS, rotations);
+}
 
 class SimulatorXRHand {
 }
@@ -10147,9 +11670,19 @@ class SimulatorHands {
         this.leftHandTargetJoints = SIMULATOR_HAND_POSE_TO_JOINTS_LEFT[SimulatorHandPose.RELAXED];
         this.rightHandTargetJoints = SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT[SimulatorHandPose.RELAXED];
         this.lerpSpeed = 0.1;
-        this.onHandPoseChangeRequestBound = this.onHandPoseChangeRequest.bind(this);
         this.leftXRHand = new SimulatorXRHand();
         this.rightXRHand = new SimulatorXRHand();
+        this.onHandPoseChangeRequest = (event) => {
+            if (event.type != SimulatorHandPoseChangeRequestEvent.type)
+                return;
+            const handPoseChangeEvent = event;
+            if (this.simulatorControllerState.currentControllerIndex === 0) {
+                this.setLeftHandLerpPose(handPoseChangeEvent.pose);
+            }
+            else {
+                this.setRightHandLerpPose(handPoseChangeEvent.pose);
+            }
+        };
     }
     /**
      * Initialize Simulator Hands.
@@ -10248,6 +11781,34 @@ class SimulatorHands {
         }
         this.rightHandPose = pose;
         this.rightHandTargetJoints = SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT[pose];
+        this.updateHandPosePanel();
+    }
+    setLeftHandRotations(rotations) {
+        if (this.leftHandPose === SimulatorHandPose.PINCHING) {
+            this.input.dispatchEvent({
+                type: 'selectend',
+                target: this.input.controllers[0],
+                data: {
+                    handedness: 'left',
+                },
+            });
+        }
+        this.leftHandPose = undefined;
+        this.leftHandTargetJoints = resolveSimulatorHandPoseRotations(Handedness.LEFT, rotations);
+        this.updateHandPosePanel();
+    }
+    setRightHandRotations(rotations) {
+        if (this.rightHandPose === SimulatorHandPose.PINCHING) {
+            this.input.dispatchEvent({
+                type: 'selectend',
+                target: this.input.controllers[1],
+                data: {
+                    handedness: 'right',
+                },
+            });
+        }
+        this.rightHandPose = undefined;
+        this.rightHandTargetJoints = resolveSimulatorHandPoseRotations(Handedness.RIGHT, rotations);
         this.updateHandPosePanel();
     }
     setLeftHandJoints(joints) {
@@ -10402,30 +11963,52 @@ class SimulatorHands {
     }
     setHandPosePanelElement(element) {
         if (this.handPosePanelElement) {
-            this.handPosePanelElement.removeEventListener(SimulatorHandPoseChangeRequestEvent.type, this.onHandPoseChangeRequestBound);
+            this.handPosePanelElement.removeEventListener(SimulatorHandPoseChangeRequestEvent.type, this.onHandPoseChangeRequest);
         }
-        element.addEventListener(SimulatorHandPoseChangeRequestEvent.type, this.onHandPoseChangeRequestBound);
+        element.addEventListener(SimulatorHandPoseChangeRequestEvent.type, this.onHandPoseChangeRequest);
         this.handPosePanelElement = element;
         this.updateHandPosePanel();
-    }
-    onHandPoseChangeRequest(event) {
-        if (event.type != SimulatorHandPoseChangeRequestEvent.type)
-            return;
-        const handPoseChangeEvent = event;
-        if (this.simulatorControllerState.currentControllerIndex === 0) {
-            this.setLeftHandLerpPose(handPoseChangeEvent.pose);
-        }
-        else {
-            this.setRightHandLerpPose(handPoseChangeEvent.pose);
-        }
     }
     toggleHandedness() {
         this.simulatorControllerState.currentControllerIndex =
             (this.simulatorControllerState.currentControllerIndex + 1) % 2;
         this.updateHandPosePanel();
+        this.onHandednessChanged?.(this.simulatorControllerState.currentControllerIndex === 0
+            ? 'left'
+            : 'right');
     }
 }
 
+class SetSimulatorEnvironmentEvent extends Event {
+    static { this.type = 'setSimulatorEnvironment'; }
+    constructor(environmentIndex) {
+        super(SetSimulatorEnvironmentEvent.type, { bubbles: true, composed: true });
+        this.environmentIndex = environmentIndex;
+    }
+}
+
+/** Standard gamepad button names for display. */
+const BUTTON_NAMES = {
+    0: 'A',
+    1: 'B',
+    2: 'X',
+    3: 'Y',
+    4: 'LB',
+    5: 'RB',
+    6: 'LT',
+    7: 'RT',
+    8: 'Back',
+    9: 'Start',
+    10: 'L3',
+    11: 'R3',
+    12: 'D-Up',
+    13: 'D-Down',
+    14: 'D-Left',
+    15: 'D-Right',
+};
+function btnName(index) {
+    return BUTTON_NAMES[index] ?? `Btn ${index}`;
+}
 class SimulatorInterface {
     constructor() {
         this.elements = [];
@@ -10434,18 +12017,35 @@ class SimulatorInterface {
     /**
      * Initialize the simulator interface.
      */
-    init(simulatorOptions, simulatorControls, simulatorHands) {
-        this.createModeIndicator(simulatorOptions, simulatorControls);
+    init(simulatorOptions, simulatorControls, simulatorHands, input, simulatorScene) {
+        if (simulatorScene) {
+            this.createSimulatorSettingsPanel(simulatorOptions, simulatorControls, simulatorScene);
+        }
         this.showGeminiLivePanel(simulatorOptions);
         this.createHandPosePanel(simulatorOptions, simulatorHands);
+        simulatorHands.onHandednessChanged = (handedness) => {
+            this._ensureGamepadToast().flash(`Active Hand: ${handedness === 'left' ? 'Left' : 'Right'}`);
+        };
         this.showInstructions(simulatorOptions);
+        if (input)
+            this._initGamepadUI(input);
     }
-    createModeIndicator(simulatorOptions, simulatorControls) {
-        if (simulatorOptions.modeIndicator.enabled) {
-            const modeIndicatorElement = document.createElement(simulatorOptions.modeIndicator.element);
-            document.body.appendChild(modeIndicatorElement);
-            simulatorControls.setModeIndicatorElement(modeIndicatorElement);
-            this.elements.push(modeIndicatorElement);
+    createSimulatorSettingsPanel(simulatorOptions, simulatorControls, simulatorScene) {
+        if (simulatorOptions.simulatorSettingsPanel.enabled) {
+            const settingsElement = document.createElement(simulatorOptions.simulatorSettingsPanel.element);
+            settingsElement.environments = simulatorOptions.environments;
+            settingsElement.activeEnvironmentIndex =
+                simulatorOptions.activeEnvironmentIndex;
+            document.body.appendChild(settingsElement);
+            simulatorControls.setSimulatorSettingsPanelElement(settingsElement);
+            settingsElement.addEventListener(SetSimulatorEnvironmentEvent.type, (event) => {
+                if (event instanceof SetSimulatorEnvironmentEvent) {
+                    simulatorOptions.activeEnvironmentIndex = event.environmentIndex;
+                    const activeEnv = simulatorOptions.environments[event.environmentIndex];
+                    simulatorScene.setEnvironment(activeEnv?.scenePath ?? null, new THREE.Vector3(simulatorOptions.initialScenePosition.x, simulatorOptions.initialScenePosition.y, simulatorOptions.initialScenePosition.z));
+                }
+            });
+            this.elements.push(settingsElement);
         }
     }
     showInstructions(simulatorOptions) {
@@ -10495,6 +12095,57 @@ class SimulatorInterface {
             this.showUiElements();
         }
     }
+    _initGamepadUI(input) {
+        const gp = input.gamepadController;
+        gp.addEventListener('connected', () => {
+            if (!gp.hasShownToast) {
+                gp.hasShownToast = true;
+                this.showGamepadToast(gp);
+            }
+        });
+        gp.onOpenSettings = () => this.toggleGamepadSettings(gp);
+    }
+    _ensureGamepadToast() {
+        if (!this._gamepadToast) {
+            this._gamepadToast = document.createElement('xrblocks-gamepad-toast');
+            document.body.appendChild(this._gamepadToast);
+        }
+        return this._gamepadToast;
+    }
+    showGamepadToast(gp) {
+        const toast = this._ensureGamepadToast();
+        const b = gp.bindings;
+        toast.show({
+            'Left Stick': 'Move (or Hand in Controller mode)',
+            'Right Stick': 'Look',
+            [btnName(b.getBinding('moveUp')) +
+                ' / ' +
+                btnName(b.getBinding('moveDown'))]: 'Up / Down',
+            [btnName(b.getBinding('select'))]: 'Select / Interact',
+            [btnName(b.getBinding('cycleHandPoseLeft')) +
+                ' / ' +
+                btnName(b.getBinding('cycleHandPoseRight'))]: 'Cycle Hand Pose',
+            [btnName(b.getBinding('cycleSimulatorMode'))]: 'Cycle Simulator Mode',
+            [btnName(b.getBinding('toggleUI'))]: 'Toggle UI',
+            [btnName(b.getBinding('toggleHand'))]: 'Swap Active Hand',
+            [btnName(b.getBinding('openSettings'))]: 'Gamepad Settings',
+        });
+    }
+    toggleGamepadSettings(gp) {
+        if (!this._gamepadSettings) {
+            this._gamepadSettings = document.createElement('xrblocks-gamepad-settings');
+            this._gamepadSettings.bindings = gp.bindings;
+            this._gamepadSettings.gamepadController = gp;
+            this._gamepadSettings.hidden = true;
+            document.body.appendChild(this._gamepadSettings);
+        }
+        if (this._gamepadSettings.hidden) {
+            this._gamepadSettings.show();
+        }
+        else {
+            this._gamepadSettings.hide();
+        }
+    }
 }
 
 class SimulatorScene extends THREE.Scene {
@@ -10503,11 +12154,23 @@ class SimulatorScene extends THREE.Scene {
     }
     async init(simulatorOptions) {
         this.addLights();
-        if (simulatorOptions.videoPath) {
+        const activeEnv = simulatorOptions.environments[simulatorOptions.activeEnvironmentIndex];
+        if (!activeEnv)
+            return;
+        if (activeEnv.videoPath) {
             return;
         }
-        if (simulatorOptions.scenePath) {
-            await this.loadGLTF(simulatorOptions.scenePath, new THREE.Vector3(simulatorOptions.initialScenePosition.x, simulatorOptions.initialScenePosition.y, simulatorOptions.initialScenePosition.z));
+        if (activeEnv.scenePath) {
+            await this.loadGLTF(activeEnv.scenePath, new THREE.Vector3(simulatorOptions.initialScenePosition.x, simulatorOptions.initialScenePosition.y, simulatorOptions.initialScenePosition.z));
+        }
+    }
+    async setEnvironment(path, initialPosition) {
+        if (this.gltf) {
+            this.remove(this.gltf.scene);
+            this.gltf = undefined;
+        }
+        if (path) {
+            await this.loadGLTF(path, initialPosition);
         }
     }
     addLights() {
@@ -10584,8 +12247,11 @@ class SimulatorWorld {
     async init(options, world) {
         this.options = options;
         this.world = world;
-        if (options.world.planes.enabled && options.simulator.scenePlanesPath) {
-            await this.loadPlanes(options.simulator.scenePlanesPath);
+        // Wait for World script initialization to complete first
+        await world.initializedPromise;
+        const activeEnv = options.simulator.environments[options.simulator.activeEnvironmentIndex];
+        if (options.world.planes.enabled && activeEnv?.scenePlanesPath) {
+            await this.loadPlanes(activeEnv.scenePlanesPath);
         }
     }
     async loadPlanes(path) {
@@ -10598,7 +12264,8 @@ class SimulatorWorld {
                     area: plane.area,
                     position: new THREE.Vector3(plane.position.x, plane.position.y, plane.position.z).add(offsetPosition),
                     quaternion: new THREE.Quaternion(plane.quaternion[0], plane.quaternion[1], plane.quaternion[2], plane.quaternion[3]),
-                    polygon: plane.polygon,
+                    polygon: plane.polygon.map((p) => new THREE.Vector2(p.x, p.y)),
+                    label: plane.label,
                 };
             });
             this.world.planes.setSimulatorPlanes(planes);
@@ -10704,6 +12371,331 @@ class DetectedObject extends THREE.Object3D {
 }
 
 /**
+ * Base class for object detector backends.
+ * Handles the orchestration of capturing snapshots, running detection,
+ * and creating visual representations.
+ *
+ * T - The type of additional data associated with the detected object.
+ */
+let BaseDetectorBackend$1 = class BaseDetectorBackend {
+    constructor(context) {
+        this.context = context;
+    }
+    async run(depthMeshSnapshot, cameraParametersSnapshot) {
+        if (!(await this.isAvailable())) {
+            return [];
+        }
+        const snapshot = await this.getSnapshot();
+        if (!snapshot)
+            return [];
+        let normalizedDetections = [];
+        try {
+            normalizedDetections = await this.detect(snapshot);
+        }
+        catch (error) {
+            console.error('Object detection backend failed:', error);
+            return [];
+        }
+        if (this.context.options.objects.showDebugVisualizations) {
+            this.visualize(snapshot, normalizedDetections);
+        }
+        const detectionPromises = normalizedDetections.map(async (item) => {
+            const boundingBox = new THREE.Box2(new THREE.Vector2(item.xmin, item.ymin), new THREE.Vector2(item.xmax, item.ymax));
+            const center = new THREE.Vector2();
+            boundingBox.getCenter(center);
+            const worldCoordinates = transformRgbUvToWorld(center, depthMeshSnapshot, cameraParametersSnapshot);
+            if (worldCoordinates) {
+                const { worldPosition } = worldCoordinates;
+                const margin = this.context.options.objects.objectImageMargin;
+                const cropBox = boundingBox.clone();
+                cropBox.min.subScalar(margin);
+                cropBox.max.addScalar(margin);
+                const imageSource = snapshot.imageData || snapshot.base64;
+                if (!imageSource) {
+                    throw new Error('No valid snapshot data for cropping');
+                }
+                const objectImage = await cropImage(imageSource, cropBox);
+                const object = new DetectedObject(item.objectName, objectImage, boundingBox, item.additionalData);
+                object.position.copy(worldPosition);
+                if (this.context.debugVisualsGroup) {
+                    this.createDebugVisual(object);
+                }
+                return object;
+            }
+            return null;
+        });
+        const detectedObjects = (await Promise.all(detectionPromises)).filter((obj) => obj !== null && obj !== undefined);
+        return detectedObjects;
+    }
+    /**
+     * Creates a debug visual representation for a detected object in the 3D scene.
+     *
+     * @param object - The detected object to visualize.
+     */
+    async createDebugVisual(object) {
+        // Create sphere.
+        const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 16), new THREE.MeshBasicMaterial({ color: 0xff4285f4 }));
+        sphere.position.copy(object.position);
+        // Create and configure the text label using Troika.
+        const { Text } = await import('troika-three-text');
+        const textLabel = new Text();
+        textLabel.text = object.label;
+        textLabel.fontSize = 0.07;
+        textLabel.color = 0xffffff;
+        textLabel.anchorX = 'center';
+        textLabel.anchorY = 'bottom';
+        // Position the label above the sphere
+        textLabel.position.copy(sphere.position);
+        textLabel.position.y += 0.04; // Offset above the sphere.
+        this.context.debugVisualsGroup.add(sphere, textLabel);
+        textLabel.sync(); // Required for Troika text to appear.
+    }
+    /**
+     * Visualizes the detections by drawing bounding boxes on a canvas and downloading the image.
+     * This is used for debugging detection results.
+     *
+     * @param snapshot - The camera snapshot used for detection.
+     * @param detections - The array of normalized detections to draw.
+     */
+    visualize(snapshot, detections) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const drawDetectionsAndDownload = () => {
+            detections.forEach((item) => {
+                const rectX = item.xmin * canvas.width;
+                const rectY = item.ymin * canvas.height;
+                const rectWidth = (item.xmax - item.xmin) * canvas.width;
+                const rectHeight = (item.ymax - item.ymin) * canvas.height;
+                ctx.strokeStyle = '#FF0000';
+                ctx.lineWidth = Math.max(2, canvas.width / 400);
+                ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
+                const text = item.objectName;
+                const fontSize = Math.max(16, canvas.width / 80);
+                ctx.font = `bold ${fontSize}px sans-serif`;
+                ctx.textBaseline = 'bottom';
+                const textMetrics = ctx.measureText(text);
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.fillRect(rectX, rectY - fontSize, textMetrics.width + 8, fontSize + 4);
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillText(text, rectX + 4, rectY + 2);
+            });
+            const timestamp = new Date()
+                .toISOString()
+                .slice(0, 19)
+                .replace('T', '_')
+                .replace(/:/g, '-');
+            const link = document.createElement('a');
+            link.download = `detection_debug_${timestamp}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        };
+        if (snapshot.imageData) {
+            canvas.width = snapshot.imageData.width;
+            canvas.height = snapshot.imageData.height;
+            ctx.putImageData(snapshot.imageData, 0, 0);
+            drawDetectionsAndDownload();
+        }
+        else if (snapshot.base64) {
+            const img = new Image();
+            img.onload = () => {
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                ctx.drawImage(img, 0, 0);
+                drawDetectionsAndDownload();
+            };
+            img.src = snapshot.base64;
+        }
+    }
+};
+
+/**
+ * Object detector backend implementation using Gemini via the AI service.
+ * Sends image data to a remote model for detection.
+ *
+ * T - The type of additional data associated with the detected object.
+ */
+class GeminiDetectorBackend extends BaseDetectorBackend$1 {
+    async isAvailable() {
+        return !!this.context.ai.isAvailable();
+    }
+    async getSnapshot() {
+        const base64Image = await this.context.deviceCamera.getSnapshot({
+            outputFormat: 'base64',
+        });
+        if (!base64Image)
+            return null;
+        return { base64: base64Image };
+    }
+    buildGeminiConfig() {
+        const geminiOptions = this.context.options.objects.backendConfig.gemini;
+        return {
+            thinkingConfig: {
+                thinkingBudget: 0,
+            },
+            responseMimeType: 'application/json',
+            responseSchema: geminiOptions.responseSchema,
+            systemInstruction: [{ text: geminiOptions.systemInstruction }],
+        };
+    }
+    async detect(snapshot) {
+        const { mimeType, strippedBase64 } = parseBase64DataURL(snapshot.base64);
+        const config = this.buildGeminiConfig();
+        const originalGeminiConfig = this.context.aiOptions.gemini.config;
+        this.context.aiOptions.gemini.config = config;
+        const textPrompt = 'What do you see in this image?';
+        let backendResponse = null;
+        try {
+            backendResponse = await this.context.ai.model.query({
+                type: 'multiPart',
+                parts: [
+                    { inlineData: { mimeType: mimeType || undefined, data: strippedBase64 } },
+                    { text: textPrompt },
+                ],
+            });
+        }
+        catch (e) {
+            console.error('Gemini detection failed', e);
+            return [];
+        }
+        finally {
+            this.context.aiOptions.gemini.config = originalGeminiConfig;
+        }
+        return this.normalizeDetections(backendResponse);
+    }
+    normalizeDetections(backendResponse) {
+        let parsedResponse;
+        try {
+            if (backendResponse && backendResponse.text) {
+                parsedResponse = JSON.parse(backendResponse.text);
+            }
+            else {
+                return [];
+            }
+        }
+        catch (e) {
+            console.warn('Error while normalizing detections in Gemini Response', e);
+            return [];
+        }
+        if (!Array.isArray(parsedResponse))
+            return [];
+        // Map Gemini JSON response to NormalizedDetectedObject format.
+        // Gemini returns coordinates in the range [0, 1000], so we divide by 1000 to normalize.
+        return parsedResponse.reduce((acc, item) => {
+            const { ymin, xmin, ymax, xmax, objectName, ...additionalData } = item || {};
+            if ([ymin, xmin, ymax, xmax].every((coord) => typeof coord === 'number')) {
+                acc.push({
+                    ymin: ymin / 1000,
+                    xmin: xmin / 1000,
+                    ymax: ymax / 1000,
+                    xmax: xmax / 1000,
+                    objectName: objectName || 'unknown',
+                    additionalData: additionalData,
+                });
+            }
+            return acc;
+        }, []);
+    }
+}
+
+let FilesetResolver$1;
+let ObjectDetector$1;
+// --- Attempt Dynamic Import ---
+async function loadMediaPipeModule$1() {
+    if (FilesetResolver$1 && ObjectDetector$1) {
+        return;
+    }
+    try {
+        const mediapipeModule = await import('@mediapipe/tasks-vision');
+        FilesetResolver$1 = mediapipeModule.FilesetResolver;
+        ObjectDetector$1 = mediapipeModule.ObjectDetector;
+        console.log("'@mediapipe/tasks-vision' module loaded successfully.");
+    }
+    catch (error) {
+        console.error('Failed to load MediaPipe module:', error);
+        throw error;
+    }
+}
+/**
+ * Object detector backend implementation using MediaPipe's Object Detector.
+ * Runs locally on the device.
+ *
+ * T - The type of additional data associated with the detected object (not used currently).
+ */
+let MediaPipeDetectorBackend$1 = class MediaPipeDetectorBackend extends BaseDetectorBackend$1 {
+    constructor(context) {
+        super(context);
+        this.objectDetector = null;
+        this.initializationPromise = this.tryInitializeObjectDetector();
+    }
+    async isAvailable() {
+        try {
+            await this.initializationPromise;
+            return true;
+        }
+        catch (e) {
+            console.error('MediaPipe Object Detector is not available:', e);
+            return false;
+        }
+    }
+    async getSnapshot() {
+        const imageData = await this.context.deviceCamera.getSnapshot({
+            outputFormat: 'imageData',
+        });
+        if (!imageData)
+            return null;
+        return { imageData };
+    }
+    async detect(snapshot) {
+        await this.initializationPromise;
+        if (!this.objectDetector)
+            return [];
+        const backendResponse = this.objectDetector.detect(snapshot.imageData);
+        if (!backendResponse)
+            return [];
+        const width = snapshot.imageData.width;
+        const height = snapshot.imageData.height;
+        return this.normalizeDetections(backendResponse, width, height);
+    }
+    normalizeDetections(backendResponse, width, height) {
+        // Map MediaPipe detections to NormalizedDetectedObject format.
+        // We normalize the bounding box coordinates by the image dimensions.
+        return backendResponse.detections.reduce((acc, detection) => {
+            const box = detection.boundingBox;
+            if (box) {
+                const category = detection.categories?.[0];
+                const objectName = category?.categoryName || category?.displayName || 'unknown';
+                acc.push({
+                    ymin: box.originY / height,
+                    xmin: box.originX / width,
+                    ymax: (box.originY + box.height) / height,
+                    xmax: (box.originX + box.width) / width,
+                    objectName: objectName,
+                });
+            }
+            return acc;
+        }, []);
+    }
+    /**
+     * Initializes the MediaPipe Object Detector if it has not already been initialized.
+     * Loads the fileset resolver for vision tasks and creates the detector instance
+     * with the configured model asset path and score threshold.
+     */
+    async tryInitializeObjectDetector() {
+        if (this.objectDetector)
+            return;
+        await loadMediaPipeModule$1();
+        const mediapipeOptions = this.context.options.objects.backendConfig.mediapipe;
+        const vision = await FilesetResolver$1.forVisionTasks(mediapipeOptions.wasmFilesUrl);
+        this.objectDetector = await ObjectDetector$1.createFromOptions(vision, {
+            baseOptions: {
+                modelAssetPath: mediapipeOptions.modelAssetPath,
+            },
+            scoreThreshold: mediapipeOptions.scoreThreshold,
+        });
+    }
+};
+
+/**
  * Detects objects in the user's environment using a specified backend.
  * It queries an AI model with the device camera feed and returns located
  * objects with 2D and 3D positioning data.
@@ -10715,6 +12707,7 @@ class ObjectDetector extends Script {
          * A map from the object's UUID to our custom `DetectedObject` instance.
          */
         this._detectedObjects = new Map();
+        this._detectorBackends = new Map();
         this.targetDevice = 'galaxyxr';
     }
     static { this.dependencies = {
@@ -10738,7 +12731,6 @@ class ObjectDetector extends Script {
         this.depth = depth;
         this.camera = camera;
         this.renderer = renderer;
-        this._geminiConfig = this._buildGeminiConfig();
         if (this.options.objects.showDebugVisualizations) {
             this._debugVisualsGroup = new THREE.Group();
             // Disable raycasting for the debug group to prevent interaction errors.
@@ -10753,119 +12745,66 @@ class ObjectDetector extends Script {
      */
     async runDetection() {
         this.clear(); // Clear previous results before starting a new detection.
-        switch (this.options.objects.backendConfig.activeBackend) {
-            case 'gemini':
-                return this._runGeminiDetection();
-            // Future backends like 'mediapipe' will be handled here.
-            // case 'mediapipe':
-            //   return this._runMediaPipeDetection();
-            default:
-                console.warn(`ObjectDetector backend '${this.options.objects.backendConfig.activeBackend}' is not supported.`);
-                return [];
+        const depthMeshSnapshot = this.getDepthMeshSnapshot();
+        const cameraParametersSnapshot = getCameraParametersSnapshot(this.camera, this.renderer.xr.getCamera(), this.deviceCamera, this.targetDevice);
+        const context = this.getDetectorContext();
+        const activeBackend = this.options.objects.backendConfig.activeBackend;
+        const detectorBackendPromise = this.getOrCreateDetectorBackend(activeBackend, context);
+        let detectorBackend;
+        try {
+            detectorBackend = await detectorBackendPromise;
         }
+        catch (error) {
+            console.warn(`Failed to load or initialize ObjectDetector backend '${activeBackend}':`, error);
+            return [];
+        }
+        const detectedObjects = await detectorBackend.run(depthMeshSnapshot, cameraParametersSnapshot);
+        for (const obj of detectedObjects) {
+            this._detectedObjects.set(obj.uuid, obj);
+            this.add(obj);
+        }
+        return detectedObjects;
+    }
+    getDetectorContext() {
+        return {
+            options: this.options,
+            ai: this.ai,
+            aiOptions: this.aiOptions,
+            deviceCamera: this.deviceCamera,
+            debugVisualsGroup: this._debugVisualsGroup,
+        };
+    }
+    getOrCreateDetectorBackend(activeBackend, context) {
+        let detectorBackendPromise = this._detectorBackends.get(activeBackend);
+        if (!detectorBackendPromise) {
+            detectorBackendPromise = (async () => {
+                switch (activeBackend) {
+                    case 'gemini':
+                        return new GeminiDetectorBackend(context);
+                    case 'mediapipe':
+                        return new MediaPipeDetectorBackend$1(context);
+                    default:
+                        throw new Error(`ObjectDetector backend '${activeBackend}' is not supported.`);
+                }
+            })();
+            this._detectorBackends.set(activeBackend, detectorBackendPromise);
+        }
+        return detectorBackendPromise;
     }
     getDepthMeshSnapshot() {
-        const clonedGeometry = this.depth.depthMesh.geometry.clone();
+        const depthMesh = this.depth.depthMesh;
+        const geometry = this.depth.options.depthMesh.updateFullResolutionGeometry
+            ? depthMesh.geometry
+            : depthMesh.downsampledGeometry || depthMesh.geometry;
+        const clonedGeometry = geometry.clone();
         clonedGeometry.computeBoundingSphere();
         clonedGeometry.computeBoundingBox();
         const depthMeshSnapshot = new THREE.Mesh(clonedGeometry, new THREE.MeshBasicMaterial());
-        this.depth.depthMesh.getWorldPosition(depthMeshSnapshot.position);
-        this.depth.depthMesh.getWorldQuaternion(depthMeshSnapshot.quaternion);
-        this.depth.depthMesh.getWorldScale(depthMeshSnapshot.scale);
+        depthMesh.getWorldPosition(depthMeshSnapshot.position);
+        depthMesh.getWorldQuaternion(depthMeshSnapshot.quaternion);
+        depthMesh.getWorldScale(depthMeshSnapshot.scale);
         depthMeshSnapshot.updateMatrixWorld(true);
         return depthMeshSnapshot;
-    }
-    /**
-     * Runs object detection using the Gemini backend.
-     */
-    async _runGeminiDetection() {
-        if (!this.ai.isAvailable()) {
-            console.error('Gemini is unavailable for object detection.');
-            return [];
-        }
-        // Cache depth and camera data to align with the captured image frame.
-        const depthMeshSnapshot = this.getDepthMeshSnapshot();
-        const cameraParametersSnapshot = getCameraParametersSnapshot(this.camera, this.renderer.xr.getCamera(), this.deviceCamera, this.targetDevice);
-        const base64Image = await this.deviceCamera.getSnapshot({
-            outputFormat: 'base64',
-        });
-        if (!base64Image) {
-            console.warn('Could not get device camera snapshot.');
-            return [];
-        }
-        const { mimeType, strippedBase64 } = parseBase64DataURL(base64Image);
-        // Temporarily set the Gemini config for this specific query type.
-        const originalGeminiConfig = this.aiOptions.gemini.config;
-        this.aiOptions.gemini.config = this._geminiConfig;
-        const textPrompt = 'What do you see in this image?';
-        try {
-            const rawResponse = await this.ai.model.query({
-                type: 'multiPart',
-                parts: [
-                    { inlineData: { mimeType: mimeType || undefined, data: strippedBase64 } },
-                    { text: textPrompt },
-                ],
-            });
-            let parsedResponse;
-            try {
-                if (rawResponse && rawResponse.text) {
-                    parsedResponse = JSON.parse(rawResponse.text);
-                }
-                else {
-                    console.error('AI response is missing text field:', rawResponse, 'Raw response was:', rawResponse);
-                    return [];
-                }
-            }
-            catch (e) {
-                console.error('Failed to parse AI response JSON:', e, 'Raw response was:', rawResponse);
-                return [];
-            }
-            if (!Array.isArray(parsedResponse)) {
-                console.error('Parsed AI response is not an array:', parsedResponse);
-                return [];
-            }
-            if (this.options.objects.showDebugVisualizations) {
-                this._visualizeBoundingBoxesOnImage(base64Image, parsedResponse);
-            }
-            const detectionPromises = parsedResponse.map(async (item) => {
-                const { ymin, xmin, ymax, xmax, objectName, ...additionalData } = item || {};
-                if ([ymin, xmin, ymax, xmax].some((coord) => typeof coord !== 'number')) {
-                    return null;
-                }
-                // Bounding box from AI is 0-1000, convert to normalized 0-1.
-                const boundingBox = new THREE.Box2(new THREE.Vector2(xmin / 1000, ymin / 1000), new THREE.Vector2(xmax / 1000, ymax / 1000));
-                const center = new THREE.Vector2();
-                boundingBox.getCenter(center);
-                const worldCoordinates = transformRgbUvToWorld(center, depthMeshSnapshot, cameraParametersSnapshot);
-                if (worldCoordinates) {
-                    const { worldPosition } = worldCoordinates;
-                    const margin = this.options.objects.objectImageMargin;
-                    // Create a new bounding box for cropping that includes the margin.
-                    const cropBox = boundingBox.clone();
-                    cropBox.min.subScalar(margin);
-                    cropBox.max.addScalar(margin);
-                    const objectImage = await cropImage(base64Image, cropBox);
-                    const object = new DetectedObject(objectName, objectImage, boundingBox, additionalData);
-                    object.position.copy(worldPosition);
-                    this.add(object);
-                    this._detectedObjects.set(object.uuid, object);
-                    if (this._debugVisualsGroup) {
-                        this._createDebugVisual(object);
-                    }
-                    return object;
-                }
-            });
-            const detectedObjects = (await Promise.all(detectionPromises)).filter((obj) => obj !== null && obj !== undefined);
-            return detectedObjects;
-        }
-        catch (error) {
-            console.error('AI query for object detection failed:', error);
-            return [];
-        }
-        finally {
-            // Restore the original config after the query.
-            this.aiOptions.gemini.config = originalGeminiConfig;
-        }
     }
     /**
      * Retrieves a list of currently detected objects.
@@ -10903,59 +12842,6 @@ class ObjectDetector extends Script {
         if (this._debugVisualsGroup) {
             this._debugVisualsGroup.visible = visible;
         }
-    }
-    /**
-     * Draws the detected bounding boxes on the input image and triggers a
-     * download for debugging.
-     * @param base64Image - The base64 encoded input image.
-     * @param detections - The array of detected objects from the AI response.
-     */
-    _visualizeBoundingBoxesOnImage(base64Image, detections) {
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-            detections.forEach((item) => {
-                const { ymin, xmin, ymax, xmax, objectName } = (item || {});
-                if ([ymin, xmin, ymax, xmax].some((coord) => typeof coord !== 'number')) {
-                    return;
-                }
-                // Bounding box from AI is 0-1000, scale it to image dimensions.
-                const rectX = (xmin / 1000) * canvas.width;
-                const rectY = (ymin / 1000) * canvas.height;
-                const rectWidth = ((xmax - xmin) / 1000) * canvas.width;
-                const rectHeight = ((ymax - ymin) / 1000) * canvas.height;
-                ctx.strokeStyle = '#FF0000';
-                ctx.lineWidth = Math.max(2, canvas.width / 400);
-                ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
-                // Draw label.
-                const text = objectName || 'unknown';
-                const fontSize = Math.max(16, canvas.width / 80);
-                ctx.font = `bold ${fontSize}px sans-serif`;
-                ctx.textBaseline = 'bottom';
-                const textMetrics = ctx.measureText(text);
-                // Draw a background for the text for better readability.
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-                ctx.fillRect(rectX, rectY - fontSize, textMetrics.width + 8, fontSize + 4);
-                // Draw the text itself.
-                ctx.fillStyle = '#FFFFFF'; // White text
-                ctx.fillText(text, rectX + 4, rectY + 2);
-            });
-            // Create a link and trigger the download.
-            const timestamp = new Date()
-                .toISOString()
-                .slice(0, 19)
-                .replace('T', '_')
-                .replace(/:/g, '-');
-            const link = document.createElement('a');
-            link.download = `detection_debug_${timestamp}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-        };
-        img.src = base64Image;
     }
     /**
      * Generates a visual representation of the depth map, normalized to 0-1 range,
@@ -11022,43 +12908,6 @@ class ObjectDetector extends Script {
         link.href = canvas.toDataURL('image/png');
         link.click();
     }
-    /**
-     * Creates a simple debug visualization for an object based on its position
-     * (center of its 2D detection bounding box).
-     * @param object - The detected object to visualize.
-     */
-    async _createDebugVisual(object) {
-        // Create sphere.
-        const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 16), new THREE.MeshBasicMaterial({ color: 0xff4285f4 }));
-        sphere.position.copy(object.position);
-        // Create and configure the text label using Troika.
-        const { Text } = await import('troika-three-text');
-        const textLabel = new Text();
-        textLabel.text = object.label;
-        textLabel.fontSize = 0.07;
-        textLabel.color = 0xffffff;
-        textLabel.anchorX = 'center';
-        textLabel.anchorY = 'bottom';
-        // Position the label above the sphere
-        textLabel.position.copy(sphere.position);
-        textLabel.position.y += 0.04; // Offset above the sphere.
-        this._debugVisualsGroup.add(sphere, textLabel);
-        textLabel.sync(); // Required for Troika text to appear.
-    }
-    /**
-     * Builds the Gemini configuration object from the world options.
-     */
-    _buildGeminiConfig() {
-        const geminiOptions = this.options.objects.backendConfig.gemini;
-        return {
-            thinkingConfig: {
-                thinkingBudget: 0,
-            },
-            responseMimeType: 'application/json',
-            responseSchema: geminiOptions.responseSchema,
-            systemInstruction: [{ text: geminiOptions.systemInstruction }],
-        };
-    }
 }
 
 /**
@@ -11103,7 +12952,7 @@ class DetectedPlane extends THREE.Mesh {
             this.orientation = xrPlane.orientation;
         }
         else if (simulatorPlane) {
-            this.label = simulatorPlane.type;
+            this.label = simulatorPlane.label || simulatorPlane.type;
             this.orientation = simulatorPlane.type;
             this.position.copy(simulatorPlane.position);
             this.quaternion.copy(simulatorPlane.quaternion);
@@ -11255,6 +13104,7 @@ class PlaneDetector extends Script {
     _addSimulatorPlaneMesh(plane) {
         const material = this._debugMaterial || new THREE.MeshBasicMaterial({ visible: false });
         const planeMesh = new DetectedPlane(null, material, plane);
+        this._detectedPlanes.set(plane, planeMesh);
         this.add(planeMesh);
         return planeMesh;
     }
@@ -11268,6 +13118,10 @@ class PlaneDetector extends Script {
 }
 
 class DetectedMesh extends THREE.Mesh {
+    // Expose rigidBody for pose updates
+    get getRigidBody() {
+        return this.rigidBody;
+    }
     constructor(mesh, material) {
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
@@ -11294,12 +13148,38 @@ class DetectedMesh extends THREE.Mesh {
         if (mesh.lastChangedTime === this.lastChangedTime)
             return;
         this.lastChangedTime = mesh.lastChangedTime;
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
-        geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-        geometry.computeVertexNormals();
-        this.geometry.dispose();
-        this.geometry = geometry;
+        // Update existing geometry attributes instead of creating new geometry
+        const positionAttribute = this.geometry.attributes.position;
+        const indexAttribute = this.geometry.getIndex();
+        const newVertexCount = mesh.vertices.length / 3;
+        const newIndexCount = mesh.indices.length;
+        if (positionAttribute.count !== newVertexCount ||
+            (indexAttribute && indexAttribute.count !== newIndexCount)) {
+            // Vertex or index count changed - recreate geometry
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
+            geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+            geometry.computeVertexNormals();
+            this.geometry.dispose();
+            this.geometry = geometry;
+        }
+        else {
+            // Same vertex count - update in place (more efficient)
+            const positions = positionAttribute.array;
+            if (positions.length === mesh.vertices.length) {
+                positions.set(mesh.vertices);
+                positionAttribute.needsUpdate = true;
+            }
+            if (indexAttribute) {
+                const indices = indexAttribute.array;
+                if (indices.length === mesh.indices.length) {
+                    indices.set(mesh.indices);
+                    indexAttribute.needsUpdate = true;
+                }
+            }
+            this.geometry.computeVertexNormals();
+        }
+        // Update collider
         if (this.RAPIER && this.collider) {
             const RAPIER = this.RAPIER;
             this.blendedWorld.removeCollider(this.collider, false);
@@ -11307,10 +13187,21 @@ class DetectedMesh extends THREE.Mesh {
             this.collider = this.blendedWorld.createCollider(colliderDesc, this.rigidBody);
         }
     }
+    dispose() {
+        if (this.blendedWorld && this.collider) {
+            this.blendedWorld.removeCollider(this.collider, false);
+            this.collider = undefined;
+        }
+        if (this.blendedWorld && this.rigidBody) {
+            this.blendedWorld.removeRigidBody(this.rigidBody);
+            this.rigidBody = undefined;
+        }
+        this.geometry.dispose();
+    }
 }
 
-const SEMANTIC_LABELS = ['Floor', 'Ceiling', 'Wall', 'Table'];
-const SEMANTIC_COLORS = [0x00ff00, 0xff0000, 0x0000ff, 0xffff00];
+const SEMANTIC_LABELS = ['floor', 'ceiling', 'wall'];
+const SEMANTIC_COLORS = [0x00ff00, 0xffff00, 0x0000ff];
 // Wrapper around WebXR Mesh Detection API
 // https://immersive-web.github.io/real-world-meshing/
 class MeshDetector extends Script {
@@ -11321,6 +13212,19 @@ class MeshDetector extends Script {
         this.xrMeshToThreeMesh = new Map();
         this.threeMeshToXrMesh = new Map();
         this.defaultMaterial = new THREE.MeshBasicMaterial({ visible: false });
+        this.meshTimedata = new Map();
+        // Optimization1: Mesh update throttling (similar to ARCore reflection cube map in /usr/local/google/home/adamren/Desktop/xrlabs/arlabs/xrblocks/samples/lighting)
+        this.MESH_UPDATE_INTERVAL_MS = 1000; //0 -> 1000
+        this.lastMeshUpdateTime = 0;
+        // Optimization2: Periodic cleanup of stale/distant meshes
+        this.MESH_STALE_TIME_MS = 3000; //1000000000 -> 3000
+        this.CLEANUP_INTERVAL_MS = this.MESH_STALE_TIME_MS + 1000;
+        // Optimization3: Camera culling constants
+        this.kMaxViewDistance = 3.0; //1000000000.0 -> 3.0
+        this.kFOVCosThreshold = 0.25; //0.0 -> 0.25
+        this.lastCleanupTime = 0;
+        // Profiling
+        this.frameCount = 0;
     }
     static { this.dependencies = {
         options: MeshDetectionOptions,
@@ -11350,33 +13254,102 @@ class MeshDetector extends Script {
         }
     }
     updateMeshes(_timestamp, frame) {
+        this.frameCount++;
+        // Profiling1: Time spent in accessing detectedMeshes
+        const t0 = performance.now();
         const meshes = frame?.detectedMeshes;
-        if (!meshes)
+        performance.now() - t0;
+        // console.log(
+        //   `[MeshDetector Frame ${this.frameCount}] ` +
+        //   `detectedMeshes access: ${_detectedMeshesTime.toFixed(3)}ms, ` +
+        //   `timestamp: ${_timestamp.toFixed(3)}, ` +
+        //   `meshCount: ${meshes?.size || 0}`
+        // );
+        if (!meshes || !frame)
             return;
-        // Delete old meshes
-        for (const [xrMesh, threeMesh] of this.xrMeshToThreeMesh.entries()) {
-            if (!meshes.has(xrMesh)) {
-                this.xrMeshToThreeMesh.delete(xrMesh);
-                this.threeMeshToXrMesh.delete(threeMesh);
-                threeMesh.geometry.dispose();
-                this.remove(threeMesh);
-            }
+        // Optimization1: Mesh update throttling
+        const now = performance.now();
+        const timeSinceLastUpdate = now - this.lastMeshUpdateTime;
+        if (timeSinceLastUpdate < this.MESH_UPDATE_INTERVAL_MS) {
+            return;
         }
-        // Add new meshes
+        this.lastMeshUpdateTime = now;
+        // Process meshes
+        const referenceSpace = this.renderer.xr.getReferenceSpace();
+        if (!referenceSpace)
+            return;
+        const { position: cameraPosition, forward: cameraForward } = this.getCameraInfo(frame, referenceSpace);
         for (const xrMesh of meshes) {
-            if (!this.xrMeshToThreeMesh.has(xrMesh)) {
+            // Optimization2: Check if mesh is in view and get distance
+            const isVisible = this.shouldShowMeshInViewWithDistance(xrMesh, cameraPosition, cameraForward, frame, referenceSpace);
+            if (!isVisible) {
+                continue;
+            }
+            // Create or update mesh
+            const cachedChangedTime = this.meshTimedata.get(xrMesh)?.lastChangedTime;
+            const currentChangedTime = xrMesh.lastChangedTime;
+            const isNewMesh = cachedChangedTime === undefined;
+            const isUpdated = cachedChangedTime !== undefined &&
+                cachedChangedTime !== currentChangedTime;
+            const isUnchanged = cachedChangedTime !== undefined &&
+                cachedChangedTime === currentChangedTime;
+            if (isNewMesh) {
                 const threeMesh = this.createMesh(frame, xrMesh);
                 this.xrMeshToThreeMesh.set(xrMesh, threeMesh);
                 this.threeMeshToXrMesh.set(threeMesh, xrMesh);
+                this.meshTimedata.set(xrMesh, {
+                    lastChangedTime: currentChangedTime,
+                    lastSeenTime: now,
+                });
                 this.add(threeMesh);
                 if (this.physics) {
                     threeMesh.initRapierPhysics(this.physics.RAPIER, this.physics.blendedWorld);
                 }
             }
-            else {
+            else if (isUpdated) {
                 const threeMesh = this.xrMeshToThreeMesh.get(xrMesh);
                 threeMesh.updateVertices(xrMesh);
+                // Update needed in case we have drift correction.
                 this.updateMeshPose(frame, xrMesh, threeMesh);
+                this.meshTimedata.set(xrMesh, {
+                    lastChangedTime: currentChangedTime,
+                    lastSeenTime: now,
+                });
+            }
+            else if (isUnchanged) {
+                this.meshTimedata.set(xrMesh, {
+                    lastChangedTime: currentChangedTime,
+                    lastSeenTime: now,
+                });
+            }
+        }
+        // Optimization3: Periodic cleanup of stale/distant meshes
+        if (now - this.lastCleanupTime >= this.CLEANUP_INTERVAL_MS) {
+            this.cleanupStaleMeshes(now);
+            this.lastCleanupTime = now;
+        }
+    }
+    removeMesh(xrMesh, threeMesh) {
+        this.xrMeshToThreeMesh.delete(xrMesh);
+        this.threeMeshToXrMesh.delete(threeMesh);
+        this.meshTimedata.delete(xrMesh);
+        threeMesh.dispose();
+        this.remove(threeMesh);
+    }
+    cleanupStaleMeshes(now) {
+        const meshesToRemove = [];
+        for (const [xrMesh] of this.xrMeshToThreeMesh.entries()) {
+            const cachedSeenTime = this.meshTimedata.get(xrMesh)?.lastSeenTime;
+            const timeSinceLastSeen = now - (cachedSeenTime || 0);
+            const isStale = timeSinceLastSeen >= this.MESH_STALE_TIME_MS;
+            if (isStale) {
+                meshesToRemove.push(xrMesh);
+            }
+        }
+        for (const xrMesh of meshesToRemove) {
+            const threeMesh = this.xrMeshToThreeMesh.get(xrMesh);
+            if (threeMesh) {
+                this.removeMesh(xrMesh, threeMesh);
             }
         }
     }
@@ -11394,326 +13367,155 @@ class MeshDetector extends Script {
         if (pose) {
             mesh.position.copy(pose.transform.position);
             mesh.quaternion.copy(pose.transform.orientation);
+            // Update physics rigid body pose if it exists
+            if (mesh instanceof DetectedMesh) {
+                const rigidBody = mesh.getRigidBody;
+                rigidBody?.setTranslation(mesh.position, false);
+                rigidBody?.setRotation(mesh.quaternion, false);
+            }
         }
     }
-}
-
-// Import other modules as they are implemented in future.
-// import { SceneMesh } from '/depth/SceneMesh.js';
-// import { LightEstimation } from '/lighting/LightEstimation.js';
-// import { HumanRecognizer } from '/human/HumanRecognizer.js';
-/**
- * Manages all interactions with the real-world environment perceived by the XR
- * device. This class abstracts the complexity of various perception APIs
- * (Depth, Planes, Meshes, etc.) and provides a simple, event-driven interface
- * for developers to use `this.world.depth.mesh`, `this.world.planes`.
- */
-class World extends Script {
-    constructor() {
-        super(...arguments);
-        this.editorIcon = 'sensors';
-        /**
-         * A Three.js Raycaster for performing intersection tests.
-         */
-        this.raycaster = new THREE.Raycaster();
-        // Whether we need to initiate a room capture.
-        this.needsRoomCapture = false;
+    getCameraInfo(frame, referenceSpace) {
+        const viewerPose = frame.getViewerPose(referenceSpace);
+        const cameraPosition = new THREE.Vector3(0, 0, 0);
+        let cameraForward = new THREE.Vector3(0, 0, -1);
+        if (viewerPose && viewerPose.views && viewerPose.views.length > 0) {
+            // Get camera position from first view's transform
+            const viewTransform = viewerPose.views[0].transform;
+            const viewMatrix = new THREE.Matrix4().fromArray(viewTransform.matrix);
+            cameraPosition.setFromMatrixPosition(viewMatrix);
+            // Extract forward vector from matrix (typically -Z axis)
+            const forward = new THREE.Vector3(0, 0, -1);
+            forward.applyMatrix4(viewMatrix);
+            forward.sub(cameraPosition).normalize();
+            cameraForward = forward;
+        }
+        return { position: cameraPosition, forward: cameraForward };
     }
-    static { this.dependencies = {
-        options: WorldOptions,
-        camera: THREE.Camera,
-    }; }
-    /**
-     * Initializes the world-sensing modules based on the provided configuration.
-     * This method is called automatically by the XRCore.
-     */
-    async init({ options, camera, }) {
-        this.options = options;
-        this.camera = camera;
-        if (!this.options || !this.options.enabled) {
-            return;
-        }
-        this.needsRoomCapture = this.options.initiateRoomCapture;
-        // Conditionally initialize each perception module based on options.
-        if (this.options.planes.enabled) {
-            this.planes = new PlaneDetector();
-            this.add(this.planes);
-        }
-        if (this.options.objects.enabled) {
-            this.objects = new ObjectDetector();
-            this.add(this.objects);
-        }
-        if (this.options.meshes.enabled) {
-            this.meshes = new MeshDetector();
-            this.add(this.meshes);
-        }
-        // TODO: Initialize other modules as they are available & implemented.
-        /*
-    
-        if (this.options.lighting.enabled) {
-          this.lighting = new LightEstimation();
-        }
-    
-        if (this.options.humans.enabled) {
-          this.humans = new HumanRecognizer();
-        }
-        */
+    computeMeshBoundingBox(xrMesh) {
+        const vertices = xrMesh.vertices;
+        if (vertices.length < 3)
+            return null;
+        return new THREE.Box3().setFromArray(vertices);
     }
-    /**
-     * Places an object at the reticle.
-     */
-    anchorObjectAtReticle(_object, _reticle) {
-        throw new Error('Method not implemented');
+    /** Six clip planes from the view-projection matrix (left, right, bottom, top, near, far). */
+    buildFrustumPlanes(viewMatrix, projectionMatrix) {
+        const viewProjectionMatrix = new THREE.Matrix4();
+        viewProjectionMatrix.multiplyMatrices(projectionMatrix, viewMatrix);
+        const e = viewProjectionMatrix.elements;
+        const planes = [
+            new THREE.Plane().setComponents(e[3] + e[0], e[7] + e[4], e[11] + e[8], e[15] + e[12]),
+            new THREE.Plane().setComponents(e[3] - e[0], e[7] - e[4], e[11] - e[8], e[15] - e[12]),
+            new THREE.Plane().setComponents(e[3] + e[1], e[7] + e[5], e[11] + e[9], e[15] + e[13]),
+            new THREE.Plane().setComponents(e[3] - e[1], e[7] - e[5], e[11] - e[9], e[15] - e[13]),
+            new THREE.Plane().setComponents(e[3] + e[2], e[7] + e[6], e[11] + e[10], e[15] + e[14]),
+            new THREE.Plane().setComponents(e[3] - e[2], e[7] - e[6], e[11] - e[10], e[15] - e[14]),
+        ];
+        for (const plane of planes) {
+            if (plane.normal.length() > 0.0001) {
+                plane.normalize();
+            }
+        }
+        return planes;
     }
-    /**
-     * Updates all active world-sensing modules with the latest XRFrame data.
-     * This method is called automatically by the XRCore on each frame.
-     * @param _timestamp - The timestamp for the current frame.
-     * @param frame - The current XRFrame, containing environmental
-     * data.
-     * @override
-     */
-    update(_timestamp, frame) {
-        if (!this.options?.enabled || !frame) {
-            return;
+    // Check if AABB intersects the frustum (based on C++ IntersectsBox)
+    frustumIntersectsBox(planes, box) {
+        const boxMin = box.min;
+        const boxMax = box.max;
+        const axisVert = new THREE.Vector3();
+        for (const plane of planes) {
+            const n = plane.normal;
+            axisVert.x = n.x < 0.0 ? boxMin.x : boxMax.x;
+            axisVert.y = n.y < 0.0 ? boxMin.y : boxMax.y;
+            axisVert.z = n.z < 0.0 ? boxMin.z : boxMax.z;
+            if (plane.distanceToPoint(axisVert) < 0.0) {
+                return false;
+            }
         }
-        if (this.needsRoomCapture && frame.session.initiateRoomCapture) {
-            this.needsRoomCapture = false;
-            frame.session.initiateRoomCapture();
-        }
-        this.meshes?.updateMeshes(_timestamp, frame);
+        return true;
     }
-    /**
-     * Performs a raycast from a controller against detected real-world surfaces
-     * (currently planes) and places a 3D object at the intersection point,
-     * oriented to face the user.
-     *
-     * We recommend using /templates/3_depth/ to anchor objects based on
-     * depth mesh for mixed reality experience for accuracy. This function is
-     * design for demonstration purposes.
-     *
-     * @param objectToPlace - The object to position in the
-     * world.
-     * @param controller - The controller to use for raycasting.
-     * @returns True if the object was successfully placed, false
-     * otherwise.
-     */
-    placeOnSurface(objectToPlace, controller) {
-        if (!this.planes) {
-            console.warn('Cannot placeOnSurface: PlaneDetector is not enabled.');
-            return false;
+    // New method: Frustum culling
+    shouldShowMeshInViewWithFrustum(mesh, frame, referenceSpace) {
+        // Get mesh pose
+        const meshPose = frame.getPose(mesh.meshSpace, referenceSpace);
+        if (!meshPose) {
+            return true; // If pose is unavailable, show by default
         }
-        const allPlanes = this.planes.get();
-        if (allPlanes.length === 0) {
-            return false; // No surfaces to cast against.
-        }
-        this.raycaster.setFromXRController(controller);
-        const intersections = this.raycaster.intersectObjects(allPlanes);
-        if (intersections.length > 0) {
-            const intersection = intersections[0];
-            placeObjectAtIntersectionFacingTarget(objectToPlace, intersection, this.camera);
+        // Get viewer pose and the first view
+        const viewerPose = frame.getViewerPose(referenceSpace);
+        if (!viewerPose || !viewerPose.views || viewerPose.views.length === 0) {
             return true;
         }
-        return false;
+        const view = viewerPose.views[0];
+        if (!view.projectionMatrix) {
+            return true; // If no projection matrix, fall back to default behavior
+        }
+        // Compute mesh bounding box in local space
+        const localBoundingBox = this.computeMeshBoundingBox(mesh);
+        if (!localBoundingBox) {
+            return true; // If bounding box cannot be computed, show by default
+        }
+        const meshTransform = new THREE.Matrix4().fromArray(meshPose.transform.matrix);
+        const meshPosition = new THREE.Vector3();
+        const meshQuaternion = new THREE.Quaternion();
+        const meshScale = new THREE.Vector3();
+        meshTransform.decompose(meshPosition, meshQuaternion, meshScale);
+        // Transform bounding box 8 corners to reference space
+        const corners = [
+            new THREE.Vector3(localBoundingBox.min.x, localBoundingBox.min.y, localBoundingBox.min.z),
+            new THREE.Vector3(localBoundingBox.max.x, localBoundingBox.min.y, localBoundingBox.min.z),
+            new THREE.Vector3(localBoundingBox.min.x, localBoundingBox.max.y, localBoundingBox.min.z),
+            new THREE.Vector3(localBoundingBox.max.x, localBoundingBox.max.y, localBoundingBox.min.z),
+            new THREE.Vector3(localBoundingBox.min.x, localBoundingBox.min.y, localBoundingBox.max.z),
+            new THREE.Vector3(localBoundingBox.max.x, localBoundingBox.min.y, localBoundingBox.max.z),
+            new THREE.Vector3(localBoundingBox.min.x, localBoundingBox.max.y, localBoundingBox.max.z),
+            new THREE.Vector3(localBoundingBox.max.x, localBoundingBox.max.y, localBoundingBox.max.z),
+        ];
+        // Apply mesh transform (order: scale, then rotate, then translate)
+        for (const corner of corners) {
+            corner.multiply(meshScale);
+            corner.applyQuaternion(meshQuaternion);
+            corner.add(meshPosition);
+        }
+        const worldBox = new THREE.Box3().setFromPoints(corners);
+        // Build view matrix (from view transform)
+        const viewTransform = view.transform;
+        const viewMatrix = new THREE.Matrix4()
+            .fromArray(viewTransform.matrix)
+            .invert();
+        // Build projection matrix
+        const projectionMatrix = new THREE.Matrix4().fromArray(view.projectionMatrix);
+        // Build frustum planes
+        const frustumPlanes = this.buildFrustumPlanes(viewMatrix, projectionMatrix);
+        return this.frustumIntersectsBox(frustumPlanes, worldBox);
     }
-    /**
-     * Toggles the visibility of all debug visualizations for world features.
-     * @param visible - Whether the visualizations should be visible.
-     */
-    showDebugVisualizations(visible = true) {
-        this.planes?.showDebugVisualizations(visible);
-        this.objects?.showDebugVisualizations(visible);
-    }
-}
-
-class Simulator extends Script {
-    static { this.dependencies = {
-        simulatorOptions: SimulatorOptions,
-        input: Input,
-        timer: THREE.Timer,
-        camera: THREE.Camera,
-        renderer: THREE.WebGLRenderer,
-        scene: THREE.Scene,
-        registry: Registry,
-        options: Options,
-        depth: Depth,
-        world: World,
-    }; }
-    constructor(renderMainScene) {
-        super();
-        this.renderMainScene = renderMainScene;
-        this.editorIcon = 'simulation';
-        this.simulatorScene = new SimulatorScene();
-        this.simulatorWorld = new SimulatorWorld();
-        this.depth = new SimulatorDepth(this.simulatorScene);
-        // Controller poses relative to the camera.
-        this.simulatorControllerState = new SimulatorControllerState();
-        this.hands = new SimulatorHands(this.simulatorControllerState, this.simulatorScene);
-        this.simulatorUser = new SimulatorUser();
-        this.userInterface = new SimulatorInterface();
-        this.controls = new SimulatorControls(this.simulatorControllerState, this.hands, this.setStereoRenderMode.bind(this), this.userInterface);
-        this.renderDepthPass = false;
-        this.renderMode = SimulatorRenderMode.DEFAULT;
-        this.stereoCameras = [];
-        this.initialized = false;
-        this.renderSimulatorSceneToCanvasBound = this.renderSimulatorSceneToCanvas.bind(this);
-        this.add(this.simulatorUser);
-    }
-    async init({ simulatorOptions, input, timer, camera, renderer, scene, registry, options, depth, world, }) {
-        if (this.initialized)
-            return;
-        // Get optional dependencies from the registry.
-        const deviceCamera = registry.get(XRDeviceCamera);
-        this.options = simulatorOptions;
-        camera.position.copy(this.options.initialCameraPosition);
-        this.userInterface.init(simulatorOptions, this.controls, this.hands);
-        renderer.autoClearColor = false;
-        await this.simulatorScene.init(simulatorOptions);
-        await this.simulatorWorld.init(options, world);
-        this.hands.init({ input });
-        this.controls.init({ camera, input, timer, renderer, simulatorOptions });
-        if (deviceCamera && !this.camera) {
-            this.camera = new SimulatorCamera(renderer);
-            this.camera.init();
-            deviceCamera.registerSimulatorCamera(this.camera);
+    shouldShowMeshInViewWithDistance(mesh, cameraPosition, cameraForward, frame, referenceSpace) {
+        // Distance check
+        const meshPose = frame.getPose(mesh.meshSpace, referenceSpace);
+        if (!meshPose) {
+            return true;
         }
-        if (options.depth.enabled) {
-            this.renderDepthPass = true;
-            this.depth.init(renderer, camera, depth);
+        const meshPosition = new THREE.Vector3();
+        meshPosition.setFromMatrixPosition(new THREE.Matrix4().fromArray(meshPose.transform.matrix));
+        const dx = meshPosition.x - cameraPosition.x;
+        const dy = meshPosition.y - cameraPosition.y;
+        const dz = meshPosition.z - cameraPosition.z;
+        const distanceSq = dx * dx + dy * dy + dz * dz;
+        const distance = Math.sqrt(distanceSq);
+        if (distance > this.kMaxViewDistance) {
+            return false;
         }
-        scene.add(camera);
-        if (this.options.stereo.enabled) {
-            this.setupStereoCameras(camera);
+        // FOV check
+        if (distance > 0.001) {
+            const invDistance = 1.0 / distance;
+            const dotForward = dx * invDistance * cameraForward.x +
+                dy * invDistance * cameraForward.y +
+                dz * invDistance * cameraForward.z;
+            if (dotForward < this.kFOVCosThreshold) {
+                return false;
+            }
         }
-        if (this.options.videoPath) {
-            this.videoElement = document.createElement('video');
-            this.videoElement.src = this.options.videoPath;
-            this.videoElement.loop = true;
-            this.videoElement.muted = true;
-            this.videoElement.play().catch((e) => {
-                console.error(`Simulator: Failed to play video at ${this.options.videoPath}`, e);
-            });
-            this.videoElement.addEventListener('error', () => {
-                console.error(`Simulator: Error loading video at ${this.options.videoPath}`, this.videoElement?.error);
-            });
-            const videoTexture = new THREE.VideoTexture(this.videoElement);
-            videoTexture.colorSpace = THREE.SRGBColorSpace;
-            this.backgroundVideoQuad = new FullScreenQuad(new THREE.MeshBasicMaterial({ map: videoTexture }));
-        }
-        this.virtualSceneRenderTarget = new THREE.WebGLRenderTarget(renderer.domElement.width, renderer.domElement.height, { stencilBuffer: options.stencil });
-        const virtualSceneMaterial = new THREE.MeshBasicMaterial({
-            map: this.virtualSceneRenderTarget.texture,
-            transparent: true,
-        });
-        if (this.options.blendingMode === 'screen') {
-            virtualSceneMaterial.blending = THREE.CustomBlending;
-            virtualSceneMaterial.blendSrc = THREE.OneFactor;
-            virtualSceneMaterial.blendDst = THREE.OneMinusSrcColorFactor;
-            virtualSceneMaterial.blendEquation = THREE.AddEquation;
-        }
-        this.virtualSceneFullScreenQuad = new FullScreenQuad(virtualSceneMaterial);
-        this.renderer = renderer;
-        this.mainCamera = camera;
-        this.mainScene = scene;
-        this.registry = registry;
-        this.initialized = true;
-    }
-    simulatorUpdate() {
-        this.controls.update();
-        this.hands.update();
-        if (this.renderDepthPass) {
-            this.depth.update();
-        }
-    }
-    setStereoRenderMode(mode) {
-        if (!this.options.stereo.enabled)
-            return;
-        this.renderMode = mode;
-    }
-    setupStereoCameras(camera) {
-        const leftCamera = camera.clone();
-        const rightCamera = camera.clone();
-        leftCamera.layers.disableAll();
-        leftCamera.layers.enable(0);
-        leftCamera.layers.enable(1);
-        rightCamera.layers.disableAll();
-        rightCamera.layers.enable(0);
-        rightCamera.layers.enable(2);
-        leftCamera.position.set(-AVERAGE_IPD_METERS / 2, 0, 0);
-        rightCamera.position.set(AVERAGE_IPD_METERS / 2, 0, 0);
-        leftCamera.updateWorldMatrix(true, false);
-        rightCamera.updateWorldMatrix(true, false);
-        this.stereoCameras.length = 0;
-        this.stereoCameras.push(leftCamera, rightCamera);
-        camera.add(leftCamera, rightCamera);
-        this.setStereoRenderMode(SimulatorRenderMode.STEREO_LEFT);
-    }
-    onBeforeSimulatorSceneRender() {
-        if (this.camera) {
-            this.camera.onBeforeSimulatorSceneRender(this.mainCamera, this.renderSimulatorSceneToCanvasBound);
-        }
-    }
-    onSimulatorSceneRendered() {
-        if (this.camera) {
-            this.camera.onSimulatorSceneRendered();
-        }
-    }
-    getRenderCamera() {
-        return {
-            [SimulatorRenderMode.DEFAULT]: this.mainCamera,
-            [SimulatorRenderMode.STEREO_LEFT]: this.stereoCameras[0],
-            [SimulatorRenderMode.STEREO_RIGHT]: this.stereoCameras[1],
-        }[this.renderMode];
-    }
-    // Called by core when the simulator is running.
-    renderScene() {
-        if (!this.renderer)
-            return;
-        if (!this.options.renderToRenderTexture)
-            return;
-        // Allocate a new render target if the resolution changes.
-        if (this.virtualSceneRenderTarget.width != this.renderer.domElement.width ||
-            this.virtualSceneRenderTarget.height != this.renderer.domElement.height) {
-            const stencilEnabled = !!this.virtualSceneRenderTarget?.stencilBuffer;
-            this.virtualSceneRenderTarget.dispose();
-            this.virtualSceneRenderTarget = new THREE.WebGLRenderTarget(this.renderer.domElement.width, this.renderer.domElement.height, { stencilBuffer: stencilEnabled });
-            this.virtualSceneFullScreenQuad.material.map = this.virtualSceneRenderTarget.texture;
-        }
-        this.sparkRenderer =
-            this.sparkRenderer || this.registry.get(SparkRendererHolder)?.renderer;
-        if (this.sparkRenderer) {
-            this.sparkRenderer.defaultView.encodeLinear = true;
-        }
-        this.renderer.setRenderTarget(this.virtualSceneRenderTarget);
-        this.renderer.clear();
-        this.renderMainScene(this.getRenderCamera());
-    }
-    // Renders the simulator scene onto the main canvas.
-    // Then composites the virtual render with the simulator render.
-    // Called by core after renderScene.
-    renderSimulatorScene() {
-        this.onBeforeSimulatorSceneRender();
-        this.renderSimulatorSceneToCanvas(this.getRenderCamera());
-        this.onSimulatorSceneRendered();
-        if (this.options.renderToRenderTexture) {
-            this.virtualSceneFullScreenQuad.render(this.renderer);
-        }
-        else {
-            // Temporary workaround since splats look faded when rendered to a render
-            // texture.
-            this.renderMainScene(this.getRenderCamera());
-        }
-    }
-    renderSimulatorSceneToCanvas(camera) {
-        if (this.sparkRenderer) {
-            this.sparkRenderer.defaultView.encodeLinear = false;
-        }
-        this.renderer.setRenderTarget(null);
-        if (this.backgroundVideoQuad) {
-            this.backgroundVideoQuad.render(this.renderer);
-        }
-        this.renderer.render(this.simulatorScene, camera);
-        this.renderer.clearDepth();
+        return true;
     }
 }
 
@@ -11775,7 +13577,11 @@ class AudioListener extends Script {
     }
     async setupAudioCapture() {
         this.audioStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
+            audio: {
+                echoCancellation: this.options.echoCancellation,
+                noiseSuppression: this.options.noiseSuppression,
+                autoGainControl: this.options.autoGainControl,
+            },
             video: false,
         });
         const actualSampleRate = this.audioStream
@@ -11901,6 +13707,917 @@ class AudioListener extends Script {
     dispose() {
         this.stopCapture();
         super.dispose();
+    }
+}
+
+/**
+ * Base class for sound detector backends.
+ * Handles the orchestration of normalizing audio, running classifiers and creating results.
+ */
+class BaseDetectorBackend {
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * Calculates debug information for the given audio data.
+     * @param audio - The normalized audio data.
+     * @returns An object containing RMS, buffer size, and sample rate.
+     */
+    populateDebugData(audio) {
+        let sumSquares = 0;
+        const audioData = audio.data;
+        for (let i = 0; i < audioData.length; i++) {
+            sumSquares += audioData[i] * audioData[i];
+        }
+        const rms = Math.sqrt(sumSquares / audioData.length);
+        return {
+            rms: rms,
+            bufferSize: audioData.length,
+            sampleRate: this.context.sampleRate,
+        };
+    }
+}
+
+let FilesetResolver;
+let AudioClassifier;
+// --- Attempt Dynamic Import ---
+async function loadMediaPipeModule() {
+    if (FilesetResolver && AudioClassifier) {
+        return;
+    }
+    try {
+        const mediapipeModule = await import('@mediapipe/tasks-audio');
+        FilesetResolver = mediapipeModule.FilesetResolver;
+        AudioClassifier = mediapipeModule.AudioClassifier;
+        console.log("'@mediapipe/tasks-audio' module loaded successfully.");
+    }
+    catch (error) {
+        console.error('Failed to load MediaPipe module:', error);
+        throw error;
+    }
+}
+class MediaPipeDetectorBackend extends BaseDetectorBackend {
+    constructor(context) {
+        super(context);
+        this.chunkSamples = 16000;
+        this.accumulatedAudio = [];
+        this.audioClassifier = null;
+        const mediapipeConfig = this.context.options.sounds.backendConfig.mediapipe;
+        this.chunkSamples = mediapipeConfig.chunkSamples;
+        this.tryInitializeAudioClassifier();
+    }
+    async tryInitializeAudioClassifier() {
+        if (this.audioClassifier)
+            return;
+        await loadMediaPipeModule();
+        const mediapipeConfig = this.context.options.sounds.backendConfig.mediapipe;
+        const audioTasks = await FilesetResolver.forAudioTasks(mediapipeConfig.wasmFilesUrl);
+        this.audioClassifier = await AudioClassifier.createFromOptions(audioTasks, {
+            baseOptions: { modelAssetPath: mediapipeConfig.modelAssetPath },
+        });
+    }
+    /**
+     * Normalizes audio data received as an ArrayBuffer (containing Int16 samples)
+     * into a Float32Array with values in the range [-1.0, 1.0] that the MediaPipe
+     * classifier can understand.
+     * @param arrayBuffer - The raw audio data buffer.
+     * @returns The normalized audio data.
+     */
+    normalizeAudio(arrayBuffer) {
+        const int16Data = new Int16Array(arrayBuffer);
+        const normalizedAudio = new Float32Array(int16Data.length);
+        for (let i = 0; i < int16Data.length; i++) {
+            normalizedAudio[i] = int16Data[i] / 32768.0;
+        }
+        return { data: normalizedAudio };
+    }
+    classify(audio) {
+        if (!this.audioClassifier)
+            return null;
+        const audioData = audio.data;
+        for (let i = 0; i < audioData.length; i++) {
+            this.accumulatedAudio.push(audioData[i]);
+        }
+        // chunkSamples is required because the MediaPipe AudioClassifier operates on
+        // discrete chunks of audio data. We accumulate samples until we reach this
+        // threshold before performing classification. If we do not accumulate enough samples,
+        // the MediaPipe AudioClassifier returns a classification of "Silence" which is not
+        // useful.
+        if (this.accumulatedAudio.length >= this.chunkSamples) {
+            const chunk = new Float32Array(this.accumulatedAudio.slice(0, this.chunkSamples));
+            this.accumulatedAudio = this.accumulatedAudio.slice(this.chunkSamples); // simple non-overlapping window
+            const mediaPipeResult = this.audioClassifier.classify(chunk, this.context.sampleRate);
+            const debugData = this.context.options.sounds.showDebugInfo
+                ? this.populateDebugData({ data: chunk })
+                : undefined;
+            return {
+                items: mediaPipeResult,
+                debug: debugData,
+            };
+        }
+        return null;
+    }
+}
+
+const DEFAULT_SAMPLE_RATE = 44000;
+/**
+ * Detects and classifies sounds in the user's environment using a specified backend.
+ * It queries an audio classifier model with the device mic input stream and returns
+ * classifications over specific time intervals along with confidence scores.
+ */
+class SoundDetector extends Script {
+    constructor() {
+        super(...arguments);
+        this._detectorBackends = new Map();
+        this._isListening = false;
+    }
+    static { this.dependencies = { options: WorldOptions }; }
+    get isListening() {
+        return this._isListening;
+    }
+    /**
+     * Initializes the SoundDetector.
+     */
+    async init({ options }) {
+        this.options = options;
+    }
+    /**
+     * Starts listening to the default mic input stream.
+     */
+    async startListening() {
+        if (this._isListening)
+            return;
+        if (!this.audioListener) {
+            this.audioListener = new AudioListener({
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+            });
+        }
+        const sampleRate = this.audioListener?.audioContext?.sampleRate || DEFAULT_SAMPLE_RATE;
+        const backend = await this.getOrCreateDetectorBackend(sampleRate);
+        try {
+            this._isListening = true;
+            await this.audioListener.startCapture({
+                onAudioData: async (buffer) => {
+                    if (!backend)
+                        return;
+                    const normalizedAudio = backend.normalizeAudio(buffer);
+                    const audioClassifierResult = backend.classify(normalizedAudio);
+                    if (audioClassifierResult) {
+                        this.dispatchEvent({
+                            type: 'soundDetected',
+                            audioClassifierResult: audioClassifierResult,
+                        });
+                    }
+                },
+            });
+            console.log('SoundDetector: Started listening using AudioListener.');
+        }
+        catch (error) {
+            console.error('SoundDetector: Failed to start audio classification:', error);
+            this._isListening = false;
+        }
+    }
+    /**
+     * Stops listening and releases resources.
+     */
+    stopListening() {
+        if (!this._isListening)
+            return;
+        this.audioListener?.stopCapture();
+        this._isListening = false;
+        console.log('SoundDetector: Stopped listening.');
+    }
+    update(_timestamp, _frame) {
+        // No per-frame update logic needed, audio is handled asynchronously via streams.
+    }
+    getOrCreateDetectorBackend(sampleRate) {
+        if (!this.options) {
+            throw new Error('SoundDetector: Options not initialized. Call init first.');
+        }
+        const activeBackend = this.options.sounds.backendConfig.activeBackend;
+        let detectorBackendPromise = this._detectorBackends.get(activeBackend);
+        if (!detectorBackendPromise) {
+            detectorBackendPromise = (async () => {
+                switch (activeBackend) {
+                    case 'mediapipe':
+                        return new MediaPipeDetectorBackend({
+                            options: this.options,
+                            sampleRate,
+                        });
+                    default:
+                        throw new Error(`SoundDetector backend '${activeBackend}' is not supported.`);
+                }
+            })();
+            this._detectorBackends.set(activeBackend, detectorBackendPromise);
+        }
+        return detectorBackendPromise;
+    }
+}
+
+/**
+ * Temporary polyfill until Chrome 148 is rolled out more widely.
+ * Converts a Temporal.Duration or Temporal.DurationLike to milliseconds.
+ */
+function durationToMs(duration) {
+    if (typeof Temporal !== 'undefined') {
+        return Temporal.Duration.from(duration).total({ unit: 'millisecond' });
+    }
+    // If duration is a string (ISO 8601) and native Temporal failed/is absent, fallback to 0
+    if (typeof duration === 'string') {
+        return 0;
+    }
+    let ms = 0;
+    if (duration.milliseconds)
+        ms += duration.milliseconds;
+    if (duration.seconds)
+        ms += duration.seconds * 1000;
+    if (duration.minutes)
+        ms += duration.minutes * 60 * 1000;
+    if (duration.hours)
+        ms += duration.hours * 60 * 60 * 1000;
+    if (duration.days)
+        ms += duration.days * 24 * 60 * 60 * 1000;
+    if (duration.weeks)
+        ms += duration.weeks * 7 * 24 * 60 * 60 * 1000;
+    if (duration.months)
+        ms += duration.months * 30 * 24 * 60 * 60 * 1000;
+    if (duration.years)
+        ms += duration.years * 365 * 24 * 60 * 60 * 1000;
+    if (duration.microseconds)
+        ms += duration.microseconds / 1000;
+    if (duration.nanoseconds)
+        ms += duration.nanoseconds / 1000000;
+    return ms;
+}
+
+/**
+ * Places an object onto a suitable horizontal plane in the environment.
+ * It prioritizes planes in front of the user, prefers tables/elevated surfaces over floors,
+ * and ensures the object does not intersect other existing objects or other planes in the scene.
+ * If placement fails in the current frame, it continues retrying frame-by-frame until the timeout is reached.
+ *
+ * ### Algorithm Details:
+ * 1. **Filter Horizontal Surfaces**: Fetches all planes and filters for horizontal surfaces, completely skipping
+ *    any upside-down planes (whose normal y-component points downwards).
+ * 2. **Obstacle Gathering**: Traverses the active Three.js scene to identify visible collidable meshes, including
+ *    all other detected plane meshes (excluding the placement plane itself) and excluding user rigs/helpers.
+ * 3. **User-Centric Grid Sampling**: For each horizontal plane, projects the user's position onto the plane, restricts
+ *    the sampling range to a 3.0-meter radius bounding box centered around this projection, and grid-samples coordinates
+ *    strictly within the plane's polygon boundaries.
+ * 4. **Priority Scoring**: Assigns scores to sampled candidates, prioritizing elevated surfaces (tables over floors)
+ *    located comfortably in front of the user (0.4m to 3.0m range, pointing in camera look direction).
+ * 5. **Validation & Collision Check**: Evaluates candidates in descending score order, temporarily positioning and orienting
+ *    the object upright on the plane normal facing the user. Validates placement against the bounds of collidable obstacles.
+ * 6. **Frame Yielding & Retry**: If no candidates succeed in the current frame, yields to the next frame via `waitFrame`
+ *    and repeats the process until a clean spot is found or the timeout is reached.
+ *
+ * @param objectToPlace - The Three.js Object3D to place.
+ * @param camera - The current active camera (to evaluate user position and look direction).
+ * @param scene - The active scene containing all collidable obstacles.
+ * @param planes - The PlaneDetector instance providing detected real-world planes.
+ * @param meshes - The MeshDetector instance providing environmental mesh obstacles.
+ * @param waitFrame - The WaitFrame component to yield execution between frames.
+ * @param timeout - Timeout duration as a Temporal.Duration or Temporal.DurationLike object (defaults to 500ms).
+ * @param gridSteps - Number of steps along each axis for grid sampling candidate positions (defaults to 10).
+ * @returns A promise resolving to true if successfully placed, false otherwise.
+ */
+async function placeOnHorizontalSurface(objectToPlace, camera, scene, planes, meshes, waitFrame, timer, timeout, gridSteps) {
+    const timeoutSeconds = durationToMs(timeout) / 1000;
+    const startElapsed = timer.getElapsed();
+    while (true) {
+        // Check timeout at the start of each frame loop
+        const elapsed = timer.getElapsed() - startElapsed;
+        if (elapsed >= timeoutSeconds) {
+            return false;
+        }
+        if (!planes) {
+            await waitFrame.waitFrame();
+            continue;
+        }
+        const allPlanes = planes.get();
+        const horizontalPlanes = allPlanes.filter((plane) => {
+            const orientation = (plane.orientation || '').toLowerCase();
+            const label = (plane.label || '').toLowerCase();
+            const planeNormal = new THREE.Vector3(0, 1, 0)
+                .applyQuaternion(plane.quaternion)
+                .normalize();
+            // Skip upside-down planes (e.g., ceilings or undersides of tables)
+            if (planeNormal.y < 0) {
+                return false;
+            }
+            return (orientation === 'horizontal' ||
+                label === 'floor' ||
+                label === 'table' ||
+                label === 'desk' ||
+                label === 'counter' ||
+                label === 'horizontal');
+        });
+        if (horizontalPlanes.length === 0) {
+            await waitFrame.waitFrame();
+            continue;
+        }
+        // Gather all visible collidable obstacles from the scene graph
+        const collidableObjects = [];
+        scene.traverse((child) => {
+            if (!child.visible)
+                return;
+            if (child === objectToPlace || isDescendantOf(child, objectToPlace))
+                return;
+            if (child === planes)
+                return;
+            if (meshes && isDescendantOf(child, meshes))
+                return;
+            if (child === camera || child === scene)
+                return;
+            if (child.name &&
+                (child.name.includes('controller') ||
+                    child.name.includes('reticle') ||
+                    child.name.includes('helper'))) {
+                return;
+            }
+            if (child.isMesh) {
+                collidableObjects.push(child);
+            }
+        });
+        // Generate and score candidate positions on all horizontal planes
+        const candidates = [];
+        const cameraPos = camera.getWorldPosition(new THREE.Vector3());
+        const cameraForward = new THREE.Vector3(0, 0, -1)
+            .applyQuaternion(camera.quaternion)
+            .normalize();
+        for (const plane of horizontalPlanes) {
+            const polygon = getLocalPolygon(plane);
+            if (polygon.length === 0)
+                continue;
+            // Convert camera pos to local plane coordinates to center our grid around the user
+            const localCameraPos = plane.worldToLocal(cameraPos.clone());
+            const localProjected = new THREE.Vector2(localCameraPos.x, localCameraPos.z);
+            const polygonMinX = Math.min(...polygon.map((p) => p.x));
+            const polygonMaxX = Math.max(...polygon.map((p) => p.x));
+            const polygonMinY = Math.min(...polygon.map((p) => p.y));
+            const polygonMaxY = Math.max(...polygon.map((p) => p.y));
+            // Restrict search bounds to 3.0 meters radius around user's local projection
+            const searchRadius = 3.0;
+            const minX = Math.max(polygonMinX, localProjected.x - searchRadius);
+            const maxX = Math.min(polygonMaxX, localProjected.x + searchRadius);
+            const minY = Math.max(polygonMinY, localProjected.y - searchRadius);
+            const maxY = Math.min(polygonMaxY, localProjected.y + searchRadius);
+            // If restricted bounds are invalid, the plane is completely out of range
+            if (minX >= maxX || minY >= maxY) {
+                continue;
+            }
+            // Grid sampling within restricted bounding box
+            const localPoints = [];
+            // Try user's local projection point first if it is inside the polygon
+            if (isPointInPolygon(localProjected, polygon)) {
+                localPoints.push(localProjected);
+            }
+            // Try plane center if it lies within our restricted search bounds
+            const center = new THREE.Vector2((polygonMinX + polygonMaxX) / 2, (polygonMinY + polygonMaxY) / 2);
+            if (center.x >= minX &&
+                center.x <= maxX &&
+                center.y >= minY &&
+                center.y <= maxY) {
+                if (isPointInPolygon(center, polygon)) {
+                    localPoints.push(center);
+                }
+            }
+            for (let i = 0; i < gridSteps; i++) {
+                const x = minX + (i / (gridSteps - 1)) * (maxX - minX);
+                for (let j = 0; j < gridSteps; j++) {
+                    const z = minY + (j / (gridSteps - 1)) * (maxY - minY);
+                    const candidatePt = new THREE.Vector2(x, z);
+                    if (isPointInPolygon(candidatePt, polygon)) {
+                        localPoints.push(candidatePt);
+                    }
+                }
+            }
+            for (const localPt of localPoints) {
+                const localVec = new THREE.Vector3(localPt.x, 0, localPt.y);
+                const worldPt = plane.localToWorld(localVec);
+                // 1. Table vs Floor preference
+                const label = (plane.label || '').toLowerCase();
+                let semanticScore = 50;
+                if (label === 'table' || label === 'desk' || label === 'counter') {
+                    semanticScore = 100;
+                }
+                else if (label === 'floor') {
+                    semanticScore = 0;
+                }
+                // 2. Height preferences (tables are elevated horizontal planes)
+                const heightDiff = worldPt.y - cameraPos.y;
+                let heightScore = worldPt.y * 20;
+                if (heightDiff > 0) {
+                    heightScore -= heightDiff * 100; // penalize points above user camera height
+                }
+                // 3. User's look direction alignment (prioritize spots in front of user)
+                const toPoint = worldPt.clone().sub(cameraPos);
+                const distance = toPoint.length();
+                // Hard Distance Cutoff: Skip candidates too close or too far
+                if (distance < 0.4 || distance > 3.0) {
+                    continue;
+                }
+                const alignment = toPoint.normalize().dot(cameraForward);
+                let alignmentScore = -1e3; // heavy penalty for spots behind user
+                if (alignment >= 0) {
+                    alignmentScore = alignment * 50;
+                }
+                // 4. Comfortable interaction distance penalty
+                const distancePenalty = -Math.abs(distance - 1.5) * 10;
+                const score = semanticScore + heightScore + alignmentScore + distancePenalty;
+                candidates.push({
+                    plane,
+                    point: worldPt,
+                    score,
+                });
+            }
+        }
+        // Sort all candidates in descending order of their score
+        candidates.sort((a, b) => b.score - a.score);
+        let placed = false;
+        const origPosition = objectToPlace.position.clone();
+        const origQuaternion = objectToPlace.quaternion.clone();
+        for (const cand of candidates) {
+            // Verify timeout inside the validation loop to abort quickly if running slow
+            if (timer.getElapsed() - startElapsed >= timeoutSeconds) {
+                break;
+            }
+            // Temporarily place at origin to calculate bounding box offsets with rotation applied
+            objectToPlace.position.set(0, 0, 0);
+            // Orient the object upright on the plane normal and face the camera
+            const planeNormal = new THREE.Vector3(0, 1, 0)
+                .applyQuaternion(cand.plane.quaternion)
+                .normalize();
+            const forwardVector = cameraPos.clone().sub(cand.point);
+            forwardVector.projectOnPlane(planeNormal).normalize();
+            const rightVector = new THREE.Vector3()
+                .crossVectors(planeNormal, forwardVector)
+                .normalize();
+            const rotationMatrix = new THREE.Matrix4().makeBasis(rightVector, planeNormal, forwardVector);
+            objectToPlace.quaternion.setFromRotationMatrix(rotationMatrix);
+            objectToPlace.updateMatrixWorld(true);
+            // Calculate bounding box at the origin to find bottom offset along world Y axis
+            const tempBox = getObjectBoundingBox(objectToPlace);
+            const bottomOffset = -tempBox.min.y;
+            // Set final position, offsetting vertically so bottom of bbox aligns with horizontal plane
+            objectToPlace.position.copy(cand.point);
+            objectToPlace.position.y += bottomOffset;
+            objectToPlace.updateMatrixWorld(true);
+            // Calculate bounding box and verify intersections with scene obstacles
+            const objectBox = getObjectBoundingBox(objectToPlace);
+            // Shrink and shift collision box slightly to avoid grounding collisions with the table mesh
+            const collisionBox = objectBox.clone();
+            let collision = false;
+            const obstacleBox = new THREE.Box3();
+            for (const obstacle of collidableObjects) {
+                if (obstacle === cand.plane) {
+                    continue;
+                }
+                obstacle.updateMatrixWorld(true);
+                obstacleBox.setFromObject(obstacle);
+                if (collisionBox.intersectsBox(obstacleBox)) {
+                    collision = true;
+                    break;
+                }
+            }
+            if (!collision) {
+                placed = true;
+                break; // Successful placement!
+            }
+        }
+        if (placed) {
+            return true;
+        }
+        // Restore initial state if placement failed in the current frame
+        objectToPlace.position.copy(origPosition);
+        objectToPlace.quaternion.copy(origQuaternion);
+        // Yield execution until the next frame starts
+        await waitFrame.waitFrame();
+    }
+}
+// --- Helper Functions ---
+function getLocalPolygon(plane) {
+    if (plane.simulatorPlane) {
+        return plane.simulatorPlane.polygon;
+    }
+    else if (plane.xrPlane) {
+        return plane.xrPlane.polygon.map((p) => new THREE.Vector2(p.x, p.z));
+    }
+    return [];
+}
+function isPointInPolygon(point, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].x, yi = polygon[i].y;
+        const xj = polygon[j].x, yj = polygon[j].y;
+        const intersect = yi > point.y !== yj > point.y &&
+            point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+        if (intersect)
+            inside = !inside;
+    }
+    return inside;
+}
+function isDescendantOf(child, parent) {
+    let current = child.parent;
+    while (current) {
+        if (current === parent)
+            return true;
+        current = current.parent;
+    }
+    return false;
+}
+function getObjectBoundingBox(object) {
+    // If the object has a pre-calculated bounding box (e.g. ModelViewer), use it directly
+    if ('bbox' in object) {
+        const customBbox = object.bbox;
+        if (customBbox && !customBbox.isEmpty()) {
+            object.updateMatrixWorld(true);
+            return customBbox.clone().applyMatrix4(object.matrixWorld);
+        }
+    }
+    const box = new THREE.Box3();
+    function traverse(node) {
+        if (!node.visible)
+            return;
+        // Ignore the model viewer's platform, rotation cylinder, and control bar meshes
+        const name = node.constructor.name;
+        if (name === 'ModelViewerPlatform' ||
+            name === 'RotationRaycastMesh' ||
+            node.name === 'Platform') {
+            return;
+        }
+        const mesh = node;
+        if (mesh.isMesh) {
+            if (mesh.geometry) {
+                if (!mesh.geometry.boundingBox) {
+                    mesh.geometry.computeBoundingBox();
+                }
+                const tempBox = mesh.geometry.boundingBox.clone();
+                tempBox.applyMatrix4(mesh.matrixWorld);
+                box.union(tempBox);
+            }
+        }
+        for (const child of node.children) {
+            traverse(child);
+        }
+    }
+    object.updateMatrixWorld(true);
+    traverse(object);
+    return box;
+}
+
+// Import other modules as they are implemented in future.
+// import { LightEstimation } from '/lighting/LightEstimation.js';
+// import { HumanRecognizer } from '/human/HumanRecognizer.js';
+/**
+ * Manages all interactions with the real-world environment perceived by the XR
+ * device. This class abstracts the complexity of various perception APIs
+ * (Depth, Planes, Meshes, etc.) and provides a simple, event-driven interface
+ * for developers to use `this.world.depth.mesh`, `this.world.planes`.
+ */
+class World extends Script {
+    constructor() {
+        super(...arguments);
+        this.editorIcon = 'sensors';
+        /**
+         * A Three.js Raycaster for performing intersection tests.
+         */
+        this.raycaster = new THREE.Raycaster();
+        // Whether we need to initiate a room capture.
+        this.needsRoomCapture = false;
+        this.initializedPromise = new Promise((resolve) => {
+            this.resolveInitialized = resolve;
+        });
+    }
+    static { this.dependencies = {
+        options: WorldOptions,
+        camera: THREE.Camera,
+        waitFrame: WaitFrame,
+        timer: THREE.Timer,
+    }; }
+    /**
+     * Initializes the world-sensing modules based on the provided configuration.
+     * This method is called automatically by the XRCore.
+     */
+    async init({ options, camera, waitFrame, timer, }) {
+        this.options = options;
+        this.camera = camera;
+        this.waitFrame = waitFrame;
+        this.timer = timer;
+        if (!this.options || !this.options.enabled) {
+            this.resolveInitialized();
+            return;
+        }
+        this.needsRoomCapture = this.options.initiateRoomCapture;
+        // Conditionally initialize each perception module based on options.
+        if (this.options.planes.enabled) {
+            this.planes = new PlaneDetector();
+            this.add(this.planes);
+        }
+        if (this.options.objects.enabled) {
+            this.objects = new ObjectDetector();
+            this.add(this.objects);
+        }
+        if (this.options.meshes.enabled) {
+            this.meshes = new MeshDetector();
+            this.add(this.meshes);
+        }
+        if (this.options.sounds.enabled) {
+            this.sounds = new SoundDetector();
+            this.add(this.sounds);
+        }
+        // TODO: Initialize other modules as they are available & implemented.
+        /*
+    
+        if (this.options.lighting.enabled) {
+          this.lighting = new LightEstimation();
+        }
+    
+        if (this.options.humans.enabled) {
+          this.humans = new HumanRecognizer();
+        }
+        */
+        this.resolveInitialized();
+    }
+    /**
+     * Places an object at the reticle.
+     */
+    anchorObjectAtReticle(_object, _reticle) {
+        throw new Error('Method not implemented');
+    }
+    /**
+     * Updates all active world-sensing modules with the latest XRFrame data.
+     * This method is called automatically by the XRCore on each frame.
+     * @param _timestamp - The timestamp for the current frame.
+     * @param frame - The current XRFrame, containing environmental
+     * data.
+     * @override
+     */
+    update(_timestamp, frame) {
+        if (!this.options?.enabled || !frame) {
+            return;
+        }
+        if (this.needsRoomCapture && frame.session.initiateRoomCapture) {
+            this.needsRoomCapture = false;
+            frame.session.initiateRoomCapture();
+        }
+        this.meshes?.updateMeshes(_timestamp, frame);
+    }
+    /**
+     * Performs a raycast from a controller against detected real-world surfaces
+     * (currently planes) and places a 3D object at the intersection point,
+     * oriented to face the user.
+     *
+     * We recommend using /templates/3_depth/ to anchor objects based on
+     * depth mesh for mixed reality experience for accuracy. This function is
+     * design for demonstration purposes.
+     *
+     * @param objectToPlace - The object to position in the
+     * world.
+     * @param controller - The controller to use for raycasting.
+     * @returns True if the object was successfully placed, false
+     * otherwise.
+     */
+    placeOnSurface(objectToPlace, controller) {
+        if (!this.planes) {
+            console.warn('Cannot placeOnSurface: PlaneDetector is not enabled.');
+            return false;
+        }
+        const allPlanes = this.planes.get();
+        if (allPlanes.length === 0) {
+            return false; // No surfaces to cast against.
+        }
+        this.raycaster.setFromXRController(controller);
+        const intersections = this.raycaster.intersectObjects(allPlanes);
+        if (intersections.length > 0) {
+            const intersection = intersections[0];
+            placeObjectAtIntersectionFacingTarget(objectToPlace, intersection, this.camera);
+            return true;
+        }
+        return false;
+    }
+    /**
+     * Places an object onto a suitable horizontal plane in the environment.
+     * It prioritizes planes in front of the user, prefers tables/elevated surfaces over floors,
+     * and ensures the object does not intersect other existing objects or other planes in the scene.
+     * If placement fails in the current frame, it continues retrying frame-by-frame until the timeout is reached.
+     *
+     * @param objectToPlace - The Three.js Object3D to place.
+     * @param timeout - Optional timeout duration as a Temporal.Duration or Temporal.DurationLike object (defaults to 500ms).
+     * @param gridSteps - Optional number of steps along each axis for grid sampling candidate positions (defaults to 5).
+     * @returns A promise resolving to true if successfully placed, false otherwise.
+     */
+    async placeOnHorizontalSurface(objectToPlace, timeout = { milliseconds: 500 }, gridSteps = 9) {
+        // Wait for World script initialization to complete first
+        await this.initializedPromise;
+        // Walk up parent hierarchy to find the root THREE.Scene
+        let sceneObj = this.parent;
+        while (sceneObj && !(sceneObj instanceof THREE.Scene)) {
+            sceneObj = sceneObj.parent;
+        }
+        const rootScene = sceneObj || this;
+        return placeOnHorizontalSurface(objectToPlace, this.camera, rootScene, this.planes, this.meshes, this.waitFrame, this.timer, timeout, gridSteps);
+    }
+    /**
+     * Toggles the visibility of all debug visualizations for world features.
+     * @param visible - Whether the visualizations should be visible.
+     */
+    showDebugVisualizations(visible = true) {
+        this.planes?.showDebugVisualizations(visible);
+        this.objects?.showDebugVisualizations(visible);
+    }
+}
+
+class Simulator extends Script {
+    static { this.dependencies = {
+        simulatorOptions: SimulatorOptions,
+        input: Input,
+        timer: THREE.Timer,
+        camera: THREE.Camera,
+        renderer: THREE.WebGLRenderer,
+        scene: THREE.Scene,
+        registry: Registry,
+        options: Options,
+        depth: Depth,
+        world: World,
+    }; }
+    constructor(renderMainScene) {
+        super();
+        this.renderMainScene = renderMainScene;
+        this.editorIcon = 'simulation';
+        this.simulatorScene = new SimulatorScene();
+        this.simulatorWorld = new SimulatorWorld();
+        this.depth = new SimulatorDepth(this.simulatorScene);
+        // Controller poses relative to the camera.
+        this.simulatorControllerState = new SimulatorControllerState();
+        this.hands = new SimulatorHands(this.simulatorControllerState, this.simulatorScene);
+        this.simulatorUser = new SimulatorUser();
+        this.userInterface = new SimulatorInterface();
+        this.controls = new SimulatorControls(this.simulatorControllerState, this.hands, this.setStereoRenderMode.bind(this), this.userInterface);
+        this.renderDepthPass = false;
+        this.renderMode = SimulatorRenderMode.DEFAULT;
+        this.stereoCameras = [];
+        this.initialized = false;
+        this.renderSimulatorSceneToCanvasBound = this.renderSimulatorSceneToCanvas.bind(this);
+        this.add(this.simulatorUser);
+    }
+    async init({ simulatorOptions, input, timer, camera, renderer, scene, registry, options, depth, world, }) {
+        if (this.initialized)
+            return;
+        // Get optional dependencies from the registry.
+        const deviceCamera = registry.get(XRDeviceCamera);
+        this.options = simulatorOptions;
+        camera.position.copy(this.options.initialCameraPosition);
+        this.userInterface.init(simulatorOptions, this.controls, this.hands, input, this.simulatorScene);
+        renderer.autoClearColor = false;
+        await this.simulatorScene.init(simulatorOptions);
+        await this.simulatorWorld.init(options, world);
+        this.hands.init({ input });
+        this.controls.init({ camera, input, timer, renderer, simulatorOptions });
+        if (deviceCamera &&
+            !this.simulatorCamera &&
+            this.options.deviceCamera.enabled) {
+            this.simulatorCamera = new SimulatorCamera(renderer);
+            this.simulatorCamera.init();
+            deviceCamera.registerSimulatorCamera(this.simulatorCamera);
+        }
+        deviceCamera?.init();
+        if (options.depth.enabled) {
+            this.renderDepthPass = true;
+            this.depth.init(renderer, camera, depth);
+        }
+        scene.add(camera);
+        if (this.options.stereo.enabled) {
+            this.setupStereoCameras(camera);
+        }
+        const activeEnv = this.options.environments[this.options.activeEnvironmentIndex];
+        if (activeEnv?.videoPath) {
+            this.videoElement = document.createElement('video');
+            this.videoElement.src = activeEnv.videoPath;
+            this.videoElement.loop = true;
+            this.videoElement.muted = true;
+            this.videoElement.play().catch((e) => {
+                console.error(`Simulator: Failed to play video at ${activeEnv.videoPath}`, e);
+            });
+            this.videoElement.addEventListener('error', () => {
+                console.error(`Simulator: Error loading video at ${activeEnv.videoPath}`, this.videoElement?.error);
+            });
+            const videoTexture = new THREE.VideoTexture(this.videoElement);
+            videoTexture.colorSpace = THREE.SRGBColorSpace;
+            this.backgroundVideoQuad = new FullScreenQuad(new THREE.MeshBasicMaterial({ map: videoTexture }));
+        }
+        this.virtualSceneRenderTarget = new THREE.WebGLRenderTarget(renderer.domElement.width, renderer.domElement.height, { stencilBuffer: options.stencil });
+        const virtualSceneMaterial = new THREE.MeshBasicMaterial({
+            map: this.virtualSceneRenderTarget.texture,
+            transparent: true,
+        });
+        if (this.options.blendingMode === 'screen') {
+            virtualSceneMaterial.blending = THREE.CustomBlending;
+            virtualSceneMaterial.blendSrc = THREE.OneFactor;
+            virtualSceneMaterial.blendDst = THREE.OneMinusSrcColorFactor;
+            virtualSceneMaterial.blendEquation = THREE.AddEquation;
+        }
+        this.virtualSceneFullScreenQuad = new FullScreenQuad(virtualSceneMaterial);
+        this.renderer = renderer;
+        this.mainCamera = camera;
+        this.mainScene = scene;
+        this.registry = registry;
+        this.initialized = true;
+    }
+    simulatorUpdate() {
+        this.controls.update();
+        this.hands.update();
+        if (this.renderDepthPass) {
+            this.depth.update();
+        }
+    }
+    setStereoRenderMode(mode) {
+        if (!this.options.stereo.enabled)
+            return;
+        this.renderMode = mode;
+    }
+    setupStereoCameras(camera) {
+        const leftCamera = camera.clone();
+        const rightCamera = camera.clone();
+        leftCamera.layers.disableAll();
+        leftCamera.layers.enable(0);
+        leftCamera.layers.enable(1);
+        rightCamera.layers.disableAll();
+        rightCamera.layers.enable(0);
+        rightCamera.layers.enable(2);
+        leftCamera.position.set(-AVERAGE_IPD_METERS / 2, 0, 0);
+        rightCamera.position.set(AVERAGE_IPD_METERS / 2, 0, 0);
+        leftCamera.updateWorldMatrix(true, false);
+        rightCamera.updateWorldMatrix(true, false);
+        this.stereoCameras.length = 0;
+        this.stereoCameras.push(leftCamera, rightCamera);
+        camera.add(leftCamera, rightCamera);
+        this.setStereoRenderMode(SimulatorRenderMode.STEREO_LEFT);
+    }
+    onBeforeSimulatorSceneRender() {
+        this.simulatorCamera?.onBeforeSimulatorSceneRender(this.mainCamera, this.renderSimulatorSceneToCanvasBound);
+    }
+    onSimulatorSceneRendered() {
+        this.simulatorCamera?.onSimulatorSceneRendered();
+    }
+    getRenderCamera() {
+        return {
+            [SimulatorRenderMode.DEFAULT]: this.mainCamera,
+            [SimulatorRenderMode.STEREO_LEFT]: this.stereoCameras[0],
+            [SimulatorRenderMode.STEREO_RIGHT]: this.stereoCameras[1],
+        }[this.renderMode];
+    }
+    // Called by core when the simulator is running.
+    renderScene() {
+        if (!this.renderer)
+            return;
+        if (!this.options.renderToRenderTexture)
+            return;
+        // Allocate a new render target if the resolution changes.
+        if (this.virtualSceneRenderTarget.width != this.renderer.domElement.width ||
+            this.virtualSceneRenderTarget.height != this.renderer.domElement.height) {
+            const stencilEnabled = !!this.virtualSceneRenderTarget?.stencilBuffer;
+            this.virtualSceneRenderTarget.dispose();
+            this.virtualSceneRenderTarget = new THREE.WebGLRenderTarget(this.renderer.domElement.width, this.renderer.domElement.height, { stencilBuffer: stencilEnabled });
+            this.virtualSceneFullScreenQuad.material.map = this.virtualSceneRenderTarget.texture;
+        }
+        this.sparkRenderer =
+            this.sparkRenderer || this.registry.get(SparkRendererHolder)?.renderer;
+        if (this.sparkRenderer) {
+            this.sparkRenderer.encodeLinear = true;
+        }
+        this.renderer.setRenderTarget(this.virtualSceneRenderTarget);
+        this.renderer.clear();
+        this.renderMainScene(this.getRenderCamera());
+    }
+    // Renders the simulator scene onto the main canvas.
+    // Then composites the virtual render with the simulator render.
+    // Called by core after renderScene.
+    renderSimulatorScene() {
+        this.onBeforeSimulatorSceneRender();
+        this.renderSimulatorSceneToCanvas(this.getRenderCamera());
+        this.onSimulatorSceneRendered();
+        if (this.options.renderToRenderTexture) {
+            this.virtualSceneFullScreenQuad.render(this.renderer);
+        }
+        else {
+            // Temporary workaround since splats look faded when rendered to a render
+            // texture.
+            this.renderMainScene(this.getRenderCamera());
+        }
+    }
+    renderSimulatorSceneToCanvas(camera) {
+        if (this.sparkRenderer) {
+            this.sparkRenderer.encodeLinear = false;
+        }
+        this.renderer.setRenderTarget(null);
+        if (this.backgroundVideoQuad) {
+            this.backgroundVideoQuad.render(this.renderer);
+        }
+        this.renderer.render(this.simulatorScene, camera);
+        this.renderer.clearDepth();
     }
 }
 
@@ -12402,10 +15119,75 @@ class SpeechRecognizer extends Script {
         this.lastTranscript = '';
         this.lastConfidence = 0;
         this.playActivationSounds = false;
-        this.handleStartBound = this._handleStart.bind(this);
-        this.handleResultBound = this._handleResult.bind(this);
-        this.handleEndBound = this._handleEnd.bind(this);
-        this.handleErrorBound = this._handleError.bind(this);
+        // Private handler for the 'start' event
+        this._handleStart = () => {
+            console.debug('SpeechRecognizer: Listening started.');
+            this.dispatchEvent({ type: 'start' });
+            if (this.playActivationSounds) {
+                this.soundSynthesizer.playPresetTone('ACTIVATE');
+            }
+        };
+        // Private handler for the 'result' event
+        this._handleResult = (event) => {
+            let interimTranscript = '';
+            let finalTranscript = '';
+            let currentConfidence = 0;
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                const result = event.results[i];
+                const transcript = result[0].transcript;
+                if (result.isFinal) {
+                    finalTranscript += transcript;
+                    currentConfidence = result[0].confidence;
+                }
+                else {
+                    interimTranscript += transcript;
+                }
+            }
+            this.lastTranscript = finalTranscript.trim() || interimTranscript.trim();
+            this.lastConfidence = currentConfidence;
+            this.lastCommand = undefined;
+            if (finalTranscript && this.options.commands.length > 0) {
+                const upperTranscript = finalTranscript.trim().toUpperCase();
+                for (const command of this.options.commands) {
+                    if (upperTranscript.includes(command.toUpperCase()) &&
+                        this.lastConfidence >= this.options.commandConfidenceThreshold) {
+                        this.lastCommand = command;
+                        console.debug(`SpeechRecognizer Detected Command: ${this.lastCommand}`);
+                        break;
+                    }
+                }
+            }
+            // Dispatch a 'result' event with all the relevant data
+            this.dispatchEvent({
+                type: 'result',
+                originalEvent: event,
+                transcript: this.lastTranscript,
+                confidence: this.lastConfidence,
+                command: this.lastCommand,
+                isFinal: !!finalTranscript,
+            });
+        };
+        // Private handler for the 'end' event (e.g., when silence is detected)
+        this._handleEnd = () => {
+            this.isListening = false;
+            this.dispatchEvent({ type: 'end' });
+            if (this.options.continuous &&
+                this.error !== 'aborted' &&
+                this.error !== 'no-speech') {
+                console.debug('SpeechRecognizer: Restarting continuous listening...');
+                setTimeout(() => this.start(), 100);
+            }
+            else if (this.playActivationSounds) {
+                this.soundSynthesizer.playPresetTone('DEACTIVATE');
+            }
+        };
+        // Private handler for the 'error' event
+        this._handleError = (event) => {
+            console.error('SpeechRecognizer: Error:', event.error);
+            this.error = event.error;
+            this.isListening = false;
+            this.dispatchEvent({ type: 'error', error: event.error });
+        };
     }
     init({ soundOptions }) {
         this.options = soundOptions.speechRecognizer;
@@ -12421,10 +15203,10 @@ class SpeechRecognizer extends Script {
         this.recognition.continuous = this.options.continuous;
         this.recognition.interimResults = this.options.interimResults;
         // Setup native event listeners
-        this.recognition.onstart = this.handleStartBound;
-        this.recognition.onresult = this.handleResultBound;
-        this.recognition.onend = this.handleEndBound;
-        this.recognition.onerror = this.handleErrorBound;
+        this.recognition.onstart = this._handleStart;
+        this.recognition.onresult = this._handleResult;
+        this.recognition.onend = this._handleEnd;
+        this.recognition.onerror = this._handleError;
     }
     onSimulatorStarted() {
         this.playActivationSounds = this.options.playSimulatorActivationSounds;
@@ -12477,75 +15259,6 @@ class SpeechRecognizer extends Script {
     getLastConfidence() {
         return this.lastConfidence;
     }
-    // Private handler for the 'start' event
-    _handleStart() {
-        console.debug('SpeechRecognizer: Listening started.');
-        this.dispatchEvent({ type: 'start' });
-        if (this.playActivationSounds) {
-            this.soundSynthesizer.playPresetTone('ACTIVATE');
-        }
-    }
-    // Private handler for the 'result' event
-    _handleResult(event) {
-        let interimTranscript = '';
-        let finalTranscript = '';
-        let currentConfidence = 0;
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            const result = event.results[i];
-            const transcript = result[0].transcript;
-            if (result.isFinal) {
-                finalTranscript += transcript;
-                currentConfidence = result[0].confidence;
-            }
-            else {
-                interimTranscript += transcript;
-            }
-        }
-        this.lastTranscript = finalTranscript.trim() || interimTranscript.trim();
-        this.lastConfidence = currentConfidence;
-        this.lastCommand = undefined;
-        if (finalTranscript && this.options.commands.length > 0) {
-            const upperTranscript = finalTranscript.trim().toUpperCase();
-            for (const command of this.options.commands) {
-                if (upperTranscript.includes(command.toUpperCase()) &&
-                    this.lastConfidence >= this.options.commandConfidenceThreshold) {
-                    this.lastCommand = command;
-                    console.debug(`SpeechRecognizer Detected Command: ${this.lastCommand}`);
-                    break;
-                }
-            }
-        }
-        // Dispatch a 'result' event with all the relevant data
-        this.dispatchEvent({
-            type: 'result',
-            originalEvent: event,
-            transcript: this.lastTranscript,
-            confidence: this.lastConfidence,
-            command: this.lastCommand,
-            isFinal: !!finalTranscript,
-        });
-    }
-    // Private handler for the 'end' event (e.g., when silence is detected)
-    _handleEnd() {
-        this.isListening = false;
-        this.dispatchEvent({ type: 'end' });
-        if (this.options.continuous &&
-            this.error !== 'aborted' &&
-            this.error !== 'no-speech') {
-            console.debug('SpeechRecognizer: Restarting continuous listening...');
-            setTimeout(() => this.start(), 100);
-        }
-        else if (this.playActivationSounds) {
-            this.soundSynthesizer.playPresetTone('DEACTIVATE');
-        }
-    }
-    // Private handler for the 'error' event
-    _handleError(event) {
-        console.error('SpeechRecognizer: Error:', event.error);
-        this.error = event.error;
-        this.isListening = false;
-        this.dispatchEvent({ type: 'error', error: event.error });
-    }
     destroy() {
         this.stop();
         if (this.recognition) {
@@ -12572,13 +15285,31 @@ class SpeechSynthesizer extends Script {
         this.debug = false;
         this.specificVolume = 1.0;
         this.speechCategory = 'speech';
+        this.loadVoices = () => {
+            if (!this.synth)
+                return;
+            this.voices = this.synth.getVoices();
+            if (this.debug) {
+                console.log('SpeechSynthesizer: Voices loaded:', this.voices.length);
+            }
+            this.selectedVoice =
+                this.voices.find((voice) => voice.name.includes('Google') && voice.lang.startsWith('en')) || this.voices.find((voice) => voice.lang.startsWith('en'));
+            if (this.selectedVoice) {
+                if (this.debug) {
+                    console.log('SpeechSynthesizer: Selected voice:', this.selectedVoice.name);
+                }
+            }
+            else {
+                console.warn('SpeechSynthesizer: No suitable default voice found.');
+            }
+        };
         if (!this.synth) {
             console.error('SpeechSynthesizer: Speech Synthesis API not supported.');
         }
         else {
             this.loadVoices();
             if (this.synth.onvoiceschanged !== undefined) {
-                this.synth.onvoiceschanged = this.loadVoices.bind(this);
+                this.synth.onvoiceschanged = this.loadVoices;
             }
         }
         if (!this.categoryVolumes && this.synth) {
@@ -12589,24 +15320,6 @@ class SpeechSynthesizer extends Script {
         this.options = soundOptions.speechSynthesizer;
         if (this.debug) {
             console.log('SpeechSynthesizer initialized.');
-        }
-    }
-    loadVoices() {
-        if (!this.synth)
-            return;
-        this.voices = this.synth.getVoices();
-        if (this.debug) {
-            console.log('SpeechSynthesizer: Voices loaded:', this.voices.length);
-        }
-        this.selectedVoice =
-            this.voices.find((voice) => voice.name.includes('Google') && voice.lang.startsWith('en')) || this.voices.find((voice) => voice.lang.startsWith('en'));
-        if (this.selectedVoice) {
-            if (this.debug) {
-                console.log('SpeechSynthesizer: Selected voice:', this.selectedVoice.name);
-            }
-        }
-        else {
-            console.warn('SpeechSynthesizer: No suitable default voice found.');
         }
     }
     setVolume(level) {
@@ -13188,9 +15901,37 @@ class TextView extends View {
         this.lineHeight = 0;
         /** The total number of lines after text wrapping. */
         this.lineCount = 0;
-        this._onSyncCompleteBound = this.onSyncComplete.bind(this);
         this._initializeTextCalled = false;
         this._text = 'TextView';
+        /**
+         * Callback executed when Troika's text sync is complete.
+         * It captures layout data like total height and line count.
+         */
+        this.onSyncComplete = () => {
+            if (!this.useSDFText ||
+                !(this.textObj instanceof Text) ||
+                !this.textObj.textRenderInfo) {
+                return;
+            }
+            const caretPositions = this.textObj.textRenderInfo.caretPositions;
+            const numberOfChars = caretPositions.length / 4;
+            let lineCount = 0;
+            const firstBottom = numberOfChars > 0 ? caretPositions[0] : 0;
+            let lastBottom = 999999;
+            for (let i = 0; i < numberOfChars; i++) {
+                const bottom = caretPositions[i * 4 + 2];
+                const top = caretPositions[i * 4 + 3];
+                const lineHeight = top - bottom;
+                if (bottom < lastBottom - lineHeight / 2) {
+                    lineCount++;
+                    lastBottom = bottom;
+                }
+            }
+            this.lineHeight =
+                numberOfChars > 0 ? (firstBottom - lastBottom) / lineCount : 0;
+            this.lineCount = lineCount;
+            this.dispatchEvent({ type: 'synccomplete' });
+        };
         this.useSDFText = options.useSDFText ?? this.useSDFText;
         this.font = options.font ?? this.font;
         this.fontSize = options.fontSize ?? this.fontSize;
@@ -13308,42 +16049,40 @@ class TextView extends View {
             : (this.fontSize ?? 0.06);
         ctx.font = `${fontSize * resolution}px ${this.font}`;
         ctx.fillStyle = `#${getColorHex(this.fontColor).toString(16).padStart(6, '0')}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        // Use the configured textAlign and compute anchor positions accordingly.
+        const align = this.textAlign;
+        ctx.textAlign = align;
+        let drawX;
+        switch (align) {
+            case 'left':
+                drawX = 0;
+                break;
+            case 'right':
+                drawX = canvas.width;
+                break;
+            default:
+                drawX = canvas.width / 2;
+                break;
+        }
+        // Map anchorY to canvas textBaseline and Y position.
+        let baseline = 'middle';
+        let drawY = canvas.height / 2;
+        if (typeof this.anchorY === 'string') {
+            if (this.anchorY.startsWith('top')) {
+                baseline = 'top';
+                drawY = 0;
+            }
+            else if (this.anchorY.startsWith('bottom')) {
+                baseline = 'bottom';
+                drawY = canvas.height;
+            }
+        }
+        ctx.textBaseline = baseline;
         // TODO: add line-break for canvas-based text.
-        ctx.fillText(this.text, canvas.width / 2, canvas.height / 2);
+        ctx.fillText(this.text, drawX, drawY);
         if (this.textObj?.material.map) {
             this.textObj.material.map.needsUpdate = true;
         }
-    }
-    /**
-     * Callback executed when Troika's text sync is complete.
-     * It captures layout data like total height and line count.
-     */
-    onSyncComplete() {
-        if (!this.useSDFText ||
-            !(this.textObj instanceof Text) ||
-            !this.textObj.textRenderInfo) {
-            return;
-        }
-        const caretPositions = this.textObj.textRenderInfo.caretPositions;
-        const numberOfChars = caretPositions.length / 4;
-        let lineCount = 0;
-        const firstBottom = numberOfChars > 0 ? caretPositions[0] : 0;
-        let lastBottom = 999999;
-        for (let i = 0; i < numberOfChars; i++) {
-            const bottom = caretPositions[i * 4 + 2];
-            const top = caretPositions[i * 4 + 3];
-            const lineHeight = top - bottom;
-            if (bottom < lastBottom - lineHeight / 2) {
-                lineCount++;
-                lastBottom = bottom;
-            }
-        }
-        this.lineHeight =
-            numberOfChars > 0 ? (firstBottom - lastBottom) / lineCount : 0;
-        this.lineCount = lineCount;
-        this.dispatchEvent({ type: 'synccomplete' });
     }
     /**
      * Private method to perform the actual initialization after the async
@@ -13370,7 +16109,7 @@ class TextView extends View {
         if (this.useSDFText && Text && this.textObj instanceof Text) {
             this.textObj.addEventListener(
             // @ts-expect-error Missing type in Troika
-            'synccomplete', this._onSyncCompleteBound);
+            'synccomplete', this.onSyncComplete);
             if (this.imageOverlay) {
                 new THREE.TextureLoader().load(this.imageOverlay, (texture) => {
                     texture.colorSpace = THREE.SRGBColorSpace;
@@ -13403,7 +16142,7 @@ class TextView extends View {
             this.textObj instanceof Text) {
             this.textObj.removeEventListener(
             // @ts-expect-error Missing type in Troika
-            'synccomplete', this._onSyncCompleteBound);
+            'synccomplete', this.onSyncComplete);
         }
         super.dispose();
     }
@@ -13454,6 +16193,8 @@ class IconButton extends TextView {
         this.hoverOpacity = 0.2;
         /** The background opacity when the button is actively being pressed. */
         this.selectedOpacity = 0.4;
+        /** Indicates if the button is disabled and should not respond to interaction. */
+        this.disabled = false;
         /** The icon font file to use. Defaults to Material Icons. */
         this.font = MATERIAL_ICONS_FONT_FILE;
         // Applies all provided options to this instance.
@@ -13495,6 +16236,10 @@ class IconButton extends TextView {
     update() {
         if (!this.ux)
             return;
+        if (this.disabled) {
+            this.mesh.material.opacity = 0.1; // Dimmed opacity when disabled
+            return;
+        }
         if (this.ux.isHovered() || this.ux.isSelected()) {
             this.mesh.material.opacity = this.ux.isSelected()
                 ? this.selectedOpacity * this.opacity
@@ -13503,6 +16248,14 @@ class IconButton extends TextView {
         else {
             this.mesh.material.opacity = this.defaultOpacity * this.opacity;
         }
+    }
+    /**
+     * Overrides the parent's triggered behavior to block it when disabled.
+     */
+    onTriggered(id) {
+        if (this.disabled)
+            return;
+        super.onTriggered(id);
     }
     /**
      * Overrides the parent's private initialization method. This is called by the
@@ -15735,7 +18488,7 @@ class Core {
          */
         this.registry = new Registry();
         /**
-         * A clock for tracking time deltas. Call clock.getDeltaTime().
+         * A timer for tracking time deltas. Call timer.getDelta() or getDeltaTime().
          */
         this.timer = new THREE.Timer();
         /** Manages hand, mouse, gaze inputs. */
@@ -15752,9 +18505,9 @@ class Core {
         this.sound = new CoreSound();
         /** A container to hold all the systems in the scene hierarchy. */
         this.xrSystemsGroup = new XRSystems();
-        this.renderSceneBound = this.renderScene.bind(this);
+        this.renderSceneCallback = (cameraOverride) => this.renderScene(cameraOverride);
         /** Manages the desktop XR simulator. */
-        this.simulator = new Simulator(this.renderSceneBound);
+        this.simulator = new Simulator(this.renderSceneCallback);
         /** Manages drag-and-drop interactions. */
         this.dragManager = new DragManager();
         /** Manages drag-and-drop interactions. */
@@ -15773,6 +18526,88 @@ class Core {
             }
         });
         this.permissionsManager = new PermissionsManager();
+        /**
+         * The main update loop, called every frame by the renderer. It orchestrates
+         * all per-frame updates for subsystems and scripts.
+         *
+         * Order:
+         * 1. Depth
+         * 2. World Perception
+         * 3. Input / Reticles / UIs
+         * 4. Scripts
+         * @param time - The current time in milliseconds.
+         * @param frame - The WebXR frame object, if in an XR session.
+         */
+        this.update = (time, frame) => {
+            this.currentFrame = frame;
+            this.timer.update(time);
+            if (this.simulatorRunning) {
+                this.simulator.simulatorUpdate();
+            }
+            this.depth.update(frame);
+            // Update XR camera fallback textures.
+            if (this.deviceCamera?.isUsingXRCameraAccess) {
+                this.deviceCamera.updateXRCamera(frame);
+            }
+            if (this.lighting) {
+                this.lighting.update();
+            }
+            // Traverse the scene to find all scripts.
+            this.scriptsManager.syncScriptsWithScene(this.scene);
+            // Updates reticles and UIs.
+            this.scriptsManager.resetUX();
+            this.input.update();
+            // Updates scripts with user interactions.
+            for (const controller of this.input.controllers) {
+                if (controller.userData.selected) {
+                    this.scriptsManager.callSelecting(controller);
+                }
+            }
+            for (const controller of this.input.controllers) {
+                if (controller.userData.squeezing) {
+                    this.scriptsManager.callSqueezing(controller);
+                }
+            }
+            // Run callbacks that use wait frame.
+            this.waitFrame.onFrame();
+            // Updates renderings.
+            this.scriptsManager.update(time, frame);
+            this.renderSimulatorAndScene();
+            this.screenshotSynthesizer.onAfterRender(this.renderer, this.renderSceneCallback, this.deviceCamera);
+            if (this.simulatorRunning) {
+                this.simulator.renderSimulatorScene();
+            }
+        };
+        /**
+         * Advances the physics simulation by a fixed timestep and calls the
+         * corresponding physics update on all active scripts.
+         */
+        this.physicsStep = () => {
+            this.physics.physicsStep();
+            this.scriptsManager.physicsStep();
+        };
+        this.startSimulator = async () => {
+            this.xrButton?.domElement.remove();
+            this.xrSystemsGroup.add(this.simulator);
+            await this.scriptsManager.initScript(this.simulator);
+            this.onSimulatorStarted();
+        };
+        /**
+         * Lifecycle callback executed when an XR session ends. Notifies all active
+         * scripts.
+         */
+        this.onXRSessionEnded = () => {
+            this.scriptsManager.onXRSessionEnded();
+        };
+        /**
+         * Handles browser window resize events to keep the camera and renderer
+         * synchronized.
+         */
+        this.onWindowResize = () => {
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        };
         if (Core.instance) {
             return Core.instance;
         }
@@ -15810,9 +18645,11 @@ class Core {
         this.registry.register(options.simulator, SimulatorOptions);
         this.registry.register(options.world, WorldOptions);
         this.registry.register(options.world.meshes, MeshDetectionOptions);
+        this.registry.register(options.uikit, UIKitOptions);
         this.registry.register(options.ai, AIOptions);
         this.registry.register(options.sound, SoundOptions);
         this.registry.register(options.gestures, GestureRecognitionOptions);
+        this.registry.register(options.strokes, StrokeRecognitionOptions);
         if (options.transition.enabled) {
             this.transition = new XRTransition();
             this.user.add(this.transition);
@@ -15839,13 +18676,22 @@ class Core {
             return null;
         };
         this.registry.register(this.renderer);
+        if (options.uikit.enabled) {
+            this.renderer.localClippingEnabled = true;
+            if (options.uikit.reversePainterSortStable) {
+                this.renderer.setTransparentSort(options.uikit.reversePainterSortStable);
+            }
+        }
         this.renderer.xr.setReferenceSpaceType(options.referenceSpaceType);
+        // For desktop simulator:
+        window.addEventListener('resize', this.onWindowResize);
         if (!options.canvas) {
             const xrContainer = document.createElement('div');
             document.body.appendChild(xrContainer);
             xrContainer.appendChild(this.renderer.domElement);
         }
         this.options = options;
+        this.scriptsManager.catchExceptions = options.catchScriptExceptions;
         // Sets up controllers.
         if (options.controllers.enabled) {
             this.input.init({
@@ -15854,14 +18700,14 @@ class Core {
                 options: options,
                 renderer: this.renderer,
             });
-            this.input.bindSelectStart(this.scriptsManager.callSelectStartBound);
-            this.input.bindSelectEnd(this.scriptsManager.callSelectEndBound);
-            this.input.bindSelect(this.scriptsManager.callSelectBound);
-            this.input.bindSqueezeStart(this.scriptsManager.callSqueezeStartBound);
-            this.input.bindSqueezeEnd(this.scriptsManager.callSqueezeEndBound);
-            this.input.bindSqueeze(this.scriptsManager.callSqueezeBound);
-            this.input.bindKeyDown(this.scriptsManager.callKeyDownBound);
-            this.input.bindKeyUp(this.scriptsManager.callKeyUpBound);
+            this.input.bindSelectStart(this.scriptsManager.callSelectStart);
+            this.input.bindSelectEnd(this.scriptsManager.callSelectEnd);
+            this.input.bindSelect(this.scriptsManager.callSelect);
+            this.input.bindSqueezeStart(this.scriptsManager.callSqueezeStart);
+            this.input.bindSqueezeEnd(this.scriptsManager.callSqueezeEnd);
+            this.input.bindSqueeze(this.scriptsManager.callSqueeze);
+            this.input.bindKeyDown(this.scriptsManager.callKeyDown);
+            this.input.bindKeyUp(this.scriptsManager.callKeyUp);
         }
         // Sets up device camera.
         if (options.deviceCamera?.enabled) {
@@ -15883,10 +18729,8 @@ class Core {
             webXRRequiredFeatures.push('depth-sensing');
             webXRRequiredFeatures.push('local-floor');
             this.webXRSettings.depthSensing = {
-                usagePreference: [],
-                dataFormatPreference: [
-                    this.options.depth.useFloat32 ? 'float32' : 'luminance-alpha',
-                ],
+                usagePreference: options.depth.usagePreference,
+                dataFormatPreference: options.depth.dataFormatPreference,
                 depthTypeRequest: options.depth.depthTypeRequest,
                 matchDepthView: options.depth.matchDepthView,
             };
@@ -15924,11 +18768,11 @@ class Core {
         }
         this.webXRSessionManager = new WebXRSessionManager(this.renderer, this.webXRSettings, options.xrSessionMode);
         this.webXRSessionManager.addEventListener(WebXRSessionEventType.SESSION_START, (event) => this.onXRSessionStarted(event.session));
-        this.webXRSessionManager.addEventListener(WebXRSessionEventType.SESSION_END, this.onXRSessionEnded.bind(this));
+        this.webXRSessionManager.addEventListener(WebXRSessionEventType.SESSION_END, this.onXRSessionEnded);
         // Sets up xrButton.
         let shouldAutostartSimulator = this.options.xrButton.alwaysAutostartSimulator;
         if (!shouldAutostartSimulator && options.xrButton.enabled) {
-            this.xrButton = new XRButton(this.webXRSessionManager, this.permissionsManager, options.xrButton?.appTitle, options.xrButton?.appDescription, options.xrButton?.startText, options.xrButton?.endText, options.xrButton?.invalidText, options.xrButton?.startSimulatorText, options.xrButton?.showEnterSimulatorButton, this.startSimulator.bind(this), options.permissions);
+            this.xrButton = new XRButton(this.webXRSessionManager, this.permissionsManager, options.xrButton?.appTitle, options.xrButton?.appDescription, options.xrButton?.startText, options.xrButton?.endText, options.xrButton?.invalidText, options.xrButton?.startSimulatorText, options.xrButton?.showEnterSimulatorButton, this.startSimulator, options.permissions);
             document.body.appendChild(this.xrButton.domElement);
         }
         this.webXRSessionManager.addEventListener(WebXRSessionEventType.UNSUPPORTED, () => {
@@ -15951,11 +18795,9 @@ class Core {
             await this.scriptsManager.initScript(this.ai);
         }
         await this.scriptsManager.syncScriptsWithScene(this.scene);
-        // For desktop only:
-        window.addEventListener('resize', this.onWindowResize.bind(this));
-        this.renderer.setAnimationLoop(this.update.bind(this));
+        this.renderer.setAnimationLoop(this.update);
         if (this.physics) {
-            setInterval(this.physicsStep.bind(this), 1000 * this.physics.timestep);
+            setInterval(this.physicsStep, 1000 * this.physics.timestep);
         }
         if (this.options.reticles.enabled) {
             this.input.addReticles();
@@ -15965,76 +18807,6 @@ class Core {
         }
         if (!loadingSpinnerManager.isLoading) {
             loadingSpinnerManager.hideSpinner();
-        }
-    }
-    /**
-     * The main update loop, called every frame by the renderer. It orchestrates
-     * all per-frame updates for subsystems and scripts.
-     *
-     * Order:
-     * 1. Depth
-     * 2. World Perception
-     * 3. Input / Reticles / UIs
-     * 4. Scripts
-     * @param time - The current time in milliseconds.
-     * @param frame - The WebXR frame object, if in an XR session.
-     */
-    update(time, frame) {
-        this.currentFrame = frame;
-        this.timer.update(time);
-        if (this.simulatorRunning) {
-            this.simulator.simulatorUpdate();
-        }
-        this.depth.update(frame);
-        // Update XR camera fallback textures.
-        if (this.deviceCamera?.isUsingXRCameraAccess) {
-            this.deviceCamera.updateXRCamera(frame);
-        }
-        if (this.lighting) {
-            this.lighting.update();
-        }
-        // Traverse the scene to find all scripts.
-        this.scriptsManager.syncScriptsWithScene(this.scene);
-        // Updates reticles and UIs.
-        for (const script of this.scriptsManager.scripts) {
-            script.ux.reset();
-        }
-        this.input.update();
-        // Updates scripts with user interactions.
-        for (const controller of this.input.controllers) {
-            if (controller.userData.selected) {
-                for (const script of this.scriptsManager.scripts) {
-                    script.onSelecting({ target: controller });
-                }
-            }
-        }
-        for (const controller of this.input.controllers) {
-            if (controller.userData.squeezing) {
-                for (const script of this.scriptsManager.scripts) {
-                    script.onSqueezing({ target: controller });
-                }
-            }
-        }
-        // Run callbacks that use wait frame.
-        this.waitFrame.onFrame();
-        // Updates renderings.
-        for (const script of this.scriptsManager.scripts) {
-            script.update(time, frame);
-        }
-        this.renderSimulatorAndScene();
-        this.screenshotSynthesizer.onAfterRender(this.renderer, this.renderSceneBound, this.deviceCamera);
-        if (this.simulatorRunning) {
-            this.simulator.renderSimulatorScene();
-        }
-    }
-    /**
-     * Advances the physics simulation by a fixed timestep and calls the
-     * corresponding physics update on all active scripts.
-     */
-    physicsStep() {
-        this.physics.physicsStep();
-        for (const script of this.scriptsManager.scripts) {
-            script.physicsStep();
         }
     }
     /**
@@ -16048,19 +18820,6 @@ class Core {
         }
         this.scriptsManager.onXRSessionStarted(session);
     }
-    async startSimulator() {
-        this.xrButton?.domElement.remove();
-        this.xrSystemsGroup.add(this.simulator);
-        await this.scriptsManager.initScript(this.simulator);
-        this.onSimulatorStarted();
-    }
-    /**
-     * Lifecycle callback executed when an XR session ends. Notifies all active
-     * scripts.
-     */
-    onXRSessionEnded() {
-        this.scriptsManager.onXRSessionEnded();
-    }
     /**
      * Lifecycle callback executed when the desktop simulator starts. Notifies
      * all active scripts.
@@ -16071,15 +18830,6 @@ class Core {
         if (this.lighting) {
             this.lighting.simulatorRunning = true;
         }
-    }
-    /**
-     * Handles browser window resize events to keep the camera and renderer
-     * synchronized.
-     */
-    onWindowResize() {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
     renderSimulatorAndScene() {
         if (this.simulatorRunning) {
@@ -16155,6 +18905,242 @@ class OcclusionUtils {
             'diffuseColor.a *= occlusionEnabled ? occlusion_value : 1.0;',
         ].join('\n'));
     }
+}
+
+/**
+ * StrokeRecognizer is a framework Script that handles recording hand stroke gestures
+ * and recognizing them as geometric shapes using a configured provider.
+ * It listens to gesture events and tracks specified hand joints to record the path.
+ */
+class StrokeRecognizer extends Script {
+    constructor() {
+        super(...arguments);
+        this.capturedPoints = [];
+        this.isActive = false;
+        this.isRecording = false;
+        this.gestureStartTime = 0;
+        this.gestureEndTime = 0;
+        this.activeHand = Handedness.LEFT;
+    }
+    static { this.dependencies = {
+        scene: THREE.Scene,
+        camera: THREE.Camera,
+        user: User,
+        options: StrokeRecognitionOptions,
+    }; }
+    init({ scene, camera, user, options, }) {
+        this.scene = scene;
+        this.camera = camera;
+        this.user = user;
+        this.options = options;
+        this.configureProvider();
+        if (!this.options.enabled) {
+            console.info('StrokeRecognizer initialized but disabled. Call options.enableStrokes() to activate.');
+        }
+    }
+    dispose() { }
+    configureProvider() {
+        const provider = this.options.providerConfig.provider;
+        switch (provider) {
+            case 'onedollar':
+                this.recognizer = new OneDollarUnistrokeRecognizer({
+                    camera: this.camera,
+                    scene: this.scene,
+                    supportedShapes: this.options.providerConfig.onedollar.supportedShapes,
+                });
+                break;
+            default:
+                console.warn(`StrokeRecognizer: provider '${provider}' is unknown; falling back to 'onedollar'.`);
+                this.recognizer = new OneDollarUnistrokeRecognizer({
+                    camera: this.camera,
+                    scene: this.scene,
+                    supportedShapes: this.options.providerConfig.onedollar.supportedShapes,
+                });
+                break;
+        }
+    }
+    /**
+     * Activates the stroke recognizer, enabling gesture tracking and recording.
+     */
+    activate() {
+        this.isActive = true;
+    }
+    /**
+     * Deactivates the stroke recognizer and clears any captured points.
+     */
+    deactivate() {
+        this.isActive = false;
+        this.clearPoints();
+    }
+    /**
+     * Clears the list of captured points.
+     */
+    clearPoints() {
+        this.capturedPoints = [];
+    }
+    /**
+     * Adds a point to the current stroke if the maximum point limit has not been reached.
+     * @param pos - The world position of the point.
+     * @param timestamp - The timestamp when the point was captured.
+     */
+    addPoint(pos, timestamp) {
+        if (this.capturedPoints.length < this.options.maxPoints) {
+            this.capturedPoints.push({ pos: pos.clone(), timestamp: timestamp });
+        }
+    }
+    /**
+     * Main update loop. Handles recording points during an active gesture
+     * and triggers recognition when the gesture ends.
+     */
+    update() {
+        // Ignore updates if the feature is disabled or recognizer is not active.
+        if (!this.options.enabled)
+            return;
+        if (!this.isActive)
+            return;
+        const currentTime = Date.now() / 1000; // Use seconds
+        // Check if the user is currently pinching (simulated or physical).
+        if (this.user.isSelecting?.()) {
+            // If this is the first frame of the pinch, initialize recording state.
+            if (!this.isRecording) {
+                this.isRecording = true;
+                this.gestureStartTime = currentTime;
+                this.clearPoints();
+                // Identify which hand is actively pinching at the start of the gesture.
+                this.activeHand = Handedness.LEFT;
+                if (this.user.isSelecting?.(Handedness.LEFT))
+                    this.activeHand = Handedness.LEFT;
+                else if (this.user.isSelecting?.(Handedness.RIGHT))
+                    this.activeHand = Handedness.RIGHT;
+                this.dispatchEvent({ type: 'unistrokestart', target: this, detail: {} });
+            }
+            const elapsedSincePinch = currentTime - this.gestureStartTime;
+            // Wait for the start delay to avoid capturing the initial jitter of the pinch motion.
+            if (elapsedSincePinch > this.options.startDelay) {
+                // Retrieve the configured joint for tracking (e.g., index finger tip).
+                const trackingJoint = this.user.hands?.getJoint(this.options.joint, this.activeHand);
+                if (trackingJoint) {
+                    const worldPos = new THREE.Vector3();
+                    trackingJoint.getWorldPosition(worldPos);
+                    // Capture the point and notify listeners.
+                    this.addPoint(worldPos, currentTime);
+                    this.dispatchEvent({
+                        type: 'unistrokeupdate',
+                        target: this,
+                        detail: { point: worldPos },
+                    });
+                }
+            }
+        }
+        else {
+            // If the user stopped pinching while we were recording, finalize the gesture.
+            if (this.isRecording) {
+                this.isRecording = false;
+                this.gestureEndTime = currentTime;
+                // Perform recognition and notify listeners of the result.
+                const result = this.recognizeGesture();
+                this.dispatchEvent({
+                    type: 'unistrokeend',
+                    target: this,
+                    detail: result ? { result } : {},
+                });
+            }
+        }
+    }
+    /**
+     * Calculates the best-fitting plane for a set of 3D points using a simple 3-point estimator.
+     * Falls back to camera plane if points are collinear.
+     */
+    calculateBestFittingPlane(points) {
+        if (points.length < 3)
+            return null;
+        const p0 = points[0];
+        // Find point furthest from p0
+        let p1 = p0;
+        let maxDistSq = 0;
+        for (const p of points) {
+            const d = p.distanceToSquared(p0);
+            if (d > maxDistSq) {
+                maxDistSq = d;
+                p1 = p;
+            }
+        }
+        if (maxDistSq < 0.0001)
+            return null; // All points are the same
+        // Find point furthest from line p0-p1
+        let p2 = p0;
+        let maxLineDistSq = 0;
+        const line = new THREE.Line3(p0, p1);
+        const closestPoint = new THREE.Vector3();
+        for (const p of points) {
+            line.closestPointToPoint(p, false, closestPoint);
+            const distSq = p.distanceToSquared(closestPoint);
+            if (distSq > maxLineDistSq) {
+                maxLineDistSq = distSq;
+                p2 = p;
+            }
+        }
+        // If maxLineDistSq is very small, points are collinear
+        if (maxLineDistSq < 0.0001) {
+            return null;
+        }
+        const origin = p0;
+        const u = new THREE.Vector3().subVectors(p1, p0).normalize();
+        // Use Three.Plane to calculate the normal from 3 coplanar points
+        const plane = new THREE.Plane().setFromCoplanarPoints(p0, p1, p2);
+        const v = new THREE.Vector3().crossVectors(plane.normal, u).normalize();
+        return { origin, u, v };
+    }
+    /**
+     * Filters captured points, projects them to a 2D plane, and calls the backend recognizer.
+     * Uses best-fitting plane if possible, otherwise falls back to camera viewport plane.
+     * @returns The recognition result or null if not enough points were captured.
+     */
+    recognizeGesture() {
+        const cutoffTime = this.gestureEndTime - this.options.endDelay;
+        const filteredPoints = this.capturedPoints.filter((p) => p.timestamp <= cutoffTime);
+        if (filteredPoints.length > 10) {
+            const points3D = filteredPoints.map((p) => p.pos);
+            const bestFittingPlane = this.calculateBestFittingPlane(points3D);
+            let points2D;
+            if (bestFittingPlane) {
+                points2D = points3D.map((p) => {
+                    const v = new THREE.Vector3().subVectors(p, bestFittingPlane.origin);
+                    return { x: v.dot(bestFittingPlane.u), y: v.dot(bestFittingPlane.v) };
+                });
+            }
+            else {
+                // Fallback to camera plane projection
+                points2D = points3D.map((p) => {
+                    const localPos = p
+                        .clone()
+                        .applyMatrix4(this.camera.matrixWorldInverse);
+                    return { x: localPos.x, y: localPos.y };
+                });
+            }
+            return this.recognizer.recognize(points2D);
+        }
+        return null;
+    }
+}
+
+const HAND_JOINT_NAME_SET = new Set(HAND_JOINT_NAMES);
+function parseSimulatorHandPoseRotations(json) {
+    if (!json || typeof json !== 'object' || Array.isArray(json)) {
+        return {};
+    }
+    const rotations = {};
+    for (const [jointName, value] of Object.entries(json)) {
+        if (!HAND_JOINT_NAME_SET.has(jointName))
+            continue;
+        if (!Array.isArray(value) ||
+            value.length !== 3 ||
+            !value.every((axisValue) => typeof axisValue === 'number')) {
+            continue;
+        }
+        rotations[jointName] = [value[0], value[1], value[2]];
+    }
+    return rotations;
 }
 
 // Reusable instances to avoid creating new objects in the render loop.
@@ -17031,8 +20017,17 @@ class VerticalPager extends Pager {
 class ScrollingTroikaTextView extends View {
     constructor({ text = 'ScrollingTroikaTextView', textAlign = 'left', scrollerState = new TextScrollerState(), fontSize = 0.06, } = {}) {
         super();
-        this.onTextSyncCompleteBound = this.onTextSyncComplete.bind(this);
         this.currentText = '';
+        this.onTextSyncComplete = () => {
+            if (this.textView.lineCount > 0) {
+                this.textView.y =
+                    -0.5 + this.textView.lineHeight * this.textView.aspectRatio;
+                this.textView.updateLayout();
+                this.scrollerState.lineCount = this.textView.lineCount;
+                this.scrollerState.targetLine = this.textView.lineCount - 1;
+                this.clipToLineHeight();
+            }
+        };
         this.scrollerState = scrollerState || new TextScrollerState();
         this.pager = new VerticalPager();
         this.textViewWrapper = new View();
@@ -17045,7 +20040,7 @@ class ScrollingTroikaTextView extends View {
             anchorY: 0,
         });
         this.textView.x = -0.5;
-        this.textView.addEventListener('synccomplete', this.onTextSyncCompleteBound);
+        this.textView.addEventListener('synccomplete', this.onTextSyncComplete);
         this.textViewWrapper.add(this.textView);
         this.add(this.scrollerState);
         this.add(this.pager);
@@ -17063,16 +20058,6 @@ class ScrollingTroikaTextView extends View {
     setText(text) {
         this.currentText = text;
         this.textView.setText(this.currentText);
-    }
-    onTextSyncComplete() {
-        if (this.textView.lineCount > 0) {
-            this.textView.y =
-                -0.5 + this.textView.lineHeight * this.textView.aspectRatio;
-            this.textView.updateLayout();
-            this.scrollerState.lineCount = this.textView.lineCount;
-            this.scrollerState.targetLine = this.textView.lineCount - 1;
-            this.clipToLineHeight();
-        }
     }
     clipToLineHeight() {
         const lineHeight = this.textView.lineHeight * this.textView.aspectRatio;
@@ -17502,6 +20487,7 @@ class ModelViewer extends Script {
         scene: THREE.Scene,
         renderer: THREE.WebGLRenderer,
         registry: Registry,
+        timer: THREE.Timer,
     }; }
     constructor({ castShadow = true, receiveShadow = true, raycastToChildren = false, }) {
         super();
@@ -17514,20 +20500,20 @@ class ModelViewer extends Script {
         this.initialScale = new THREE.Vector3().setScalar(1);
         this.startAnimationOnLoad = true;
         this.clipActions = [];
-        this.clock = new THREE.Clock();
+        this.bbox = new THREE.Box3();
         this.hoveringControllers = new Set();
         this.occludableShaders = new Set();
-        this.bbox = new THREE.Box3();
         this.castShadow = castShadow;
         this.receiveShadow = receiveShadow;
         this.raycastToChildren = raycastToChildren;
     }
-    async init({ camera, depth, scene, renderer, registry, }) {
+    async init({ camera, depth, scene, renderer, registry, timer, }) {
         this.camera = camera;
         this.depth = depth;
         this.scene = scene;
         this.renderer = renderer;
         this.registry = registry;
+        this.timer = timer;
         for (const shader of this.occludableShaders) {
             this.depth.occludableShaders.add(shader);
         }
@@ -17741,7 +20727,7 @@ class ModelViewer extends Script {
         this.add(this.platform);
     }
     update() {
-        const delta = this.clock.getDelta();
+        const delta = this.timer.getDelta();
         if (this.animationMixer) {
             this.animationMixer.update(delta);
         }
@@ -17879,7 +20865,7 @@ class ModelViewer extends Script {
     }
     async createSparkRendererIfNeeded() {
         // We insert our own SparkRenderer configured to show Gaussians up to
-        // Math.sqrt(5) standard deviations from the center, recommended for XR.
+        // Math.sqrt(4) standard deviations from the center, recommended for XR.
         const { SparkRenderer } = await import('@sparkjsdev/spark');
         let sparkRendererExists = false;
         this.scene.traverse((child) => {
@@ -17888,7 +20874,7 @@ class ModelViewer extends Script {
         if (!sparkRendererExists) {
             const sparkRenderer = new SparkRenderer({
                 renderer: this.renderer,
-                maxStdDev: Math.sqrt(5),
+                maxStdDev: Math.sqrt(4),
             });
             this.registry.register(new SparkRendererHolder(sparkRenderer));
             this.scene.add(sparkRenderer);
@@ -18197,5 +21183,5 @@ class VideoFileStream extends VideoStream {
     }
 }
 
-export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DEFAULT_RGB_TO_DEPTH_PARAMS, DEVICE_CAMERA_PARAMETERS, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FORWARD, FreestandingSlider, GEMINI_DEFAULT_FLASH_MODEL, GEMINI_DEFAULT_LIVE_MODEL, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GestureRecognition, GestureRecognitionOptions, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HorizontalPager, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MeshScript, ModelLoader, ModelViewer, MouseController, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, RIGHT, RIGHT_VIEW_ONLY_LAYER, Raycaster, Registry, Reticle, ReticleOptions, Reticles, RotationRaycastMesh, Row, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_TO_JOINTS_LEFT, SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT, SOUND_PRESETS, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScrollingTroikaTextView, SetSimulatorModeEvent, ShowHandsAction, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorOptions, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SparkRendererHolder, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, TextButton, TextScrollerState, TextView, Tool, UI, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, add, ai, callInitWithDependencyInjection, camera, clamp, clampRotationToAngle, core, cropImage, depth, extractYaw, getCameraParametersSnapshot, getColorHex, getDeltaTime, getDeviceCameraClipFromView, getDeviceCameraWorldFromClip, getDeviceCameraWorldFromView, getElapsedTime, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, input, intrinsicsToProjectionMatrix, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, parseBase64DataURL, placeObjectAtIntersectionFacingTarget, print, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, sound, timer, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
+export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DEFAULT_RGB_TO_DEPTH_PARAMS, DEVICE_CAMERA_PARAMETERS, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FORWARD, FreestandingSlider, GEMINI_DEFAULT_FLASH_MODEL, GEMINI_DEFAULT_IMAGE_MODEL, GEMINI_DEFAULT_LIVE_MODEL, GamepadBindings, GamepadController, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GestureRecognition, GestureRecognitionOptions, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HorizontalPager, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MeshScript, ModelLoader, ModelViewer, MouseController, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, RIGHT, RIGHT_VIEW_ONLY_LAYER, Raycaster, Registry, Reticle, ReticleOptions, Reticles, RotationRaycastMesh, Row, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_TO_JOINTS_LEFT, SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT, SOUND_PRESETS, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScriptsManagerEventType, ScrollingTroikaTextView, SetSimulatorEnvironmentEvent, SetSimulatorModeEvent, ShowHandsAction, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorOptions, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SparkRendererHolder, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, StrokeRecognizer, TextButton, TextScrollerState, TextView, Tool, UI, UIKitOptions, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, add, ai, callInitWithDependencyInjection, camera, clamp, clampRotationToAngle, core, cropImage, depth, extractYaw, getCameraParametersSnapshot, getColorHex, getDeltaTime, getDeviceCameraClipFromView, getDeviceCameraWorldFromClip, getDeviceCameraWorldFromView, getElapsedTime, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, input, intrinsicsToProjectionMatrix, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, parseBase64DataURL, parseSimulatorHandPoseRotations, placeObjectAtIntersectionFacingTarget, print, resolveSimulatorHandPoseRotations, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, sound, timer, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
 //# sourceMappingURL=xrblocks.js.map

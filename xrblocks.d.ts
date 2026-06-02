@@ -14,15 +14,15 @@
  * limitations under the License.
  *
  * @file xrblocks.js
- * @version v0.11.0
- * @commitid 7ea68fa
- * @builddate 2026-03-27T00:45:45.049Z
+ * @version v0.15.0
+ * @commitid 04046df
+ * @builddate 2026-06-02T01:49:01.500Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
  * 1. Include the following importmap for maximum compatibility:
-    "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/",
+    "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
     "troika-three-text": "https://cdn.jsdelivr.net/gh/protectwise/troika@028b81cf308f0f22e5aa8e78196be56ec1997af5/packages/troika-three-text/src/index.js",
     "troika-three-utils": "https://cdn.jsdelivr.net/gh/protectwise/troika@v0.52.4/packages/troika-three-utils/src/index.js",
     "troika-worker-utils": "https://cdn.jsdelivr.net/gh/protectwise/troika@v0.52.4/packages/troika-worker-utils/src/index.js",
@@ -41,6 +41,7 @@
  */
 import * as GoogleGenAITypes from '@google/genai';
 import * as THREE from 'three';
+import { RenderItem } from 'three';
 import RAPIER_NS from 'rapier3d';
 import OpenAIType from 'openai';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
@@ -48,7 +49,7 @@ import { TemplateResult } from 'lit';
 import { GLTFLoader, GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import TroikaThreeText from 'troika-three-text';
 import * as _sparkjsdev_spark from '@sparkjsdev/spark';
-import { SparkRenderer } from '@sparkjsdev/spark';
+import { SplatMesh, SparkRenderer } from '@sparkjsdev/spark';
 
 /**
  * A 3D visual marker used to indicate a user's aim or interaction
@@ -581,9 +582,11 @@ declare function ScriptMixin<TBase extends Constructor<THREE.Object3D>>(base: TB
         frustumCulled: boolean;
         renderOrder: number;
         animations: THREE.AnimationClip[];
-        userData: Record<string, any>;
         customDepthMaterial?: THREE.Material | undefined;
         customDistanceMaterial?: THREE.Material | undefined;
+        static: boolean;
+        userData: Record<string, any>;
+        pivot: THREE.Vector3 | null;
         onBeforeShadow(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, shadowCamera: THREE.Camera, geometry: THREE.BufferGeometry, depthMaterial: THREE.Material, group: THREE.Group): void;
         onAfterShadow(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, shadowCamera: THREE.Camera, geometry: THREE.BufferGeometry, depthMaterial: THREE.Material, group: THREE.Group): void;
         onBeforeRender(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group: THREE.Group): void;
@@ -632,7 +635,6 @@ declare function ScriptMixin<TBase extends Constructor<THREE.Object3D>>(base: TB
         copy(object: THREE.Object3D, recursive?: boolean): /*elided*/ any;
         count?: number | undefined;
         occlusionTest?: boolean | undefined;
-        static?: boolean | undefined;
         addEventListener<T extends keyof THREE.Object3DEventMap>(type: T, listener: THREE.EventListener<THREE.Object3DEventMap[T], T, /*elided*/ any>): void;
         hasEventListener<T extends keyof THREE.Object3DEventMap>(type: T, listener: THREE.EventListener<THREE.Object3DEventMap[T], T, /*elided*/ any>): boolean;
         removeEventListener<T extends keyof THREE.Object3DEventMap>(type: T, listener: THREE.EventListener<THREE.Object3DEventMap[T], T, /*elided*/ any>): void;
@@ -796,9 +798,11 @@ declare const ScriptMixinObject3D: {
         frustumCulled: boolean;
         renderOrder: number;
         animations: THREE.AnimationClip[];
-        userData: Record<string, any>;
         customDepthMaterial?: THREE.Material | undefined;
         customDistanceMaterial?: THREE.Material | undefined;
+        static: boolean;
+        userData: Record<string, any>;
+        pivot: THREE.Vector3 | null;
         onBeforeShadow(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, shadowCamera: THREE.Camera, geometry: THREE.BufferGeometry, depthMaterial: THREE.Material, group: THREE.Group): void;
         onAfterShadow(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, shadowCamera: THREE.Camera, geometry: THREE.BufferGeometry, depthMaterial: THREE.Material, group: THREE.Group): void;
         onBeforeRender(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group: THREE.Group): void;
@@ -847,7 +851,6 @@ declare const ScriptMixinObject3D: {
         copy(object: THREE.Object3D, recursive?: boolean): /*elided*/ any;
         count?: number | undefined;
         occlusionTest?: boolean | undefined;
-        static?: boolean | undefined;
         addEventListener<T extends keyof THREE.Object3DEventMap>(type: T, listener: THREE.EventListener<THREE.Object3DEventMap[T], T, /*elided*/ any>): void;
         hasEventListener<T extends keyof THREE.Object3DEventMap>(type: T, listener: THREE.EventListener<THREE.Object3DEventMap[T], T, /*elided*/ any>): boolean;
         removeEventListener<T extends keyof THREE.Object3DEventMap>(type: T, listener: THREE.EventListener<THREE.Object3DEventMap[T], T, /*elided*/ any>): void;
@@ -1017,9 +1020,11 @@ declare const ScriptMixinMeshScript: {
         frustumCulled: boolean;
         renderOrder: number;
         animations: THREE.AnimationClip[];
-        userData: Record<string, any>;
         customDepthMaterial?: THREE.Material | undefined;
         customDistanceMaterial?: THREE.Material | undefined;
+        static: boolean;
+        userData: Record<string, any>;
+        pivot: THREE.Vector3 | null;
         onBeforeShadow(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, shadowCamera: THREE.Camera, geometry: THREE.BufferGeometry, depthMaterial: THREE.Material, group: THREE.Group): void;
         onAfterShadow(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, shadowCamera: THREE.Camera, geometry: THREE.BufferGeometry, depthMaterial: THREE.Material, group: THREE.Group): void;
         onBeforeRender(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group: THREE.Group): void;
@@ -1068,7 +1073,6 @@ declare const ScriptMixinMeshScript: {
         copy(object: THREE.Object3D, recursive?: boolean): /*elided*/ any;
         count?: number | undefined;
         occlusionTest?: boolean | undefined;
-        static?: boolean | undefined;
         addEventListener<T extends keyof THREE.Object3DEventMap>(type: T, listener: THREE.EventListener<THREE.Object3DEventMap[T], T, /*elided*/ any>): void;
         hasEventListener<T extends keyof THREE.Object3DEventMap>(type: T, listener: THREE.EventListener<THREE.Object3DEventMap[T], T, /*elided*/ any>): boolean;
         removeEventListener<T extends keyof THREE.Object3DEventMap>(type: T, listener: THREE.EventListener<THREE.Object3DEventMap[T], T, /*elided*/ any>): void;
@@ -1082,8 +1086,9 @@ declare class MeshScript<TGeometry extends THREE.BufferGeometry = THREE.BufferGe
     constructor(geometry?: TGeometry, material?: TMaterial);
 }
 
-declare const GEMINI_DEFAULT_FLASH_MODEL = "gemini-2.5-flash";
-declare const GEMINI_DEFAULT_LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
+declare const GEMINI_DEFAULT_FLASH_MODEL = "gemini-3.5-flash";
+declare const GEMINI_DEFAULT_LIVE_MODEL = "gemini-3.1-flash-live-preview";
+declare const GEMINI_DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 declare class GeminiOptions {
     apiKey: string;
     urlParam: string;
@@ -1128,8 +1133,9 @@ interface ToolResult<T = unknown> {
     /** Additional metadata about the execution */
     metadata?: Record<string, unknown>;
 }
-type ToolSchema = Omit<GoogleGenAITypes.Schema, 'type' | 'properties'> & {
+type ToolSchema = Omit<GoogleGenAITypes.Schema, 'type' | 'properties' | 'items'> & {
     properties?: Record<string, ToolSchema>;
+    items?: ToolSchema;
     type?: keyof typeof GoogleGenAITypes.Type;
 };
 type ToolOptions = {
@@ -1777,10 +1783,6 @@ declare class SpeechRecognizer extends Script<SpeechRecognizerEventMap> {
     lastConfidence: number;
     error?: string;
     playActivationSounds: boolean;
-    private handleStartBound;
-    private handleResultBound;
-    private handleEndBound;
-    private handleErrorBound;
     constructor(soundSynthesizer: SoundSynthesizer);
     init({ soundOptions }: {
         soundOptions: SoundOptions;
@@ -1793,8 +1795,8 @@ declare class SpeechRecognizer extends Script<SpeechRecognizerEventMap> {
     getLastConfidence(): number;
     private _handleStart;
     private _handleResult;
-    _handleEnd(): void;
-    _handleError(event: SpeechRecognitionErrorEvent): void;
+    private _handleEnd;
+    private _handleError;
     destroy(): void;
 }
 
@@ -1818,7 +1820,7 @@ declare class SpeechSynthesizer extends Script {
     init({ soundOptions }: {
         soundOptions: SoundOptions;
     }): void;
-    loadVoices(): void;
+    loadVoices: () => void;
     setVolume(level: number): void;
     speak(text: string, lang?: string, pitch?: number, rate?: number): Promise<void>;
     tts(text: string, lang?: string, pitch?: number, rate?: number): void;
@@ -2134,9 +2136,9 @@ declare const xrDeviceCameraEnvironmentOptions: {
                 readonly exact?: string | readonly string[] | undefined;
                 readonly ideal?: string | readonly string[] | undefined;
             } | undefined;
-            readonly echoCancellation?: boolean | {
-                readonly exact?: boolean | undefined;
-                readonly ideal?: boolean | undefined;
+            readonly echoCancellation?: string | boolean | {
+                readonly exact?: boolean | string | undefined;
+                readonly ideal?: boolean | string | undefined;
             } | undefined;
             readonly facingMode?: string | readonly string[] | {
                 readonly exact?: string | readonly string[] | undefined;
@@ -2209,9 +2211,9 @@ declare const xrDeviceCameraEnvironmentOptions: {
             readonly exact?: string | readonly string[] | undefined;
             readonly ideal?: string | readonly string[] | undefined;
         } | undefined;
-        readonly echoCancellation?: boolean | {
-            readonly exact?: boolean | undefined;
-            readonly ideal?: boolean | undefined;
+        readonly echoCancellation?: string | boolean | {
+            readonly exact?: boolean | string | undefined;
+            readonly ideal?: boolean | string | undefined;
         } | undefined;
         readonly facingMode?: string | readonly string[] | {
             readonly exact?: string | readonly string[] | undefined;
@@ -2305,9 +2307,9 @@ declare const xrDeviceCameraUserOptions: {
                 readonly exact?: string | readonly string[] | undefined;
                 readonly ideal?: string | readonly string[] | undefined;
             } | undefined;
-            readonly echoCancellation?: boolean | {
-                readonly exact?: boolean | undefined;
-                readonly ideal?: boolean | undefined;
+            readonly echoCancellation?: string | boolean | {
+                readonly exact?: boolean | string | undefined;
+                readonly ideal?: boolean | string | undefined;
             } | undefined;
             readonly facingMode?: string | readonly string[] | {
                 readonly exact?: string | readonly string[] | undefined;
@@ -2380,9 +2382,9 @@ declare const xrDeviceCameraUserOptions: {
             readonly exact?: string | readonly string[] | undefined;
             readonly ideal?: string | readonly string[] | undefined;
         } | undefined;
-        readonly echoCancellation?: boolean | {
-            readonly exact?: boolean | undefined;
-            readonly ideal?: boolean | undefined;
+        readonly echoCancellation?: string | boolean | {
+            readonly exact?: boolean | string | undefined;
+            readonly ideal?: boolean | string | undefined;
         } | undefined;
         readonly facingMode?: string | readonly string[] | {
             readonly exact?: string | readonly string[] | undefined;
@@ -2476,9 +2478,9 @@ declare const xrDeviceCameraEnvironmentContinuousOptions: {
                 readonly exact?: string | readonly string[] | undefined;
                 readonly ideal?: string | readonly string[] | undefined;
             } | undefined;
-            readonly echoCancellation?: boolean | {
-                readonly exact?: boolean | undefined;
-                readonly ideal?: boolean | undefined;
+            readonly echoCancellation?: string | boolean | {
+                readonly exact?: boolean | string | undefined;
+                readonly ideal?: boolean | string | undefined;
             } | undefined;
             readonly facingMode?: string | readonly string[] | {
                 readonly exact?: string | readonly string[] | undefined;
@@ -2551,9 +2553,9 @@ declare const xrDeviceCameraEnvironmentContinuousOptions: {
             readonly exact?: string | readonly string[] | undefined;
             readonly ideal?: string | readonly string[] | undefined;
         } | undefined;
-        readonly echoCancellation?: boolean | {
-            readonly exact?: boolean | undefined;
-            readonly ideal?: boolean | undefined;
+        readonly echoCancellation?: string | boolean | {
+            readonly exact?: boolean | string | undefined;
+            readonly ideal?: boolean | string | undefined;
         } | undefined;
         readonly facingMode?: string | readonly string[] | {
             readonly exact?: string | readonly string[] | undefined;
@@ -2647,9 +2649,9 @@ declare const xrDeviceCameraUserContinuousOptions: {
                 readonly exact?: string | readonly string[] | undefined;
                 readonly ideal?: string | readonly string[] | undefined;
             } | undefined;
-            readonly echoCancellation?: boolean | {
-                readonly exact?: boolean | undefined;
-                readonly ideal?: boolean | undefined;
+            readonly echoCancellation?: string | boolean | {
+                readonly exact?: boolean | string | undefined;
+                readonly ideal?: boolean | string | undefined;
             } | undefined;
             readonly facingMode?: string | readonly string[] | {
                 readonly exact?: string | readonly string[] | undefined;
@@ -2722,9 +2724,9 @@ declare const xrDeviceCameraUserContinuousOptions: {
             readonly exact?: string | readonly string[] | undefined;
             readonly ideal?: string | readonly string[] | undefined;
         } | undefined;
-        readonly echoCancellation?: boolean | {
-            readonly exact?: boolean | undefined;
-            readonly ideal?: boolean | undefined;
+        readonly echoCancellation?: string | boolean | {
+            readonly exact?: boolean | string | undefined;
+            readonly ideal?: boolean | string | undefined;
         } | undefined;
         readonly facingMode?: string | readonly string[] | {
             readonly exact?: string | readonly string[] | undefined;
@@ -2904,10 +2906,10 @@ declare class VideoStream<T extends VideoStreamDetails = VideoStreamDetails> ext
      * @param options - The options for the snapshot.
      * @returns The captured data.
      */
-    getSnapshot(_: VideoStreamGetSnapshotImageDataOptions): ImageData;
-    getSnapshot(_: VideoStreamGetSnapshotBase64Options): Promise<string | null>;
-    getSnapshot(_: VideoStreamGetSnapshotTextureOptions): THREE.Texture;
-    getSnapshot(_: VideoStreamGetSnapshotBlobOptions): Promise<Blob | null>;
+    getSnapshot(options: VideoStreamGetSnapshotImageDataOptions): ImageData;
+    getSnapshot(options: VideoStreamGetSnapshotBase64Options): Promise<string | null>;
+    getSnapshot(options: VideoStreamGetSnapshotTextureOptions): THREE.Texture;
+    getSnapshot(options: VideoStreamGetSnapshotBlobOptions): Promise<Blob | null>;
     /**
      * Stops the current video stream tracks.
      */
@@ -3031,7 +3033,7 @@ declare function getCameraParametersSnapshot(camera: THREE.PerspectiveCamera, xr
  * Raycasts to the depth mesh to find the world position and normal at a given UV coordinate.
  * @param rgbUv - The UV coordinate to raycast from.
  * @param depthMeshSnapshot - The depth mesh to raycast against.
- * @param depthTransformParameters - The depth transform parameters.
+ * @param cameraParametersSnapshot - Parameters of the device camera relative to the render camera's world.
  * @returns The world position, normal, and depth at the given UV coordinate.
  */
 declare function transformRgbUvToWorld(rgbUv: THREE.Vector2, depthMeshSnapshot: THREE.Mesh, cameraParametersSnapshot: {
@@ -3043,16 +3045,13 @@ declare function transformRgbUvToWorld(rgbUv: THREE.Vector2, depthMeshSnapshot: 
     depthInMeters: number;
 } | null;
 /**
- * Asynchronously crops a base64 encoded image using a THREE.Box2 bounding box.
- * This function creates an in-memory image, draws a specified portion of it to
- * a canvas, and then returns the canvas content as a new base64 string.
- * @param base64Image - The base64 string of the source image. Can be a raw
- *     string or a full data URI.
- * @param boundingBox - The bounding box with relative coordinates (0-1) for
- *     cropping.
+ * Asynchronously crops an image (provided as a base64 string or ImageData) using a THREE.Box2 bounding box.
+ * This function draws a specified portion of the image to a canvas and returns the canvas content as a new base64 string.
+ * @param imageSource - The source image as a base64 string or ImageData object.
+ * @param boundingBox - The bounding box with relative coordinates (0-1) for cropping.
  * @returns A promise that resolves with the base64 string of the cropped image.
  */
-declare function cropImage(base64Image: string, boundingBox: THREE.Box2): Promise<string>;
+declare function cropImage(imageSource: string | ImageData, boundingBox: THREE.Box2): Promise<string>;
 
 declare function intrinsicsToProjectionMatrix(K: number[], width: number, height: number, near: number, far: number, target: THREE.Matrix4): THREE.Matrix4;
 
@@ -3107,13 +3106,25 @@ declare const DEFAULT_DEVICE_CAMERA_WIDTH = 1280;
  * Corresponds to a 720p resolution.
  */
 declare const DEFAULT_DEVICE_CAMERA_HEIGHT = 720;
-declare const XR_BLOCKS_ASSETS_PATH = "https://cdn.jsdelivr.net/gh/xrblocks/assets@a500427f2dfc12312df1a75860460244bab3a146/";
+declare const XR_BLOCKS_ASSETS_PATH = "https://cdn.jsdelivr.net/gh/xrblocks/assets@02bbbf2093d20bcefdac18c65d3ff0f2b94b7535/";
 
 declare class Raycaster extends THREE.Raycaster {
     sortFunction: (a: THREE.Intersection, b: THREE.Intersection) => number;
-    /** {@inheritDoc three#Raycaster.intersectObjects} */
+    /**
+     * Intersects a single object with the raycaster, using the custom sort function.
+     * @param object - The object to intersect with.
+     * @param recursive - Whether to intersect with the object's children.
+     * @param intersects - The array to store the intersections in.
+     * @returns The intersections found.
+     */
     intersectObject<TIntersected extends THREE.Object3D>(object: THREE.Object3D, recursive?: boolean, intersects?: Array<THREE.Intersection<TIntersected>>): Array<THREE.Intersection<TIntersected>>;
-    /** {@inheritDoc three#Raycaster.intersectObjects} */
+    /**
+     * Intersects multiple objects with the raycaster, using the custom sort function.
+     * @param objects - The objects to intersect with.
+     * @param recursive - Whether to intersect with the objects' children.
+     * @param intersects - The array to store the intersections in.
+     * @returns The intersections found.
+     */
     intersectObjects<TIntersected extends THREE.Object3D>(objects: THREE.Object3D[], recursive?: boolean, intersects?: Array<THREE.Intersection<TIntersected>>): Array<THREE.Intersection<TIntersected>>;
 }
 
@@ -3142,24 +3153,29 @@ declare class ScreenshotSynthesizer {
     getScreenshot(overlayOnCamera?: boolean): Promise<string>;
 }
 
-declare class ScriptsManager {
+declare enum ScriptsManagerEventType {
+    EXCEPTION = "exception"
+}
+type ScriptsManagerEventMap = THREE.Object3DEventMap & {
+    [ScriptsManagerEventType.EXCEPTION]: {
+        scriptName: string;
+        context: string;
+        error: Error;
+        timestamp: number;
+    };
+};
+declare class ScriptsManager extends THREE.EventDispatcher<ScriptsManagerEventMap> {
     private initScriptFunction;
     /** The set of all currently initialized scripts. */
     scripts: Set<Script<THREE.Object3DEventMap>>;
-    callSelectStartBound: (event: SelectEvent) => void;
-    callSelectEndBound: (event: SelectEvent) => void;
-    callSelectBound: (event: SelectEvent) => void;
-    callSqueezeStartBound: (event: SelectEvent) => void;
-    callSqueezeEndBound: (event: SelectEvent) => void;
-    callSqueezeBound: (event: SelectEvent) => void;
-    callKeyDownBound: (event: KeyEvent) => void;
-    callKeyUpBound: (event: KeyEvent) => void;
     /** The set of scripts currently being initialized. */
     private initializingScripts;
     private seenScripts;
     private syncPromises;
-    private checkScriptBound;
+    /** Whether to catch all exceptions thrown by developer scripts. */
+    catchExceptions: boolean;
     constructor(initScriptFunction: (script: Script) => Promise<void>);
+    private handleException;
     /**
      * Initializes a script and adds it to the set of scripts which will receive
      * callbacks. This will be called automatically by Core when a script is found
@@ -3185,17 +3201,22 @@ declare class ScriptsManager {
      * @param scene - The main scene which is used to find scripts.
      */
     syncScriptsWithScene(scene: THREE.Scene): Promise<PromiseSettledResult<void>[]>;
-    callSelectStart(event: SelectEvent): void;
-    callSelectEnd(event: SelectEvent): void;
-    callSelect(event: SelectEvent): void;
-    callSqueezeStart(event: SelectEvent): void;
-    callSqueezeEnd(event: SelectEvent): void;
-    callSqueeze(event: SelectEvent): void;
-    callKeyDown(event: KeyEvent): void;
-    callKeyUp(event: KeyEvent): void;
-    onXRSessionStarted(session: XRSession): void;
-    onXRSessionEnded(): void;
-    onSimulatorStarted(): void;
+    resetUX: () => void;
+    callSelecting: (controller: Controller) => void;
+    callSqueezing: (controller: Controller) => void;
+    update: (time: number, frame: XRFrame) => void;
+    physicsStep: () => void;
+    callSelectStart: (event: SelectEvent) => void;
+    callSelectEnd: (event: SelectEvent) => void;
+    callSelect: (event: SelectEvent) => void;
+    callSqueezeStart: (event: SelectEvent) => void;
+    callSqueezeEnd: (event: SelectEvent) => void;
+    callSqueeze: (event: SelectEvent) => void;
+    callKeyDown: (event: KeyEvent) => void;
+    callKeyUp: (event: KeyEvent) => void;
+    onXRSessionStarted: (session: XRSession) => void;
+    onXRSessionEnded: () => void;
+    onSimulatorStarted: () => void;
 }
 
 declare class WaitFrame {
@@ -3296,7 +3317,6 @@ declare class WebXRSessionManager extends THREE.EventDispatcher<WebXRSessionMana
     private mode;
     currentSession?: XRSession;
     private sessionOptions?;
-    private onSessionEndedBound;
     private xrModeSupported?;
     private waitingForXRSession;
     constructor(renderer: THREE.WebGLRenderer, sessionInit: XRSessionInit, mode: XRSessionMode);
@@ -3420,7 +3440,8 @@ declare class DepthOptions {
     occlusion: {
         enabled: boolean;
     };
-    useFloat32: boolean;
+    usagePreference: XRDepthUsage[];
+    dataFormatPreference: XRDepthDataFormat[];
     depthTypeRequest: XRDepthType[];
     matchDepthView: boolean;
     constructor(options?: DeepReadonly<DeepPartial<DepthOptions>>);
@@ -3455,7 +3476,8 @@ declare const xrDepthMeshOptions: {
     readonly occlusion: {
         readonly enabled: boolean;
     };
-    readonly useFloat32: boolean;
+    readonly usagePreference: readonly XRDepthUsage[];
+    readonly dataFormatPreference: readonly XRDepthDataFormat[];
     readonly depthTypeRequest: readonly XRDepthType[];
     readonly matchDepthView: boolean;
 };
@@ -3489,7 +3511,8 @@ declare const xrDepthMeshVisualizationOptions: {
     readonly occlusion: {
         readonly enabled: boolean;
     };
-    readonly useFloat32: boolean;
+    readonly usagePreference: readonly XRDepthUsage[];
+    readonly dataFormatPreference: readonly XRDepthDataFormat[];
     readonly depthTypeRequest: readonly XRDepthType[];
     readonly matchDepthView: boolean;
 };
@@ -3523,7 +3546,8 @@ declare const xrDepthMeshPhysicsOptions: {
     readonly occlusion: {
         readonly enabled: boolean;
     };
-    readonly useFloat32: boolean;
+    readonly usagePreference: readonly XRDepthUsage[];
+    readonly dataFormatPreference: readonly XRDepthDataFormat[];
     readonly depthTypeRequest: readonly XRDepthType[];
     readonly matchDepthView: boolean;
 };
@@ -3537,7 +3561,7 @@ declare class DepthTextures {
     depthData: XRCPUDepthInformation[];
     constructor(options: DepthOptions);
     private createDataDepthTextures;
-    updateData(depthData: XRCPUDepthInformation, viewId: number): void;
+    updateData(depthData: XRCPUDepthInformation, viewId: number, depthDataFormat: XRDepthDataFormat): void;
     updateNativeTexture(depthData: XRWebGLDepthInformation, renderer: THREE.WebGLRenderer, viewId: number): void;
     get(viewId: number): THREE.DataTexture | THREE.ExternalTexture;
 }
@@ -3567,11 +3591,6 @@ declare class DepthMesh extends MeshScript {
     private lastColliderUpdateTime;
     private options;
     private depthTextureMaterialUniforms?;
-    private depthTarget;
-    private depthTexture;
-    private depthScene;
-    private depthCamera;
-    private gpuPixels;
     private RAPIER?;
     private blendedWorld?;
     private rigidBody?;
@@ -3587,15 +3606,13 @@ declare class DepthMesh extends MeshScript {
      * Updates the depth data and geometry positions based on the provided camera
      * and depth data.
      */
-    updateDepth(depthData: Readonly<XRCPUDepthInformation>, projectionMatrixInverse: Readonly<THREE.Matrix4>): void;
+    updateDepth(depthData: Readonly<XRCPUDepthInformation>, projectionMatrixInverse: Readonly<THREE.Matrix4>, depthDataFormat: XRDepthDataFormat): void;
     updatePose(translation: THREE.Vector3, quaternion: THREE.Quaternion): void;
-    updateGPUDepth(depthData: Readonly<XRWebGLDepthInformation>, projectionMatrixInverse: Readonly<THREE.Matrix4>): void;
-    convertGPUToGPU(depthData: Readonly<XRWebGLDepthInformation>): XRCPUDepthInformation;
     /**
      * Method to manually update the full resolution geometry.
      * Only needed if options.updateFullResolutionGeometry is false.
      */
-    updateFullResolutionGeometry(depthData: XRCPUDepthInformation): void;
+    updateFullResolutionGeometry(depthData: XRCPUDepthInformation, depthDataFormat: XRDepthDataFormat): void;
     /**
      * Internal method to update the geometry of the depth mesh.
      */
@@ -3620,11 +3637,13 @@ declare class Depth {
     static instance?: Depth;
     private camera;
     private renderer;
+    private gpuDepthConverter?;
     enabled: boolean;
     view: XRView[];
     cpuDepthData: XRCPUDepthInformation[];
     gpuDepthData: XRWebGLDepthInformation[];
     depthArray: DepthArray[];
+    depthDataFormat?: XRDepthDataFormat;
     depthMesh?: DepthMesh;
     private depthTextures?;
     options: DepthOptions;
@@ -3681,8 +3700,8 @@ declare class Depth {
      */
     getVertex(u: number, v: number): THREE.Vector3 | null;
     private updateDepthMatrices;
-    updateCPUDepthData(depthData: XRCPUDepthInformation, viewId?: number): void;
-    updateGPUDepthData(depthData: XRWebGLDepthInformation, viewId?: number): void;
+    updateCPUDepthData(depthData: XRCPUDepthInformation, viewId: number, depthDataFormat: XRDepthDataFormat): void;
+    updateGPUDepthData(depthData: XRWebGLDepthInformation, viewId: number): void;
     /**
      * Checks whether the depth mesh geometry should be updated this frame,
      * based on the configured depthMeshUpdateFps. The pose is always updated
@@ -3697,6 +3716,10 @@ declare class Depth {
     debugLog(): void;
     resumeDepth(client: object): void;
     pauseDepth(client: object): void;
+    /**
+     * Manually updates the depth mesh geometry using the cached depth.
+     */
+    updateFullResolutionDepthMesh(): void;
 }
 
 declare class HandsOptions {
@@ -3759,27 +3782,6 @@ declare class GestureRecognitionOptions {
      * Convenience helper to toggle specific gestures.
      */
     setGestureEnabled(name: BuiltInGestureName, enabled: boolean): this;
-}
-
-/**
- * Default options for controlling Lighting module features.
- */
-declare class LightingOptions {
-    /** Enables debugging renders and logs. */
-    debugging: boolean;
-    /** Enables XR lighting. */
-    enabled: boolean;
-    /** Add ambient spherical harmonics to lighting. */
-    useAmbientSH: boolean;
-    /** Add main diredtional light to lighting. */
-    useDirectionalLight: boolean;
-    /** Cast shadows using diretional light. */
-    castDirectionalLightShadow: boolean;
-    /**
-     * Adjust hardness of shadows according to relative brightness of main light.
-     */
-    useDynamicSoftShadow: boolean;
-    constructor(options?: DeepReadonly<DeepPartial<LightingOptions>>);
 }
 
 declare const HAND_JOINT_NAMES: readonly ["wrist", "thumb-metacarpal", "thumb-phalanx-proximal", "thumb-phalanx-distal", "thumb-tip", "index-finger-metacarpal", "index-finger-phalanx-proximal", "index-finger-phalanx-intermediate", "index-finger-phalanx-distal", "index-finger-tip", "middle-finger-metacarpal", "middle-finger-phalanx-proximal", "middle-finger-phalanx-intermediate", "middle-finger-phalanx-distal", "middle-finger-tip", "ring-finger-metacarpal", "ring-finger-phalanx-proximal", "ring-finger-phalanx-intermediate", "ring-finger-phalanx-distal", "ring-finger-tip", "pinky-finger-metacarpal", "pinky-finger-phalanx-proximal", "pinky-finger-phalanx-intermediate", "pinky-finger-phalanx-distal", "pinky-finger-tip"];
@@ -3899,6 +3901,67 @@ declare class Hands {
     isValid(handIndex?: number): boolean;
 }
 
+type StrokeProvider = 'onedollar';
+declare class StrokeRecognitionOptions {
+    /** Master switch for the stroke recognition block. */
+    enabled: boolean;
+    /**
+     * Configuration for the stroke recognition provider.
+     */
+    providerConfig: {
+        /**
+         * Backing provider that recognizes strokes.
+         *  - 'onedollar': $1 Unistroke recognizer.
+         */
+        provider: StrokeProvider;
+        /**
+         * Options specific to the 'onedollar' provider.
+         */
+        onedollar: {
+            supportedShapes: string[];
+        };
+    };
+    /**
+     * Delay in seconds after gesture start before recording points.
+     */
+    startDelay: number;
+    /**
+     * Delay in seconds to ignore points before gesture end.
+     */
+    endDelay: number;
+    /**
+     * The hand joint to track for stroke recognition.
+     */
+    joint: JointName;
+    /**
+     * Maximum number of points to capture in a single stroke.
+     */
+    maxPoints: number;
+    constructor(options?: DeepReadonly<DeepPartial<StrokeRecognitionOptions>>);
+    enable(): this;
+}
+
+/**
+ * Default options for controlling Lighting module features.
+ */
+declare class LightingOptions {
+    /** Enables debugging renders and logs. */
+    debugging: boolean;
+    /** Enables XR lighting. */
+    enabled: boolean;
+    /** Add ambient spherical harmonics to lighting. */
+    useAmbientSH: boolean;
+    /** Add main diredtional light to lighting. */
+    useDirectionalLight: boolean;
+    /** Cast shadows using diretional light. */
+    castDirectionalLightShadow: boolean;
+    /**
+     * Adjust hardness of shadows according to relative brightness of main light.
+     */
+    useDynamicSoftShadow: boolean;
+    constructor(options?: DeepReadonly<DeepPartial<LightingOptions>>);
+}
+
 /**
  * A frozen object containing standardized string values for `event.code`.
  * Used for desktop simulation.
@@ -3970,15 +4033,20 @@ interface SimulatorCustomInstruction {
     videoSrc?: string;
     description: string | TemplateResult;
 }
+interface SimulatorEnvironment {
+    name: string;
+    scenePath?: string | null;
+    scenePlanesPath?: string | null;
+    videoPath?: string;
+}
 declare class SimulatorOptions {
     initialCameraPosition: {
         x: number;
         y: number;
         z: number;
     };
-    scenePath: string | null;
-    scenePlanesPath: string | null;
-    videoPath?: string;
+    environments: SimulatorEnvironment[];
+    activeEnvironmentIndex: number;
     initialScenePosition: {
         x: number;
         y: number;
@@ -3987,6 +4055,7 @@ declare class SimulatorOptions {
     defaultMode: SimulatorMode;
     defaultHand: Handedness;
     modeToggle: {
+        enabled: boolean;
         toggleKey: Keycodes | null;
         toggleOrder: {
             User: SimulatorMode;
@@ -3994,7 +4063,7 @@ declare class SimulatorOptions {
             Hands: SimulatorMode;
         };
     };
-    modeIndicator: {
+    simulatorSettingsPanel: {
         enabled: boolean;
         element: string;
     };
@@ -4014,9 +4083,31 @@ declare class SimulatorOptions {
     stereo: {
         enabled: boolean;
     };
+    deviceCamera: {
+        enabled: boolean;
+    };
     renderToRenderTexture: boolean;
     blendingMode: 'normal' | 'screen';
     constructor(options?: DeepReadonly<DeepPartial<SimulatorOptions>>);
+}
+
+/**
+ * Options for configuring integration with \@pmndrs/uikit.
+ */
+declare class UIKitOptions {
+    /** Whether UIKit support is enabled. */
+    enabled: boolean;
+    /** The custom sorting function provided by \@pmndrs/uikit. */
+    reversePainterSortStable?: (a: RenderItem, b: RenderItem) => number;
+    /**
+     * Enables \@pmndrs/uikit integration.
+     *
+     * @param uikit - The imported `@pmndrs/uikit` module instance.
+     * @returns The instance for chaining.
+     */
+    enable(uikit: {
+        reversePainterSortStable: (a: RenderItem, b: RenderItem) => number;
+    }): this;
 }
 
 declare class MeshDetectionOptions {
@@ -4074,8 +4165,12 @@ declare class ObjectsOptions {
                 };
             };
         };
-        /** Placeholder for a future MediaPipe backend configuration. */
-        mediapipe: {};
+        /** Configuration for MediaPipe backend. */
+        mediapipe: {
+            wasmFilesUrl: string;
+            modelAssetPath: string;
+            scoreThreshold: number;
+        };
     };
     constructor(options?: DeepPartial<ObjectsOptions>);
     /**
@@ -4092,6 +4187,24 @@ declare class PlanesOptions {
     enable(): this;
 }
 
+declare class SoundsOptions {
+    enabled: boolean;
+    showDebugInfo: boolean;
+    backendConfig: {
+        activeBackend: string;
+        mediapipe: {
+            wasmFilesUrl: string;
+            modelAssetPath: string;
+            chunkSamples: number;
+        };
+    };
+    constructor(options?: DeepPartial<SoundsOptions>);
+    /**
+     * Enables sound detection.
+     */
+    enable(): this;
+}
+
 declare class WorldOptions {
     debugging: boolean;
     enabled: boolean;
@@ -4099,6 +4212,7 @@ declare class WorldOptions {
     planes: PlanesOptions;
     objects: ObjectsOptions;
     meshes: MeshDetectionOptions;
+    sounds: SoundsOptions;
     constructor(options?: DeepPartial<WorldOptions>);
     /**
      * Enables plane detection.
@@ -4112,6 +4226,10 @@ declare class WorldOptions {
      * Enables mesh detection.
      */
     enableMeshDetection(): this;
+    /**
+     * Enables sound detection.
+     */
+    enableSoundDetection(): this;
 }
 
 /**
@@ -4137,6 +4255,12 @@ declare class InputOptions {
  */
 declare class ReticleOptions {
     enabled: boolean;
+    /**
+     * When set to a positive value, the reticle is placed at this distance
+     * (in meters) along the controller ray when no intersection is found,
+     * instead of being hidden. Set to 0 to hide the reticle on miss.
+     */
+    defaultDistance: number;
 }
 /**
  * Options for the XR transition effect.
@@ -4189,11 +4313,13 @@ declare class Options {
     deviceCamera: DeviceCameraOptions;
     hands: HandsOptions;
     gestures: GestureRecognitionOptions;
+    strokes: StrokeRecognitionOptions;
     reticles: ReticleOptions;
     sound: SoundOptions;
     ai: AIOptions;
     simulator: SimulatorOptions;
     world: WorldOptions;
+    uikit: UIKitOptions;
     physics: PhysicsOptions;
     transition: XRTransitionOptions;
     camera: {
@@ -4205,6 +4331,12 @@ declare class Options {
      */
     usePostprocessing: boolean;
     enableSimulator: boolean;
+    /**
+     * Whether to catch all exceptions thrown by developer scripts in the main update loop
+     * and physics step, and log them using console.error instead of crashing the application.
+     * When enabled, exceptions in one script will not prevent other scripts or subsystems from updating.
+     */
+    catchScriptExceptions: boolean;
     /**
      * Configuration for the XR session button.
      */
@@ -4290,6 +4422,11 @@ declare class Options {
      */
     enableGestures(): this;
     /**
+     * Enables the stroke recognition block and ensures gestures are available.
+     * @returns The instance for chaining.
+     */
+    enableStrokes(): this;
+    /**
      * Enables the visualization of rays for hand tracking.
      * @returns The instance for chaining.
      */
@@ -4323,6 +4460,109 @@ declare class Options {
      * @returns The instance for chaining.
      */
     setAppDescription(description: string): this;
+}
+
+type GamepadAction = 'select' | 'cycleHandPoseLeft' | 'cycleHandPoseRight' | 'cycleSimulatorMode' | 'toggleUI' | 'toggleHand' | 'moveDown' | 'moveUp' | 'openSettings';
+/**
+ * Manages gamepad button-to-action mappings with localStorage persistence.
+ * One button per action — assigning a button removes it from any previous action.
+ */
+declare class GamepadBindings {
+    private bindings;
+    constructor();
+    getBinding(action: GamepadAction): number;
+    getAllBindings(): Record<GamepadAction, number>;
+    setBinding(action: GamepadAction, buttonIndex: number): void;
+    resetDefaults(): void;
+    private load;
+    private save;
+}
+
+/** Defines the event map for the GamepadController's custom events. */
+interface GamepadControllerEventMap extends THREE.Object3DEventMap {
+    connected: {
+        target: GamepadController;
+    };
+    disconnected: {
+        target: GamepadController;
+    };
+    selectstart: {
+        target: GamepadController;
+    };
+    selectend: {
+        target: GamepadController;
+    };
+}
+/**
+ * Simulates an XR controller using a connected gamepad (Xbox/PS).
+ * The controller ray always points forward from the camera center,
+ * similar to GazeController but with button-driven selection.
+ */
+declare class GamepadController extends Script<GamepadControllerEventMap> implements Controller {
+    static dependencies: {
+        camera: typeof THREE.Camera;
+    };
+    type: string;
+    name: string;
+    userData: {
+        id: number;
+        connected: boolean;
+        selected: boolean;
+    };
+    camera?: THREE.Camera;
+    bindings: GamepadBindings;
+    /** The browser Gamepad object, refreshed each frame. */
+    activeGamepad?: Gamepad | null;
+    gamepad?: Gamepad;
+    /** True if the toast has been shown this session. */
+    hasShownToast: boolean;
+    /** Callback set by SimulatorInterface for opening settings. */
+    onOpenSettings?: () => void;
+    /** When true, normal gamepad UI/select actions are suppressed (modal menu). */
+    menuActive: boolean;
+    private _prevButtons;
+    private _risingEdges;
+    private _captureCallback;
+    constructor();
+    init({ camera }: {
+        camera: THREE.Camera;
+    }): void;
+    /**
+     * Enters capture mode — the next button press will invoke the callback
+     * instead of triggering normal actions, then exit capture mode.
+     */
+    captureNextButtonPress(callback: (buttonIndex: number) => void): void;
+    cancelCapture(): void;
+    get captureActive(): boolean;
+    update(): void;
+    callSelectStart(): void;
+    callSelectEnd(): void;
+    connect(): void;
+    disconnect(): void;
+    /**
+     * Returns the axes of the active gamepad with deadzone applied.
+     * [leftX, leftY, rightX, rightY]
+     */
+    getAxes(): [number, number, number, number];
+    static applyDeadzone(value: number): number;
+    /**
+     * Returns the analog value (0..1) of the given button index, or 0 if
+     * unbound or no gamepad. Useful for triggers (which expose .value).
+     */
+    getButtonValue(index: number): number;
+    /**
+     * Returns the analog values of the left and right triggers (LT, RT) on a
+     * standard-mapped gamepad, in [0, 1]. Returns [0, 0] when no gamepad.
+     */
+    getTriggers(): [number, number];
+    /**
+     * Returns true if the given button index had a rising edge this frame.
+     * Safe to call from any update order — uses pre-computed edges.
+     */
+    isButtonJustPressed(buttonIndex: number): boolean;
+    private _updatePrevButtons;
+    private _pollGamepad;
+    private _onDisconnect;
 }
 
 /**
@@ -4369,6 +4609,7 @@ interface GazeControllerEventMap extends THREE.Object3DEventMap {
 declare class GazeController extends Script<GazeControllerEventMap> implements Controller {
     static dependencies: {
         camera: typeof THREE.Camera;
+        timer: typeof THREE.Timer;
     };
     /**
      * User data for the controller, including its connection status, unique ID,
@@ -4398,13 +4639,14 @@ declare class GazeController extends Script<GazeControllerEventMap> implements C
      */
     lastReticlePosition: THREE.Vector3;
     /**
-     * A clock to measure the time delta between frames for smooth animation and
+     * A timer to measure the time delta between frames for smooth animation and
      * movement calculation.
      */
-    clock: THREE.Clock;
+    timer: THREE.Timer;
     camera: THREE.Camera;
-    init({ camera }: {
+    init({ camera, timer }: {
         camera: THREE.Camera;
+        timer: THREE.Timer;
     }): void;
     /**
      * The main update loop, called every frame by the core engine.
@@ -4557,6 +4799,7 @@ declare class Input {
     pivotsEnabled: boolean;
     gazeController: GazeController;
     mouseController: MouseController;
+    gamepadController: GamepadController;
     controllersEnabled: boolean;
     listeners: Map<any, any>;
     intersectionsForController: Map<Controller, THREE.Intersection<THREE.Object3D<THREE.Object3DEventMap>>[]>;
@@ -4755,12 +4998,12 @@ declare class User extends Script {
     /**
      * Maps a hand index (0 or 1) to a set of meshes it is currently touching.
      */
-    touchedObjects: Map<number, Set<THREE.Mesh<THREE.BufferGeometry<THREE.NormalBufferAttributes, THREE.BufferGeometryEventMap>, THREE.Material | THREE.Material[], THREE.Object3DEventMap>>>;
+    touchedObjects: Map<number, Set<THREE.Mesh<THREE.BufferGeometry<THREE.NormalBufferAttributes, THREE.BufferGeometryEventMap>, THREE.Material<THREE.MaterialEventMap> | THREE.Material<THREE.MaterialEventMap>[], THREE.Object3DEventMap>>>;
     /**
      * Maps a hand index to another map that associates a grabbed mesh with its
      * initial grab event data.
      */
-    grabbedObjects: Map<number, Map<THREE.Mesh<THREE.BufferGeometry<THREE.NormalBufferAttributes, THREE.BufferGeometryEventMap>, THREE.Material | THREE.Material[], THREE.Object3DEventMap>, ObjectGrabEvent>>;
+    grabbedObjects: Map<number, Map<THREE.Mesh<THREE.BufferGeometry<THREE.NormalBufferAttributes, THREE.BufferGeometryEventMap>, THREE.Material<THREE.MaterialEventMap> | THREE.Material<THREE.MaterialEventMap>[], THREE.Object3DEventMap>, ObjectGrabEvent>>;
     input: Input;
     scene: THREE.Scene;
     controllers: Controller[];
@@ -5108,8 +5351,12 @@ type SimulatorHandPoseJoints = {
     r: number[];
     s?: number[];
 }[];
+type SimulatorHandJointRotationArray = [number, number, number];
+type SimulatorHandPoseRotations = Partial<Record<JointName, SimulatorHandJointRotationArray>>;
+declare function parseSimulatorHandPoseRotations(json: unknown): SimulatorHandPoseRotations;
 
 declare enum SimulatorHandPose {
+    NEUTRAL = "neutral",
     RELAXED = "relaxed",
     PINCHING = "pinching",
     FIST = "fist",
@@ -5142,7 +5389,6 @@ declare class SimulatorHands {
     rightHandTargetJoints: DeepReadonly<SimulatorHandPoseJoints>;
     lerpSpeed: number;
     handPosePanelElement?: SimulatorHandPoseHTMLElement;
-    onHandPoseChangeRequestBound: (event: Event) => void;
     input: Input;
     loader: GLTFLoader;
     private leftXRHand;
@@ -5157,6 +5403,8 @@ declare class SimulatorHands {
     loadMeshes(): void;
     setLeftHandLerpPose(pose: SimulatorHandPose): void;
     setRightHandLerpPose(pose: SimulatorHandPose): void;
+    setLeftHandRotations(rotations: SimulatorHandPoseRotations): void;
+    setRightHandRotations(rotations: SimulatorHandPoseRotations): void;
     setLeftHandJoints(joints: DeepReadonly<SimulatorHandPoseJoints>): void;
     setRightHandJoints(joints: DeepReadonly<SimulatorHandPoseJoints>): void;
     update(): void;
@@ -5169,8 +5417,10 @@ declare class SimulatorHands {
     hideHands(): void;
     updateHandPosePanel(): void;
     setHandPosePanelElement(element: HTMLElement): void;
-    onHandPoseChangeRequest(event: Event): void;
+    onHandPoseChangeRequest: (event: Event) => void;
     toggleHandedness(): void;
+    /** Optional callback fired after the active hand changes. */
+    onHandednessChanged?: (handedness: 'left' | 'right') => void;
 }
 
 declare class SimulatorControlMode {
@@ -5179,13 +5429,14 @@ declare class SimulatorControlMode {
     protected hands: SimulatorHands;
     protected setStereoRenderMode: (_: SimulatorRenderMode) => void;
     protected toggleUserInterface: () => void;
+    protected cycleSimulatorMode: () => void;
     camera: THREE.Camera;
     input: Input;
     timer: THREE.Timer;
     /**
      * Create a SimulatorControlMode
      */
-    constructor(simulatorControllerState: SimulatorControllerState, downKeys: Set<Keycodes>, hands: SimulatorHands, setStereoRenderMode: (_: SimulatorRenderMode) => void, toggleUserInterface: () => void);
+    constructor(simulatorControllerState: SimulatorControllerState, downKeys: Set<Keycodes>, hands: SimulatorHands, setStereoRenderMode: (_: SimulatorRenderMode) => void, toggleUserInterface: () => void, cycleSimulatorMode?: () => void);
     /**
      * Initialize the simulator control mode.
      */
@@ -5201,21 +5452,41 @@ declare class SimulatorControlMode {
     onModeActivated(): void;
     onModeDeactivated(): void;
     update(): void;
+    /**
+     * Poll the gamepad and handle button actions. Called from all modes.
+     */
+    updateGamepad(): void;
     updateCameraPosition(): void;
+    /**
+     * Handle gamepad buttons for simulator UI using configurable bindings.
+     */
+    updateGamepadUI(gp: GamepadController): void;
+    cycleHandPose(direction: number): void;
     updateControllerPositions(): void;
     rotateOnPointerMove(event: MouseEvent, objectQuaternion: THREE.Quaternion, multiplier?: number): void;
     enableSimulatorHands(): void;
     disableSimulatorHands(): void;
 }
 
+declare class SimulatorScene extends THREE.Scene {
+    gltf?: GLTF;
+    constructor();
+    init(simulatorOptions: SimulatorOptions): Promise<void>;
+    setEnvironment(path: string | null, initialPosition: THREE.Vector3): Promise<void>;
+    addLights(): void;
+    loadGLTF(path: string, initialPosition: THREE.Vector3): Promise<unknown>;
+}
+
 declare class SimulatorInterface {
     private elements;
     private interfaceVisible;
+    private _gamepadToast?;
+    private _gamepadSettings?;
     /**
      * Initialize the simulator interface.
      */
-    init(simulatorOptions: SimulatorOptions, simulatorControls: SimulatorControls, simulatorHands: SimulatorHands): void;
-    createModeIndicator(simulatorOptions: SimulatorOptions, simulatorControls: SimulatorControls): void;
+    init(simulatorOptions: SimulatorOptions, simulatorControls: SimulatorControls, simulatorHands: SimulatorHands, input?: Input, simulatorScene?: SimulatorScene): void;
+    createSimulatorSettingsPanel(simulatorOptions: SimulatorOptions, simulatorControls: SimulatorControls, simulatorScene: SimulatorScene): void;
     showInstructions(simulatorOptions: SimulatorOptions): void;
     showGeminiLivePanel(simulatorOptions: SimulatorOptions): void;
     createHandPosePanel(simulatorOptions: SimulatorOptions, simulatorHands: SimulatorHands): void;
@@ -5223,11 +5494,18 @@ declare class SimulatorInterface {
     showUiElements(): void;
     getInterfaceVisible(): boolean;
     toggleInterfaceVisible(): void;
+    private _initGamepadUI;
+    private _ensureGamepadToast;
+    showGamepadToast(gp: GamepadController): void;
+    toggleGamepadSettings(gp: GamepadController): void;
 }
 
-type SimulatorModeIndicatorElement = HTMLElement & {
+interface ISimulatorSettingsPanelElement extends HTMLElement {
+    environments: SimulatorEnvironment[];
+    activeEnvironmentIndex: number;
     simulatorMode: SimulatorMode;
-};
+}
+
 declare class SimulatorControls {
     #private;
     simulatorControllerState: SimulatorControllerState;
@@ -5235,7 +5513,7 @@ declare class SimulatorControls {
     private userInterface;
     pointerDown: boolean;
     downKeys: Set<Keycodes>;
-    modeIndicatorElement?: SimulatorModeIndicatorElement;
+    simulatorSettingsPanelElement?: ISimulatorSettingsPanelElement;
     simulatorMode: SimulatorMode;
     simulatorModeControls: SimulatorControlMode;
     simulatorModes: {
@@ -5245,12 +5523,6 @@ declare class SimulatorControls {
     private simulatorOptions?;
     get enabled(): boolean;
     set enabled(value: boolean);
-    private _onPointerDown;
-    private _onPointerUp;
-    private _onKeyDown;
-    private _onKeyUp;
-    private _onPointerMove;
-    private _onBlur;
     /**
      * Create the simulator controls.
      * @param hands - The simulator hands manager.
@@ -5270,14 +5542,14 @@ declare class SimulatorControls {
     }): void;
     connect(): void;
     update(): void;
-    onPointerMove(event: MouseEvent): void;
-    onPointerDown(event: MouseEvent): void;
-    onPointerUp(event: MouseEvent): void;
-    onKeyDown(event: KeyboardEvent): void;
-    onKeyUp(event: KeyboardEvent): void;
-    onBlur(): void;
+    onPointerMove: (event: MouseEvent) => void;
+    onPointerDown: (event: MouseEvent) => void;
+    onPointerUp: (event: MouseEvent) => void;
+    onKeyDown: (event: KeyboardEvent) => void;
+    onKeyUp: (event: KeyboardEvent) => void;
+    onBlur: () => void;
     setSimulatorMode(mode: SimulatorMode): void;
-    setModeIndicatorElement(element: SimulatorModeIndicatorElement): void;
+    setSimulatorSettingsPanelElement(element: ISimulatorSettingsPanelElement): void;
     setEnabled(value: boolean): void;
 }
 
@@ -5287,14 +5559,6 @@ declare class SimulatorDepthMaterial extends THREE.MeshBasicMaterial {
         fragmentShader: string;
         uniforms: object;
     }): void;
-}
-
-declare class SimulatorScene extends THREE.Scene {
-    gltf?: GLTF;
-    constructor();
-    init(simulatorOptions: SimulatorOptions): Promise<void>;
-    addLights(): void;
-    loadGLTF(path: string, initialPosition: THREE.Vector3): Promise<unknown>;
 }
 
 declare class SimulatorDepth {
@@ -5391,6 +5655,28 @@ declare class DetectedObject<T> extends THREE.Object3D {
 }
 
 /**
+ * Represents a detected object in a normalized format, independent of the specific detector backend used.
+ * Coordinates are normalized typically in the range [0, 1].
+ *
+ * T - The type of additional data associated with the detected object.
+ */
+interface NormalizedDetectedObject<T> {
+    ymin: number;
+    xmin: number;
+    ymax: number;
+    xmax: number;
+    objectName: string;
+    additionalData?: T;
+}
+/**
+ * Represents a snapshot taken from the device camera.
+ * Can contain either a base64 encoded image string or raw ImageData.
+ */
+interface CameraSnapshot {
+    base64?: string;
+    imageData?: ImageData;
+}
+/**
  * Detects objects in the user's environment using a specified backend.
  * It queries an AI model with the device camera feed and returns located
  * objects with 2D and 3D positioning data.
@@ -5409,11 +5695,8 @@ declare class ObjectDetector extends Script {
      * A map from the object's UUID to our custom `DetectedObject` instance.
      */
     private _detectedObjects;
+    private _detectorBackends;
     private _debugVisualsGroup?;
-    /**
-     * The configuration for the Gemini backend.
-     */
-    private _geminiConfig;
     private options;
     private ai;
     private aiOptions;
@@ -5441,11 +5724,9 @@ declare class ObjectDetector extends Script {
      * array of detected `DetectedObject` instances.
      */
     runDetection<T = null>(): Promise<DetectedObject<T>[]>;
+    private getDetectorContext;
+    private getOrCreateDetectorBackend;
     private getDepthMeshSnapshot;
-    /**
-     * Runs object detection using the Gemini backend.
-     */
-    private _runGeminiDetection;
     /**
      * Retrieves a list of currently detected objects.
      *
@@ -5465,34 +5746,19 @@ declare class ObjectDetector extends Script {
      */
     showDebugVisualizations(visible?: boolean): void;
     /**
-     * Draws the detected bounding boxes on the input image and triggers a
-     * download for debugging.
-     * @param base64Image - The base64 encoded input image.
-     * @param detections - The array of detected objects from the AI response.
-     */
-    private _visualizeBoundingBoxesOnImage;
-    /**
      * Generates a visual representation of the depth map, normalized to 0-1 range,
      * and triggers a download for debugging.
      * @param depthArray - The raw depth data array.
      */
     private _visualizeDepthMap;
-    /**
-     * Creates a simple debug visualization for an object based on its position
-     * (center of its 2D detection bounding box).
-     * @param object - The detected object to visualize.
-     */
-    private _createDebugVisual;
-    /**
-     * Builds the Gemini configuration object from the world options.
-     */
-    private _buildGeminiConfig;
 }
 
 type SimulatorPlaneType = 'horizontal' | 'vertical';
 interface SimulatorPlane {
     /** 'horizontal' or 'vertical' */
     type: SimulatorPlaneType;
+    /** Optional semantic label for the plane (e.g., 'table', 'floor') */
+    label?: string;
     /** Total surface area in square meters */
     area: number;
     /** * The center point of the plane in World Space.
@@ -5621,9 +5887,11 @@ declare class DetectedMesh extends THREE.Mesh {
     private blendedWorld?;
     private lastChangedTime;
     semanticLabel?: string;
+    get getRigidBody(): RAPIER_NS.RigidBody | undefined;
     constructor(mesh: XRMesh, material: THREE.Material);
     initRapierPhysics(RAPIER: typeof RAPIER_NS, blendedWorld: RAPIER_NS.World): void;
     updateVertices(mesh: XRMesh): void;
+    dispose(): void;
 }
 
 declare class MeshDetector extends Script {
@@ -5638,14 +5906,116 @@ declare class MeshDetector extends Script {
     private renderer;
     private physics?;
     private defaultMaterial;
+    private meshTimedata;
+    private readonly MESH_UPDATE_INTERVAL_MS;
+    private lastMeshUpdateTime;
+    private readonly MESH_STALE_TIME_MS;
+    private readonly CLEANUP_INTERVAL_MS;
+    private readonly kMaxViewDistance;
+    private readonly kFOVCosThreshold;
+    private lastCleanupTime;
+    private frameCount;
     init({ options, renderer, }: {
         options: MeshDetectionOptions;
         renderer: THREE.WebGLRenderer;
     }): void;
     initPhysics(physics: Physics): void;
     updateMeshes(_timestamp: number, frame?: XRFrame): void;
+    private removeMesh;
+    private cleanupStaleMeshes;
     private createMesh;
     private updateMeshPose;
+    private getCameraInfo;
+    private computeMeshBoundingBox;
+    /** Six clip planes from the view-projection matrix (left, right, bottom, top, near, far). */
+    private buildFrustumPlanes;
+    private frustumIntersectsBox;
+    private shouldShowMeshInViewWithFrustum;
+    private shouldShowMeshInViewWithDistance;
+}
+
+/**
+ * Represents a sound category with its associated confidence score.
+ */
+interface Category {
+    /** The name of the detected category (e.g., "Speech", "Music"). */
+    categoryName: string;
+    /** The confidence score of the detection, typically between 0 and 1. */
+    score: number;
+    /** Optional human-readable name for the category. */
+    displayName?: string;
+}
+/**
+ * Contains a list of categories for a specific detection.
+ */
+interface Classification {
+    /** Array of detected categories, typically sorted by score. */
+    categories: Category[];
+}
+/**
+ * A single result item from the audio classifier.
+ */
+interface AudioClassifierResultItem {
+    /** List of classifications for this result item since there could
+     * be multiple types of sounds overlapping in the same time interval. */
+    classifications: Classification[];
+}
+/**
+ * Debugging information about the audio processing.
+ */
+interface DebugData {
+    /** Root Mean Square, representing the volume/energy of the audio. */
+    rms: number;
+    /** The size of the audio buffer processed. */
+    bufferSize: number;
+    /** The sample rate of the audio data. */
+    sampleRate: number;
+}
+/**
+ * The overall result returned by the audio classifier.
+ */
+interface AudioClassifierResult {
+    /** List of result items containing classifications. */
+    items: AudioClassifierResultItem[];
+    /** Optional debug data. */
+    debug?: DebugData;
+}
+
+interface SoundDetectorEventMap extends THREE.Object3DEventMap {
+    soundDetected: {
+        audioClassifierResult: AudioClassifierResult;
+    };
+}
+/**
+ * Detects and classifies sounds in the user's environment using a specified backend.
+ * It queries an audio classifier model with the device mic input stream and returns
+ * classifications over specific time intervals along with confidence scores.
+ */
+declare class SoundDetector extends Script<SoundDetectorEventMap> {
+    static dependencies: {
+        options: typeof WorldOptions;
+    };
+    private _detectorBackends;
+    private audioListener?;
+    private _isListening;
+    get isListening(): boolean;
+    private options?;
+    /**
+     * Initializes the SoundDetector.
+     */
+    init({ options }: {
+        options: WorldOptions;
+    }): Promise<void>;
+    /**
+     * Starts listening to the default mic input stream.
+     */
+    startListening(): Promise<void>;
+    /**
+     * Stops listening and releases resources.
+     */
+    stopListening(): void;
+    update(_timestamp: number, _frame?: XRFrame): void;
+    private getOrCreateDetectorBackend;
 }
 
 /**
@@ -5658,6 +6028,8 @@ declare class World extends Script {
     static dependencies: {
         options: typeof WorldOptions;
         camera: typeof THREE.Camera;
+        waitFrame: typeof WaitFrame;
+        timer: typeof THREE.Timer;
     };
     editorIcon: string;
     /**
@@ -5684,18 +6056,28 @@ declare class World extends Script {
      */
     meshes?: MeshDetector;
     /**
+     * The sound detection module instance. Null if not enabled.
+     */
+    sounds?: SoundDetector;
+    /**
      * A Three.js Raycaster for performing intersection tests.
      */
     private raycaster;
     private camera;
+    private waitFrame;
+    private timer;
     private needsRoomCapture;
+    private resolveInitialized;
+    readonly initializedPromise: Promise<void>;
     /**
      * Initializes the world-sensing modules based on the provided configuration.
      * This method is called automatically by the XRCore.
      */
-    init({ options, camera, }: {
+    init({ options, camera, waitFrame, timer, }: {
         options: WorldOptions;
         camera: THREE.Camera;
+        waitFrame: WaitFrame;
+        timer: THREE.Timer;
     }): Promise<void>;
     /**
      * Places an object at the reticle.
@@ -5726,6 +6108,18 @@ declare class World extends Script {
      * otherwise.
      */
     placeOnSurface(objectToPlace: THREE.Object3D, controller: THREE.Object3D): boolean;
+    /**
+     * Places an object onto a suitable horizontal plane in the environment.
+     * It prioritizes planes in front of the user, prefers tables/elevated surfaces over floors,
+     * and ensures the object does not intersect other existing objects or other planes in the scene.
+     * If placement fails in the current frame, it continues retrying frame-by-frame until the timeout is reached.
+     *
+     * @param objectToPlace - The Three.js Object3D to place.
+     * @param timeout - Optional timeout duration as a Temporal.Duration or Temporal.DurationLike object (defaults to 500ms).
+     * @param gridSteps - Optional number of steps along each axis for grid sampling candidate positions (defaults to 5).
+     * @returns A promise resolving to true if successfully placed, false otherwise.
+     */
+    placeOnHorizontalSurface(objectToPlace: THREE.Object3D, timeout?: Temporal.Duration | Temporal.DurationLike, gridSteps?: number): Promise<boolean>;
     /**
      * Toggles the visibility of all debug visualizations for world features.
      * @param visible - Whether the visualizations should be visible.
@@ -5771,7 +6165,7 @@ declare class Simulator extends Script {
     virtualSceneFullScreenQuad?: FullScreenQuad;
     backgroundVideoQuad?: FullScreenQuad;
     videoElement?: HTMLVideoElement;
-    camera?: SimulatorCamera;
+    simulatorCamera?: SimulatorCamera;
     options: SimulatorOptions;
     renderer: THREE.WebGLRenderer;
     mainCamera: THREE.Camera;
@@ -6027,7 +6421,6 @@ declare class TextView extends View<TextViewEventMap> {
     lineHeight: number;
     /** The total number of lines after text wrapping. */
     lineCount: number;
-    private _onSyncCompleteBound;
     private _initializeTextCalled;
     private _text;
     set text(text: string);
@@ -6074,7 +6467,7 @@ declare class TextView extends View<TextViewEventMap> {
      * Callback executed when Troika's text sync is complete.
      * It captures layout data like total height and line count.
      */
-    onSyncComplete(): void;
+    onSyncComplete: () => void;
     /**
      * Private method to perform the actual initialization after the async
      * import has resolved.
@@ -6100,6 +6493,7 @@ type IconButtonOptions = TextViewOptions & {
     hoverOpacity?: number;
     selectedOpacity?: number;
     opacity?: number;
+    disabled?: boolean;
 };
 declare class IconButton extends TextView {
     /** The overall opacity when the button is not being interacted with. */
@@ -6112,6 +6506,8 @@ declare class IconButton extends TextView {
     hoverOpacity: number;
     /** The background opacity when the button is actively being pressed. */
     selectedOpacity: number;
+    /** Indicates if the button is disabled and should not respond to interaction. */
+    disabled: boolean;
     /** The icon font file to use. Defaults to Material Icons. */
     font: string;
     /** The underlying mesh for the button's background. */
@@ -6150,6 +6546,10 @@ declare class IconButton extends TextView {
      * Updates the button's visual state based on hover and selection status.
      */
     update(): void;
+    /**
+     * Overrides the parent's triggered behavior to block it when disabled.
+     */
+    onTriggered(id: number): void;
     /**
      * Overrides the parent's private initialization method. This is called by the
      * parent's `init()` method after the Troika module is confirmed to be loaded.
@@ -6979,7 +7379,7 @@ declare class Core {
      */
     registry: Registry;
     /**
-     * A clock for tracking time deltas. Call clock.getDeltaTime().
+     * A timer for tracking time deltas. Call timer.getDelta() or getDeltaTime().
      */
     timer: THREE.Timer;
     /** Manages hand, mouse, gaze inputs. */
@@ -6996,7 +7396,7 @@ declare class Core {
     sound: CoreSound;
     /** A container to hold all the systems in the scene hierarchy. */
     xrSystemsGroup: XRSystems;
-    private renderSceneBound;
+    private renderSceneCallback;
     /** Manages the desktop XR simulator. */
     simulator: Simulator;
     /** Manages drag-and-drop interactions. */
@@ -7144,6 +7544,118 @@ declare class OcclusionUtils {
     static addOcclusionToShader(shader: Shader): void;
 }
 
+/**
+ * The result of a stroke recognition attempt.
+ */
+interface StrokeRecognitionResult {
+    /** The name of the recognized shape. */
+    recognizedShape: string;
+    /** The confidence score of the recognition, typically between 0 and 1. */
+    confidence: number;
+}
+
+/**
+ * Types of events emitted by the StrokeRecognizer.
+ */
+type UnistrokeEventType = 'unistrokestart' | 'unistrokeupdate' | 'unistrokeend';
+/**
+ * Detail payload for Unistroke events.
+ */
+interface UnistrokeEventDetail {
+    /** The current world position of the tracked joint (for updates). */
+    point?: THREE.Vector3;
+    /** The result of the stroke recognition (for end event). */
+    result?: StrokeRecognitionResult;
+}
+/**
+ * Custom event for unistroke interactions.
+ */
+type UnistrokeEvent = THREE.Event & {
+    type: UnistrokeEventType;
+    target: StrokeRecognizer;
+    detail: UnistrokeEventDetail;
+};
+/**
+ * Event map for the StrokeRecognizer, defining the events it can dispatch.
+ */
+interface StrokeEventMap extends THREE.Object3DEventMap {
+    unistrokestart: UnistrokeEvent;
+    unistrokeupdate: UnistrokeEvent;
+    unistrokeend: UnistrokeEvent;
+}
+/**
+ * StrokeRecognizer is a framework Script that handles recording hand stroke gestures
+ * and recognizing them as geometric shapes using a configured provider.
+ * It listens to gesture events and tracks specified hand joints to record the path.
+ */
+declare class StrokeRecognizer extends Script<StrokeEventMap> {
+    static dependencies: {
+        scene: typeof THREE.Scene;
+        camera: typeof THREE.Camera;
+        user: typeof User;
+        options: typeof StrokeRecognitionOptions;
+    };
+    private options;
+    private recognizer;
+    private capturedPoints;
+    private isActive;
+    private isRecording;
+    private gestureStartTime;
+    private gestureEndTime;
+    private activeHand;
+    private scene;
+    private camera;
+    private user;
+    init({ scene, camera, user, options, }: {
+        scene: THREE.Scene;
+        camera: THREE.Camera;
+        user: User;
+        options: StrokeRecognitionOptions;
+    }): void;
+    dispose(): void;
+    private configureProvider;
+    /**
+     * Activates the stroke recognizer, enabling gesture tracking and recording.
+     */
+    activate(): void;
+    /**
+     * Deactivates the stroke recognizer and clears any captured points.
+     */
+    deactivate(): void;
+    /**
+     * Clears the list of captured points.
+     */
+    clearPoints(): void;
+    /**
+     * Adds a point to the current stroke if the maximum point limit has not been reached.
+     * @param pos - The world position of the point.
+     * @param timestamp - The timestamp when the point was captured.
+     */
+    addPoint(pos: THREE.Vector3, timestamp: number): void;
+    /**
+     * Main update loop. Handles recording points during an active gesture
+     * and triggers recognition when the gesture ends.
+     */
+    update(): void;
+    /**
+     * Calculates the best-fitting plane for a set of 3D points using a simple 3-point estimator.
+     * Falls back to camera plane if points are collinear.
+     */
+    private calculateBestFittingPlane;
+    /**
+     * Filters captured points, projects them to a 2D plane, and calls the backend recognizer.
+     * Uses best-fitting plane if possible, otherwise falls back to camera viewport plane.
+     * @returns The recognition result or null if not enough points were captured.
+     */
+    private recognizeGesture;
+}
+
+declare class SetSimulatorEnvironmentEvent extends Event {
+    environmentIndex: number;
+    static type: string;
+    constructor(environmentIndex: number);
+}
+
 declare class SimulatorHandPoseChangeRequestEvent extends Event {
     pose: SimulatorHandPose;
     static type: string;
@@ -7155,6 +7667,8 @@ declare class SetSimulatorModeEvent extends Event {
     static type: string;
     constructor(simulatorMode: SimulatorMode);
 }
+
+declare function resolveSimulatorHandPoseRotations(handedness: Handedness, rotations: SimulatorHandPoseRotations): SimulatorHandPoseJoints;
 
 declare class PinchOnButtonAction extends SimulatorUserAction {
     private target;
@@ -7359,7 +7873,7 @@ declare function showOnlyInRightEye<T extends THREE.Object3D>(obj: T): T;
  * @returns A promise that resolves to an array containing the left and right
  *     eye textures.
  */
-declare function loadStereoImageAsTextures(url: string): Promise<THREE.Texture<unknown>[]>;
+declare function loadStereoImageAsTextures(url: string): Promise<THREE.Texture<unknown, THREE.TextureEventMap>[]>;
 
 type MaterialSymbolsViewOptions = {
     /** The name of the icon (e.g., 'sunny', 'home'). */
@@ -7453,13 +7967,12 @@ declare class ScrollingTroikaTextView extends View {
     private pager;
     private textViewWrapper;
     private textView;
-    private onTextSyncCompleteBound;
     private currentText;
     constructor({ text, textAlign, scrollerState, fontSize, }?: ScrollingTroikaTextViewOptions);
     update(): void;
     addText(text: string): void;
     setText(text: string): void;
-    onTextSyncComplete(): void;
+    onTextSyncComplete: () => void;
     clipToLineHeight(): void;
 }
 
@@ -7521,6 +8034,19 @@ declare class FreestandingSlider {
     updateValue(value: number): void;
 }
 
+/**
+ * A specialized `THREE.Mesh` that serves as the interactive base for
+ * a `ModelViewer`. It has a distinct visual appearance and handles the logic
+ * for fading in and out on hover. Its `draggingMode` is set to `TRANSLATING` to
+ * enable movement.
+ */
+declare class ModelViewerPlatform extends THREE.Mesh<THREE.BufferGeometry, THREE.Material[]> {
+    draggingMode: DragMode;
+    opacity: AnimatableNumber;
+    constructor(width: number, depth: number, thickness: number);
+    update(deltaTime: number): void;
+}
+
 interface GLTFData {
     model: string;
     path: string;
@@ -7558,6 +8084,7 @@ declare class ModelViewer extends Script implements Draggable {
         scene: typeof THREE.Scene;
         renderer: typeof THREE.WebGLRenderer;
         registry: typeof Registry;
+        timer: typeof THREE.Timer;
     };
     draggable: boolean;
     rotatable: boolean;
@@ -7568,35 +8095,36 @@ declare class ModelViewer extends Script implements Draggable {
     initialScale: THREE.Vector3;
     startAnimationOnLoad: boolean;
     clipActions: THREE.AnimationAction[];
-    private data?;
-    private clock;
-    private animationMixer?;
-    private gltfMesh?;
-    private splatMesh?;
-    private splatAnchor?;
-    private hoveringControllers;
-    private raycastToChildren;
-    private occludableShaders;
-    private camera?;
-    private depth?;
-    private scene?;
-    private renderer?;
-    private bbox;
-    private platform?;
-    private controlBar?;
-    private rotationRaycastMesh?;
-    private registry?;
+    bbox: THREE.Box3;
+    protected data?: GLTFData | SplatData;
+    protected timer: THREE.Timer;
+    protected animationMixer?: THREE.AnimationMixer;
+    protected gltfMesh?: GLTF;
+    protected splatMesh?: SplatMesh;
+    protected splatAnchor?: SplatAnchor;
+    protected hoveringControllers: Set<unknown>;
+    protected raycastToChildren: boolean;
+    protected occludableShaders: Set<Shader>;
+    protected camera?: THREE.Camera;
+    protected depth?: Depth;
+    protected scene?: THREE.Scene;
+    protected renderer?: THREE.WebGLRenderer;
+    protected platform?: ModelViewerPlatform;
+    protected controlBar?: THREE.Mesh;
+    protected rotationRaycastMesh?: RotationRaycastMesh;
+    protected registry?: Registry;
     constructor({ castShadow, receiveShadow, raycastToChildren, }: {
         castShadow?: boolean | undefined;
         receiveShadow?: boolean | undefined;
         raycastToChildren?: boolean | undefined;
     });
-    init({ camera, depth, scene, renderer, registry, }: {
+    init({ camera, depth, scene, renderer, registry, timer, }: {
         camera: THREE.Camera;
         depth: Depth;
         scene: THREE.Scene;
         renderer: THREE.WebGLRenderer;
         registry: Registry;
+        timer: THREE.Timer;
     }): Promise<void>;
     loadSplatModel({ data, onSceneLoaded, platformMargin, setupRaycastCylinder, setupRaycastBox, setupPlatform, }: {
         data: SplatData;
@@ -8087,5 +8615,5 @@ declare class VideoFileStream extends VideoStream<VideoFileStreamDetails> {
     setSource(videoFile: string | File): Promise<void>;
 }
 
-export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DEFAULT_RGB_TO_DEPTH_PARAMS, DEVICE_CAMERA_PARAMETERS, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FORWARD, FreestandingSlider, GEMINI_DEFAULT_FLASH_MODEL, GEMINI_DEFAULT_LIVE_MODEL, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GestureRecognition, GestureRecognitionOptions, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HorizontalPager, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MeshScript, ModelLoader, ModelViewer, MouseController, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, RIGHT, RIGHT_VIEW_ONLY_LAYER, Raycaster, Registry, Reticle, ReticleOptions, Reticles, RotationRaycastMesh, Row, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_TO_JOINTS_LEFT, SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT, SOUND_PRESETS, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScrollingTroikaTextView, SetSimulatorModeEvent, ShowHandsAction, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorOptions, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SparkRendererHolder, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, TextButton, TextScrollerState, TextView, Tool, UI, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, add, ai, callInitWithDependencyInjection, camera, clamp, clampRotationToAngle, core, cropImage, depth, extractYaw, getCameraParametersSnapshot, getColorHex, getDeltaTime, getDeviceCameraClipFromView, getDeviceCameraWorldFromClip, getDeviceCameraWorldFromView, getElapsedTime, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, input, intrinsicsToProjectionMatrix, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, parseBase64DataURL, placeObjectAtIntersectionFacingTarget, print, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, sound, timer, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
-export type { AIModel, AgentLifecycleCallbacks, AudioListenerOptions, AudioPlayerOptions, BuiltInGestureName, CameraParametersSnapshot, ColOptions, Constructor, DeepPartial, DeepReadonly, DepthArray, DeviceCameraParameters, Draggable, FormFactor, GLTFData, GeminiQueryInput, GestureConfiguration, GestureConfigurations, GestureEvent, GestureEventDetail, GestureEventType, GestureHandedness, GestureProvider, GetWeatherArgs, GridOptions, HasDraggingMode, HasIgnoreReticleRaycast, IconButtonOptions, IconViewOptions, ImageViewOptions, Injectable, InjectableConstructor, KeyEvent, KeysJson, LabelViewOptions, LiveSessionState, MaterialSymbolsViewOptions, MaybeHasIgnoreReticleRaycast, MediaOrSimulatorMediaDeviceInfo, ModelClass, ModelLoaderLoadGLTFOptions, ModelLoaderLoadOptions, ModelOptions, ObjectGrabEvent, ObjectTouchEvent, OrbiterOptions, PagerOptions, PanelFadeState, PanelOptions, PlaySoundOptions, RAPIERCompat, RgbToDepthParams, RowOptions, ScrollingTroikaTextViewOptions, SelectEvent, Shader, ShaderUniforms, SimulatorCustomInstruction, SimulatorHandPoseHTMLElement, SimulatorHandPoseJoints, SimulatorModeIndicatorElement, SimulatorPlane, SimulatorPlaneType, SpatialPanelOptions, SplatData, TextButtonOptions, TextViewOptions, ToolCall, ToolOptions, ToolResult, ToolSchema, UIJsonNode, UIJsonNodeOptions, VideoFileStreamOptions, VideoStreamDetails, VideoStreamEventMap, VideoStreamGetSnapshotBase64Options, VideoStreamGetSnapshotBlobOptions, VideoStreamGetSnapshotImageDataOptions, VideoStreamGetSnapshotOptions, VideoStreamGetSnapshotTextureOptions, VideoStreamOptions, VideoViewOptions, ViewOptions, WeatherData };
+export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DEFAULT_RGB_TO_DEPTH_PARAMS, DEVICE_CAMERA_PARAMETERS, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FORWARD, FreestandingSlider, GEMINI_DEFAULT_FLASH_MODEL, GEMINI_DEFAULT_IMAGE_MODEL, GEMINI_DEFAULT_LIVE_MODEL, GamepadBindings, GamepadController, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GestureRecognition, GestureRecognitionOptions, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HorizontalPager, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MeshScript, ModelLoader, ModelViewer, MouseController, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, RIGHT, RIGHT_VIEW_ONLY_LAYER, Raycaster, Registry, Reticle, ReticleOptions, Reticles, RotationRaycastMesh, Row, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_TO_JOINTS_LEFT, SIMULATOR_HAND_POSE_TO_JOINTS_RIGHT, SOUND_PRESETS, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScriptsManagerEventType, ScrollingTroikaTextView, SetSimulatorEnvironmentEvent, SetSimulatorModeEvent, ShowHandsAction, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorOptions, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SparkRendererHolder, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, StrokeRecognizer, TextButton, TextScrollerState, TextView, Tool, UI, UIKitOptions, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, add, ai, callInitWithDependencyInjection, camera, clamp, clampRotationToAngle, core, cropImage, depth, extractYaw, getCameraParametersSnapshot, getColorHex, getDeltaTime, getDeviceCameraClipFromView, getDeviceCameraWorldFromClip, getDeviceCameraWorldFromView, getElapsedTime, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, input, intrinsicsToProjectionMatrix, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, parseBase64DataURL, parseSimulatorHandPoseRotations, placeObjectAtIntersectionFacingTarget, print, resolveSimulatorHandPoseRotations, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, sound, timer, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
+export type { AIModel, AgentLifecycleCallbacks, AudioListenerOptions, AudioPlayerOptions, BuiltInGestureName, CameraParametersSnapshot, CameraSnapshot, ColOptions, Constructor, DeepPartial, DeepReadonly, DepthArray, DeviceCameraParameters, Draggable, FormFactor, GLTFData, GamepadAction, GeminiQueryInput, GestureConfiguration, GestureConfigurations, GestureEvent, GestureEventDetail, GestureEventType, GestureHandedness, GestureProvider, GetWeatherArgs, GridOptions, HasDraggingMode, HasIgnoreReticleRaycast, ISimulatorSettingsPanelElement, IconButtonOptions, IconViewOptions, ImageViewOptions, Injectable, InjectableConstructor, JointName, KeyEvent, KeysJson, LabelViewOptions, LiveSessionState, MaterialSymbolsViewOptions, MaybeHasIgnoreReticleRaycast, MediaOrSimulatorMediaDeviceInfo, ModelClass, ModelLoaderLoadGLTFOptions, ModelLoaderLoadOptions, ModelOptions, NormalizedDetectedObject, ObjectGrabEvent, ObjectTouchEvent, OrbiterOptions, PagerOptions, PanelFadeState, PanelOptions, PlaySoundOptions, RAPIERCompat, RgbToDepthParams, RowOptions, ScriptsManagerEventMap, ScrollingTroikaTextViewOptions, SelectEvent, Shader, ShaderUniforms, SimulatorCustomInstruction, SimulatorEnvironment, SimulatorHandJointRotationArray, SimulatorHandPoseHTMLElement, SimulatorHandPoseJoints, SimulatorHandPoseRotations, SimulatorPlane, SimulatorPlaneType, SpatialPanelOptions, SplatData, StrokeEventMap, TextButtonOptions, TextViewOptions, ToolCall, ToolOptions, ToolResult, ToolSchema, UIJsonNode, UIJsonNodeOptions, VideoFileStreamOptions, VideoStreamDetails, VideoStreamEventMap, VideoStreamGetSnapshotBase64Options, VideoStreamGetSnapshotBlobOptions, VideoStreamGetSnapshotImageDataOptions, VideoStreamGetSnapshotOptions, VideoStreamGetSnapshotTextureOptions, VideoStreamOptions, VideoViewOptions, ViewOptions, WeatherData };
