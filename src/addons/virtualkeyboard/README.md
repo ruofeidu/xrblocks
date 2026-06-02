@@ -1,104 +1,81 @@
-# Virtual Keyboard (keyboard.ts) — Summary & API
+# Virtual Keyboard (`Keyboard.ts`)
 
-This file implements an on-screen keyboard component for xrblocks with a few small helper classes and a fixed layout.
+A 3D on-screen virtual keyboard component for **xrblocks**. It allows users to type text using a customizable spatial interface in virtual or augmented reality.
 
-## Exports
+---
 
-- `Keyboard` — main keyboard component (exported).
-- `KeyboardButton` — internal button class (extends `xb.TextButton`).
+## Overview
 
-## Key classes & interfaces
+The `Keyboard` component is a spatial UI panel that displays a full virtual QWERTY keyboard. It supports standard typing, shifted characters, caps lock, and special operations like backspace, tab, and enter.
 
-- `SpecialKey`
-  - position: 'left' | 'right' | 'center'
-  - type: 'tab' | 'backspace' | 'shift_lock' | 'enter' | 'shift' | 'space'
-  - iconName: string
-  - weight?: number
-  - backgroundColor?: string
+---
 
-- `LayoutRow`
-  - textKeys?: string (sequence of non-special keys)
-  - shiftKeys?: string (shift variants aligned with textKeys)
-  - specialKeys: SpecialKey[]
+## Keyboard Layout
 
-- `KeyboardButtonOptions`
-  - text: string
-  - fontSize: number
-  - backgroundColor: string
-  - originalKey: string
-  - shiftKey?: string | null
+The keyboard has **6 rows** structured using a grid layout:
 
-- `KeyboardButton` extends `xb.TextButton`
-  - properties: `originalKey`, `shiftKey`
+- **Row 1:** Symbols (`~!@#$%^&*()_+`)
+- **Row 2:** Numbers and brackets (`` `1234567890<> ``)
+- **Row 3:** Top letter row (`qwertyuiop`) with a **Tab** key on the left and a **Backspace** key on the right.
+- **Row 4:** Middle letter row (`asdfghjkl`) with a **Caps Lock** key on the left and an **Enter** key on the right.
+- **Row 5:** Bottom letter row (`zxcvbnm,.`) with **Shift** keys on both the left and right.
+- **Row 6:** A centered **Space** bar.
 
-## Key constants (defaults)
+---
 
-- KEY_WIDTH = 0.068
-- KEY_HEIGHT = 0.10
-- FONT_SIZE = 0.45
-- KEYBOARD_COLOR = '#5149ae'
-- DEFAULT_KEY_COLOR = '#aa3939'
-- SPECIAL_KEY_COLOR = '#3cb436'
-- COL_SPACER = 0.01
-- ROW_SPACER = 0.015
-- TOTAL_KEYBOARD_WIDTH = 1.0
-- TOTAL_KEYBOARD_HEIGHT = computed from number of rows, key height and ROW_SPACER
+## How It Works
 
-## Default layout (KEY_LAYOUT)
+### 1. UI Structure
 
-- Row 1: number row with textKeys "`1234567890-+" and shiftKeys "~!@#$%^&\*()\_+"
-- Row 2: `qwertyuiop` with left `tab` key and right `backspace`
-- Row 3: `asdfghjkl` with left `shift_lock` and right `enter`
-- Row 4: `zxcvbnm,.` with left and right `shift` keys
-- Row 5: center `space` key (wide, weighted)
+- **Root Panel:** The entire keyboard is contained within a `SpatialPanel` (called `subspace`), which has a dark background and optional borders.
+- **Grid Layout:** The keys are organized using a `Grid` component. Columns and rows are sized dynamically using relative layout weights.
+- **Buttons:**
+  - **Regular keys** are created as `KeyboardButton` (a custom class extending `TextButton`).
+  - **Special keys** (like Tab, Enter, Space, Backspace, Caps Lock, Shift) use `IconButton` to display descriptive icons.
 
-Special keys may set `weight` to span multiple columns; space is centered using side padding.
+### 2. Typing and State Management
 
-## Behavior & state
+- **Transient Shift:** Pressing a **Shift** key toggles a temporary shifted state. After you type any character, the shifted state automatically turns off.
+- **Caps Lock:** Pressing the **Caps Lock** key toggles permanent uppercase.
+- **Upper/Lower Case Logic:** Letter buttons automatically switch between uppercase and lowercase based on an XOR logic: they display uppercase when `Shift` is active **or** `Caps Lock` is active, but not both.
+- **Buffer Updates:** Every key press updates an internal text buffer (`keyText`).
 
-- Internal state:
-  - `keyText: string` — current buffer
-  - `isShifted: boolean` — transient shift state
-  - `isCapsLockOn: boolean` — caps lock state
-  - `textButtons: KeyboardButton[]` — all text buttons for updates
+---
 
-- Shift vs CapsLock:
-  - `produceUpper = isShifted !== isCapsLockOn` (XOR)
-  - Pressing a character while `isShifted` will reset `isShifted` (transient shift).
-  - `shift_lock` toggles `isCapsLockOn`.
+## Public API
 
-- Special key handling:
-  - `backspace` removes last char
-  - `space` inserts `' '`
-  - `tab` inserts `'\t'`
-  - `enter` triggers enter callback
-  - `shift` toggles transient shift
-  - `shift_lock` toggles caps lock
+### Properties & Callbacks
 
-- `refreshKeyboard()` updates visible labels for all text buttons (letters and shifted symbols).
+| Property         | Type                               | Description                                                                                                                     |
+| :--------------- | :--------------------------------- | :------------------------------------------------------------------------------------------------------------------------------ |
+| `onTextChanged`  | `((text: string) => void) \| null` | Triggered every time the typed text changes (e.g., on character addition, backspace, space, or tab). Passes the updated string. |
+| `onEnterPressed` | `((text: string) => void) \| null` | Triggered when the user presses the **Enter** key. Passes the current typed text buffer.                                        |
 
-## UI construction
+### Methods
 
-- Uses `xb.SpatialPanel` as a root `subspace` with background color and size.
-- Uses `xb.Grid` to build rows and columns for keys.
-- Text keys are created as `KeyboardButton` instances; special keys use `xb.IconButton`.
-- Buttons are added into panel cells; layout weights control key widths.
+#### `setText(text: string): void`
 
-## Callbacks / Public API
+Manually updates the internal text buffer and triggers the `onTextChanged` callback.
 
-- Properties:
-  - `onTextChanged: ((text: string) => void) | null` — called whenever the buffer changes
-  - `onEnterPressed: ((text: string) => void) | null` — called when Enter is pressed
+#### `init(): void`
 
-- Methods:
-  - `setText(text: string): void` — externally set the buffer (and emits onTextChanged)
-  - Component lifecycle: `init()` positions the keyboard (sets `subspace.position`)
+Positions the keyboard in the 3D scene (by default, placed at `(0, 1.2, -1)`).
 
-## Notes / implementation details
+---
 
-- Each key stores `originalKey` and optional `shiftKey` used to compute displayed text when shift/caps are toggled.
-- Special keys may supply `backgroundColor` and `weight` to control appearance/size.
-- The keyboard logs state changes to console (`console.log`) for key presses and enter/backspace events.
-- `subspace.updateLayouts()` is called after construction so the grid layout is applied.
+## Visual Options & Constants
 
-If you want the full file contents pasted instead of this summary, let me know and I will paste the keyboard.ts source.
+Below are the default sizes and colors defined in the component:
+
+- **Dimensions:**
+  - `KEY_WIDTH` = `0.07`
+  - `KEY_HEIGHT` = `0.08`
+  - `TOTAL_KEYBOARD_WIDTH` = `1.0`
+  - `TOTAL_KEYBOARD_HEIGHT` = `0.555` (calculated dynamically)
+- **Colors:**
+  - Keyboard Panel Background: Dark Charcoal (`#1a1a1b`)
+  - Regular Keys: Dark Gray (`#333334`)
+  - Special Keys: Slate Gray (`#3e4a59`)
+  - Action Key (Enter): Blue-Teal (`#449eb9`)
+- **Typography:**
+  - `FONT_SIZE` = `0.45`
