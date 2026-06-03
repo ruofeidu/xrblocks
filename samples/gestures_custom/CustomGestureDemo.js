@@ -108,41 +108,14 @@ export class CustomGestureRecognizer {
     }
   }
 
-  calculateRelativeHandBoneAngles(jointPositions) {
-    let jointPositionsReshaped = [];
-
-    jointPositionsReshaped = jointPositions.reshape([xb.HAND_JOINT_COUNT, 3]);
-
-    const boneVectors = [];
-    xb.HAND_JOINT_IDX_CONNECTION_MAP.forEach(([joint1, joint2]) => {
-      const boneVector = jointPositionsReshaped
-        .slice([joint2, 0], [1, 3])
-        .sub(jointPositionsReshaped.slice([joint1, 0], [1, 3]))
-        .squeeze();
-      const norm = boneVector.norm();
-      const normalizedBoneVector = boneVector.div(norm);
-      boneVectors.push(normalizedBoneVector);
-    });
-
-    const relativeHandBoneAngles = [];
-    xb.HAND_BONE_IDX_CONNECTION_MAP.forEach(([bone1, bone2]) => {
-      const angle = boneVectors[bone1].dot(boneVectors[bone2]);
-      relativeHandBoneAngles.push(angle);
-    });
-
-    return tf.stack(relativeHandBoneAngles);
-  }
-
-  async detectGesture(handJoints) {
-    if (!this.model || !handJoints || handJoints.length !== 25 * 3) {
+  async detectGesture(context) {
+    if (!this.model || !context) {
       return UNKNOWN_GESTURE;
     }
 
     try {
-      const tensor = this.calculateRelativeHandBoneAngles(
-        tf.tensor1d(handJoints)
-      );
-
+      const relativeBoneAngles = xb.getRelativeBoneAngles(context);
+      const tensor = tf.tensor1d(relativeBoneAngles);
       const tensorReshaped = tensor.reshape([
         1,
         xb.HAND_BONE_IDX_CONNECTION_MAP.length,
@@ -176,8 +149,7 @@ export class CustomGestureRecognizer {
 
     if (!this.model) return scores;
 
-    const localJointPositions = context.getLocalJointPositions();
-    let result = await this.detectGesture(localJointPositions);
+    let result = await this.detectGesture(context);
     result = this.shiftIndexIfNeeded(context, result);
 
     const gestureName = GESTURE_NAMES[result];
