@@ -2,7 +2,10 @@ import 'xrblocks/addons/simulator/SimulatorAddons.js';
 
 import * as xb from 'xrblocks';
 
-import {CustomGestureDemo, CustomGestureRecognizer} from './CustomGestureDemo.js';
+import {
+  CustomGestureDemo,
+  CustomGestureRecognizer,
+} from './CustomGestureDemo.js';
 
 const options = new xb.Options({
   antialias: true,

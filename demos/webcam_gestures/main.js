@@ -425,8 +425,12 @@ const webcamSource = new WebcamMediaPipeSource();
 const options = new xb.Options();
 options.enableUI();
 options.enableGestures();
-options.gestures.setPoseEstimator(new WebcamMediaPipePoseEstimator(webcamSource));
-options.gestures.setGestureRecognizer(new WebcamGestureRecognizer(webcamSource));
+options.gestures.setPoseEstimator(
+  new WebcamMediaPipePoseEstimator(webcamSource)
+);
+options.gestures.setGestureRecognizer(
+  new WebcamGestureRecognizer(webcamSource)
+);
 options.simulator.defaultMode = xb.SimulatorMode.POSE;
 options.simulator.stereo.enabled = true;
 options.xrButton.alwaysAutostartSimulator = true;

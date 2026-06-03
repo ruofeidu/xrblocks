@@ -24,12 +24,8 @@ export class GestureRecognitionOptions {
 
   constructor(options?: DeepReadonly<DeepPartial<GestureRecognitionOptions>>) {
     if (options) {
-      const {
-        poseEstimator,
-        gestureRecognizer,
-        gestures,
-        ...baseOptions
-      } = options;
+      const {poseEstimator, gestureRecognizer, gestures, ...baseOptions} =
+        options;
       deepMerge(this, baseOptions);
 
       if (poseEstimator) {
