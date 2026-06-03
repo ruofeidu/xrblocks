@@ -5,9 +5,9 @@ sidebar_position: 11
 # Hand Gestures
 
 XR Blocks ships with an opt-in gesture recognition subsystem powered by the
-`GestureRecognition` script. When enabled, it inspects WebXR hand joints (or a
-future ML provider) and emits high-level gesture events that any script can
-subscribe to.
+`GestureRecognition` script. When enabled, a pose estimator produces canonical
+hand contexts, a gesture recognizer scores named gestures, and the SDK emits
+high-level gesture events that any script can subscribe to.
 
 ## Enabling the gesture subsystem
 
@@ -20,7 +20,8 @@ import * as xb from 'xrblocks';
 
 const options = new xb.Options();
 options.enableGestures();
-options.gestures.provider = 'heuristics'; // current WebXR joint heuristics
+options.gestures.setPoseEstimator(new xb.WebXRHandPoseEstimator());
+options.gestures.setGestureRecognizer(new xb.HeuristicGestureRecognizer());
 options.gestures.minimumConfidence = 0.7; // default is 0.6
 options.gestures.setGestureEnabled('point', true);
 options.gestures.setGestureEnabled('spread', true);
@@ -31,6 +32,17 @@ xb.init(options);
 The `gestures` options bag is fully mergeable, so you can supply the same fields
 when instantiating `new xb.Options({...})` if you prefer declarative
 configuration.
+
+The default setup is equivalent to:
+
+```txt
+WebXRHandPoseEstimator -> HandContext -> HeuristicGestureRecognizer
+```
+
+Custom gesture recognizers can be swapped in at init time as long as they
+consume `HandContext` and return a map of gesture names to confidence scores.
+MediaPipe and TensorFlow pose estimator classes are present as templates for
+future canonical pose adapters.
 
 ## Listening for gesture events
 

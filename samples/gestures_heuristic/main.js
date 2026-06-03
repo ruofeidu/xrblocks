@@ -6,6 +6,8 @@ import * as THREE from 'three';
 const options = new xb.Options();
 options.enableReticles();
 options.enableGestures();
+options.gestures.setPoseEstimator(new xb.WebXRHandPoseEstimator());
+options.gestures.setGestureRecognizer(new xb.HeuristicGestureRecognizer());
 
 options.gestures.setGestureEnabled('point', true);
 options.gestures.setGestureEnabled('spread', true);
