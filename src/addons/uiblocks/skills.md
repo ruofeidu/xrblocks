@@ -47,6 +47,8 @@ A `UICard` represents the physical spatial canvas in 3D space. It is grabbable b
 
 ---
 
+## 3. Primitives & Elements API
+
 `uiblocks` exposes several primitives derived from standard `@pmndrs/uikit` classes and enhanced with spatial features. The underlying source code definitions for these components are located in the [core source directory](./src/core/).
 
 ### 3.1 UIPanel
