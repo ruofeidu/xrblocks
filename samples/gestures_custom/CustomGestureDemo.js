@@ -162,13 +162,20 @@ export class CustomGestureRecognizer {
   shiftIndexIfNeeded(context, result) {
     result += result > 2 ? 1 : 0;
     if (result === 2) {
-      const thumbDistal = context.getJoint('thumb-phalanx-distal', false);
-      const thumbTip = context.getJoint('thumb-tip', false);
-      if (!thumbDistal || !thumbTip) return 0;
-      const thumbDirection = this.isThumbUpOrDown(thumbDistal, thumbTip);
-      result = thumbDirection === 0 ? 0 : thumbDirection < 0 ? result + 1 : result;
+      const globalThumbDirection = this.getThumbDirection(context, true);
+      const localThumbDirection = this.getThumbDirection(context, false);
+      const thumbDirection = globalThumbDirection || localThumbDirection || 0;
+      result =
+        thumbDirection === 0 ? 0 : thumbDirection < 0 ? result + 1 : result;
     }
     return result;
+  }
+
+  getThumbDirection(context, global) {
+    const thumbDistal = context.getJoint('thumb-phalanx-distal', global);
+    const thumbTip = context.getJoint('thumb-tip', global);
+    if (!thumbDistal || !thumbTip) return null;
+    return this.isThumbUpOrDown(thumbDistal, thumbTip);
   }
 
   isThumbUpOrDown(p1, p2) {
@@ -192,22 +199,9 @@ export class CustomGestureRecognizer {
       z: vector.z / magnitude,
     };
 
-    const upVector = {x: 0, y: 1, z: 0};
-    const downVector = {x: 0, y: -1, z: 0};
-    const cosUpThreshold = Math.cos((45 * Math.PI) / 180);
-    const dotDownThreshold = cosUpThreshold;
-    const dotUp =
-      normalizedVector.x * upVector.x +
-      normalizedVector.y * upVector.y +
-      normalizedVector.z * upVector.z;
-    const dotDown =
-      normalizedVector.x * downVector.x +
-      normalizedVector.y * downVector.y +
-      normalizedVector.z * downVector.z;
-
-    if (dotUp >= cosUpThreshold) {
+    if (normalizedVector.y >= 0.25) {
       return 1;
-    } else if (dotDown >= dotDownThreshold) {
+    } else if (normalizedVector.y <= -0.25) {
       return -1;
     }
     return 0;
