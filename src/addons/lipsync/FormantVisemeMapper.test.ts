@@ -94,6 +94,27 @@ describe('FormantVisemeMapper', () => {
     expect(Math.abs(v60.aa - v120.aa)).toBeLessThan(0.05);
   });
 
+  it('clears cached F1/F2 after sustained silence so the next vowel starts fresh', () => {
+    const m = new FormantVisemeMapper();
+    // Settle on /oo/ (low F1, low F2).
+    settle(m, vowel(350, 900));
+    const ooLocked = m.update(vowel(350, 900), 0.016);
+    expect(ooLocked.oo).toBeGreaterThan(ooLocked.aa);
+    expect(ooLocked.oo).toBeGreaterThan(ooLocked.ee);
+
+    // 500 ms of contiguous silence: well past the 250 ms cache reset.
+    for (let i = 0; i < 30; i++) m.update(silence(), 0.016);
+
+    // Now resume with /ee/ formants. If smoothF1/F2 had been retained
+    // at the /oo/ values, the first few frames would smooth /ee/'s F2
+    // ~2400 toward 900 and the mouth would briefly look like /oo/.
+    // With the cache cleared, smoothF1/F2 reinit from the new frame's
+    // raw values and /ee/ leads from frame one.
+    const firstEe = m.update(vowel(300, 2400), 0.016);
+    expect(firstEe.ee).toBeGreaterThan(firstEe.oo);
+    expect(firstEe.ee).toBeGreaterThan(firstEe.aa);
+  });
+
   it('reset() returns to zero state', () => {
     const m = new FormantVisemeMapper();
     settle(m, vowel(800, 1300));

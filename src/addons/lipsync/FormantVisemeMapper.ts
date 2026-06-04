@@ -34,6 +34,10 @@ export interface FormantVisemeMapperOptions {
 const DEFAULT_VOWEL_TAU = 0.1;
 const DEFAULT_CONSONANT_TAU = 0.07;
 const DEFAULT_FORMANT_TAU = 0.1;
+// Seconds of contiguous silence after which the smoothed F1/F2 cache
+// is reset, so the first voiced frame of a new utterance doesn't blend
+// from the previous vowel's stale formants.
+const FORMANT_DECAY_AFTER_SILENCE_S = 0.25;
 
 /**
  * Heuristic audio-to-viseme mapper based on the first two formants. Vowel
@@ -55,6 +59,8 @@ export class FormantVisemeMapper {
   private current: VisemeWeights = {...ZERO_VISEME};
   private smoothF1 = 0;
   private smoothF2 = 0;
+  /** Seconds of contiguous unvoiced input; resets to 0 on any voiced frame. */
+  private silentFor = 0;
   private readonly vowelTau: number;
   private readonly consonantTau: number;
 
@@ -84,8 +90,12 @@ export class FormantVisemeMapper {
     //    knock sustained vowels (especially /oo/, whose true F2 sits
     //    very close to a noisy 2x harmonic) out of their classification.
     //    Skip the update on unvoiced frames so silence doesn't pull the
-    //    smoothed values toward zero.
+    //    smoothed values toward zero. After a long contiguous silence,
+    //    clear the cached formants so the first voiced frame of a new
+    //    utterance doesn't smooth from the previous vowel's stale
+    //    F1/F2 and briefly emit the wrong viseme.
     if (voicingGate > 0.5 && f1Hz > 0 && f2Hz > 0) {
+      this.silentFor = 0;
       const formantAlpha = 1 - Math.exp(-dt / DEFAULT_FORMANT_TAU);
       this.smoothF1 = this.smoothF1
         ? lerp(this.smoothF1, f1Hz, formantAlpha)
@@ -93,6 +103,12 @@ export class FormantVisemeMapper {
       this.smoothF2 = this.smoothF2
         ? lerp(this.smoothF2, f2Hz, formantAlpha)
         : f2Hz;
+    } else {
+      this.silentFor += dt;
+      if (this.silentFor > FORMANT_DECAY_AFTER_SILENCE_S) {
+        this.smoothF1 = 0;
+        this.smoothF2 = 0;
+      }
     }
     const sF1 = this.smoothF1;
     const sF2 = this.smoothF2;
@@ -140,6 +156,7 @@ export class FormantVisemeMapper {
     this.current = {...ZERO_VISEME};
     this.smoothF1 = 0;
     this.smoothF2 = 0;
+    this.silentFor = 0;
   }
 }
 
