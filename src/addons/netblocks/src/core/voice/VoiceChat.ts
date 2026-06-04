@@ -37,8 +37,8 @@ export type VoiceSendFn = (msg: VoiceSignalMessage) => void;
 export class VoiceChat {
   private _opts: Required<VoiceChatOptions>;
   private _send: VoiceSendFn;
-  private _onTrack?: VoiceTrackHandler;
-  private _onTrackRemoved?: VoiceTrackRemovedHandler;
+  private _onTrack = new Set<VoiceTrackHandler>();
+  private _onTrackRemoved = new Set<VoiceTrackRemovedHandler>();
   private _localStream?: MediaStream;
   private _peers = new Map<string, VoicePeer>();
   private _enabled = false;
@@ -59,12 +59,27 @@ export class VoiceChat {
     this._localId = id;
   }
 
-  onTrack(handler: VoiceTrackHandler): void {
-    this._onTrack = handler;
+  /**
+   * Subscribe to remote voice tracks. Multiple listeners can register;
+   * each gets called once per remote `MediaStream`. Returns a function
+   * that removes this listener (idempotent).
+   */
+  onTrack(handler: VoiceTrackHandler): () => void {
+    this._onTrack.add(handler);
+    return () => {
+      this._onTrack.delete(handler);
+    };
   }
 
-  onTrackRemoved(handler: VoiceTrackRemovedHandler): void {
-    this._onTrackRemoved = handler;
+  /**
+   * Subscribe to remote voice track removals. Multiple listeners can
+   * register. Returns a function that removes this listener.
+   */
+  onTrackRemoved(handler: VoiceTrackRemovedHandler): () => void {
+    this._onTrackRemoved.add(handler);
+    return () => {
+      this._onTrackRemoved.delete(handler);
+    };
   }
 
   isEnabled(): boolean {
@@ -181,7 +196,7 @@ export class VoiceChat {
     pc.addEventListener('track', (ev) => {
       const stream = ev.streams[0] ?? new MediaStream([ev.track]);
       entry!.inbound = stream;
-      this._onTrack?.(peerId, stream);
+      for (const h of this._onTrack) h(peerId, stream);
     });
     pc.addEventListener('connectionstatechange', () => {
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
@@ -218,6 +233,6 @@ export class VoiceChat {
       // ignore
     }
     this._peers.delete(peerId);
-    this._onTrackRemoved?.(peerId);
+    for (const h of this._onTrackRemoved) h(peerId);
   }
 }

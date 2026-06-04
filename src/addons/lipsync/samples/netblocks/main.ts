@@ -43,7 +43,9 @@ class NetblocksLipsyncSample extends NetSample {
   protected override onSession(session: NonNullable<this['net']['session']>) {
     // Per remote peer: when their voice MediaStream arrives, attach a
     // LipsyncMouth to their avatar's headPivot. Reuses the shared
-    // AudioContext so 8 peers don't exhaust the browser's context quota.
+    // AudioContext so N peers don't exhaust the browser's per-page
+    // AudioContext quota. `voice.onTrack` is additive, so this runs
+    // alongside (not instead of) NetSession's own SpatialVoice attach.
     session.voice.onTrack((peerId, stream) => {
       const user = session.users.get(peerId);
       if (!user) return;
