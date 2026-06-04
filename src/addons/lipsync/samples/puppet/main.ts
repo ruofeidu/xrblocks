@@ -65,18 +65,21 @@ class LipsyncPuppetSample extends xb.Script {
 
   override update() {
     // Keep the puppet facing the user. The mouth canvas and the eye
-    // spheres both live on the head's local -Z (face direction), so a
-    // static puppet would hide them the moment the user walked or
-    // turned around it. Rotating only around Y keeps the puppet
-    // upright and avoids weird forward-pitching when the user is
-    // taller or shorter than the puppet.
+    // spheres both live on the head's local -Z (three.js / WebXR
+    // head-forward convention), so a static puppet would hide them
+    // the moment the user walked or turned around it. Three.js's
+    // Object3D.lookAt orients local +Z at the target, so we look at
+    // the camera mirrored through the head: that puts local -Z (face
+    // side) on the camera. Y is clamped so the puppet only yaws and
+    // doesn't pitch when the user is taller or shorter than it.
     const head = this.puppetHead;
     const cam = xb.core?.camera;
     if (!head || !cam) return;
     cam.getWorldPosition(this.camWorld);
     head.getWorldPosition(this.headWorld);
-    this.camWorld.y = this.headWorld.y;
-    head.lookAt(this.camWorld);
+    const targetX = 2 * this.headWorld.x - this.camWorld.x;
+    const targetZ = 2 * this.headWorld.z - this.camWorld.z;
+    head.lookAt(targetX, this.headWorld.y, targetZ);
   }
 
   private buildDomButton() {
