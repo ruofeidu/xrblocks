@@ -60,7 +60,11 @@ export function computeAudioFeatures(
   const norm = (x: number) => Math.min(1, x / 50);
 
   const f1Hz = peakHzInRange(freqData, binHz, 200, 1000);
-  const f2Hz = peakHzInRange(freqData, binHz, 800, 3000);
+  // Force F2 to sit at least ~300 Hz above F1 to avoid the F1 peak
+  // being reported as F2 when a voiced vowel has a strong F1 around
+  // 800-1000 Hz that bleeds into the F2 search range.
+  const f2MinHz = Math.max(800, f1Hz + 300);
+  const f2Hz = peakHzInRange(freqData, binHz, f2MinHz, 3000);
   const lowMid = low + mid;
   const voiced = rms > 0.02 && lowMid > high * 1.2 && lowMid > 1;
 
