@@ -29,6 +29,13 @@ export interface LipsyncMouthOptions {
    * example) if attaching to a bigger custom head.
    */
   headRadius?: number;
+  /**
+   * Draw a pair of static eye dots above the mouth on the same canvas
+   * decal so a bare avatar head sphere reads as a face. Defaults to
+   * true. Set false when the host avatar already has its own eye
+   * geometry.
+   */
+  showEyes?: boolean;
 }
 
 /**
@@ -82,7 +89,10 @@ export class LipsyncMouth extends Script {
     this.silenceThreshold = opts.silenceThreshold ?? 0.01;
     this.externalContext = !!opts.audioContext;
     this.ctx = opts.audioContext;
-    this.mouth = new StylizedMouth({headRadius: opts.headRadius});
+    this.mouth = new StylizedMouth({
+      headRadius: opts.headRadius,
+      showEyes: opts.showEyes,
+    });
     this.add(this.mouth);
   }
 

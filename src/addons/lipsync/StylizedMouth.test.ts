@@ -55,6 +55,79 @@ describe('StylizedMouth', () => {
     expect(m.texture.version).toBeGreaterThan(v0);
   });
 
+  it('eyes default on: ellipse() called 3 times per redraw (mouth + 2 eyes)', () => {
+    // Spy on the 2D context's ellipse method to confirm drawing the
+    // expected number of shapes per setVisemes call.
+    const canvas = document.createElement('canvas');
+    const ellipseCalls: number[][] = [];
+    const fakeCtx = new Proxy(
+      {},
+      {
+        get(_t, prop) {
+          if (prop === 'ellipse') {
+            return (...args: number[]) => ellipseCalls.push(args);
+          }
+          return () => {};
+        },
+        set() {
+          return true;
+        },
+      },
+    );
+    const origGetContext = HTMLCanvasElement.prototype.getContext;
+    (
+      HTMLCanvasElement.prototype as unknown as {
+        getContext: (t: string) => unknown;
+      }
+    ).getContext = (t: string) => (t === '2d' ? fakeCtx : null);
+    try {
+      void canvas; // suppress unused
+      ellipseCalls.length = 0;
+      const m = new StylizedMouth();
+      // Constructor calls setVisemes(ZERO_VISEME) once. With eyes on we
+      // expect: 1 mouth ellipse + 2 eye ellipses (both inside one path).
+      expect(ellipseCalls.length).toBe(3);
+      ellipseCalls.length = 0;
+      m.setVisemes({...ZERO_VISEME, jawOpen: 0.5});
+      expect(ellipseCalls.length).toBe(3);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = origGetContext;
+    }
+  });
+
+  it('showEyes false: ellipse() only called for the mouth', () => {
+    const ellipseCalls: number[][] = [];
+    const fakeCtx = new Proxy(
+      {},
+      {
+        get(_t, prop) {
+          if (prop === 'ellipse') {
+            return (...args: number[]) => ellipseCalls.push(args);
+          }
+          return () => {};
+        },
+        set() {
+          return true;
+        },
+      },
+    );
+    const origGetContext = HTMLCanvasElement.prototype.getContext;
+    (
+      HTMLCanvasElement.prototype as unknown as {
+        getContext: (t: string) => unknown;
+      }
+    ).getContext = (t: string) => (t === '2d' ? fakeCtx : null);
+    try {
+      ellipseCalls.length = 0;
+      const m = new StylizedMouth({showEyes: false});
+      void m;
+      // Only the mouth ellipse, no eyes.
+      expect(ellipseCalls.length).toBe(1);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = origGetContext;
+    }
+  });
+
   it('dispose() releases texture, geometry, and material', () => {
     const m = new StylizedMouth();
     const geom = m.mesh.geometry;

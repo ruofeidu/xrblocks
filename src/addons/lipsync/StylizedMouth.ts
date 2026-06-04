@@ -11,6 +11,13 @@ export interface StylizedMouthOptions {
   headRadius?: number;
   /** Square canvas dimension in pixels. Defaults to 256. */
   textureSize?: number;
+  /**
+   * Draw a pair of static eyes above the mouth on the same canvas, so a
+   * bare avatar head sphere reads as a face. Defaults to true. Set false
+   * when the host avatar already provides its own eye geometry (e.g. the
+   * puppet sample) to avoid doubled-up eyes.
+   */
+  showEyes?: boolean;
 }
 
 export interface LipMetrics {
@@ -36,6 +43,7 @@ export class StylizedMouth extends THREE.Object3D {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D | null;
   private readonly headRadius: number;
+  private readonly showEyes: boolean;
 
   /** Last viseme weights applied; useful for testing and debugging. */
   visemes: VisemeWeights = {
@@ -53,6 +61,7 @@ export class StylizedMouth extends THREE.Object3D {
   constructor(opts: StylizedMouthOptions = {}) {
     super();
     this.headRadius = opts.headRadius ?? 0.1;
+    this.showEyes = opts.showEyes ?? true;
     const size = opts.textureSize ?? 256;
 
     this.canvas = document.createElement('canvas');
@@ -110,7 +119,9 @@ export class StylizedMouth extends THREE.Object3D {
 
     const m = this.metrics;
     const cx = w / 2;
-    const cy = h / 2;
+    // Mouth sits slightly below canvas centre so eyes have room above
+    // it; if eyes are off, keep the mouth dead-centre.
+    const mouthY = this.showEyes ? h * 0.6 : h * 0.5;
     const halfW = w * 0.22 * m.width;
     // Small base height so the closed mouth is a thin line, growing
     // into an oval as the speaker opens up.
@@ -118,8 +129,22 @@ export class StylizedMouth extends THREE.Object3D {
 
     ctx.fillStyle = '#1a0808';
     ctx.beginPath();
-    ctx.ellipse(cx, cy, halfW, halfH, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, mouthY, halfW, halfH, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    if (this.showEyes) {
+      // Two static dark eye dots above the mouth so the host head sphere
+      // reads as a face. Kept matte and unanimated — the only motion on
+      // this avatar is the mouth, and adding eye motion would compete
+      // with that signal.
+      const eyeY = h * 0.38;
+      const eyeOffset = w * 0.14;
+      const eyeR = w * 0.045;
+      ctx.beginPath();
+      ctx.ellipse(cx - eyeOffset, eyeY, eyeR, eyeR, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + eyeOffset, eyeY, eyeR, eyeR, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 

@@ -119,7 +119,7 @@ class LipsyncPuppetSample extends xb.Script {
         audio: {echoCancellation: true, noiseSuppression: true},
         video: false,
       });
-      this.mouth = new LipsyncMouth(stream);
+      this.mouth = new LipsyncMouth(stream, {showEyes: false});
       this.puppetHead?.add(this.mouth);
       if (this.domBtn) this.domBtn.textContent = '🎙️ Live';
       this.spatialBtn?.setText('🎙️ Live');
