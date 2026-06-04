@@ -1,0 +1,131 @@
+import type {VisemeWeights} from './BlendshapeReducer';
+import {ZERO_VISEME} from './BlendshapeReducer';
+
+/**
+ * Per-frame audio features the FormantVisemeMapper consumes. Produced by
+ * the audio pipeline (AnalyserNode + FFT analysis) and shared between the
+ * formant heuristic and any optional learned mapper.
+ */
+export interface AudioFeatures {
+  /** Root-mean-square amplitude in [0, 1]; used for voicing + jaw drive. */
+  rms: number;
+  /** Spectral centroid in Hz; used as a brightness proxy for sibilance. */
+  centroid: number;
+  /** Low-band, mid-band, and high-band energy fractions. */
+  low: number;
+  mid: number;
+  high: number;
+  /** Estimated first and second formant in Hz; 0 when unknown. */
+  f1Hz: number;
+  f2Hz: number;
+  /** Voicing decision (true when periodic energy is present). */
+  voiced: boolean;
+}
+
+export interface FormantVisemeMapperOptions {
+  /**
+   * Time constants (seconds) for the exponential smoothing of each output
+   * channel. Smaller means snappier. Independent of frame rate.
+   */
+  vowelTau?: number;
+  consonantTau?: number;
+}
+
+const DEFAULT_VOWEL_TAU = 0.06;
+const DEFAULT_CONSONANT_TAU = 0.04;
+
+/**
+ * Heuristic audio-to-viseme mapper based on the first two formants. Vowel
+ * identity in speech is set by F1/F2:
+ *
+ *   "aa" = F1 high (~700-900 Hz)
+ *   "ee" = F1 low  (~250-400 Hz) + F2 high (~2000-2500 Hz)
+ *   "oo" = F1 low  (~300-450 Hz) + F2 low  (~700-1000 Hz)
+ *
+ * Consonants are characterised by high-band sibilance (fricatives) or
+ * very low RMS during stops.
+ *
+ * Smoothing uses `1 - exp(-dt / tau)`, which gives the same time-to-target
+ * regardless of frame rate (important on XR devices that run at 60, 72,
+ * 90, or 120 Hz). The `dt` argument to `update()` is the seconds since
+ * the previous frame.
+ */
+export class FormantVisemeMapper {
+  private current: VisemeWeights = {...ZERO_VISEME};
+  private readonly vowelTau: number;
+  private readonly consonantTau: number;
+
+  constructor(opts: FormantVisemeMapperOptions = {}) {
+    this.vowelTau = opts.vowelTau ?? DEFAULT_VOWEL_TAU;
+    this.consonantTau = opts.consonantTau ?? DEFAULT_CONSONANT_TAU;
+  }
+
+  update(features: AudioFeatures, dt: number): VisemeWeights {
+    if (!features) return this.current;
+    const {rms, centroid, low, mid, high, f1Hz, f2Hz, voiced} = features;
+
+    // 1. Voicing gate so background noise doesn't drive the mouth.
+    const voicingGate = voiced ? 1 : smoothstep(0.02, 0.05, rms);
+
+    // 2. Jaw drive = scaled RMS.
+    const jawTarget = clamp01(voicingGate * Math.min(1, rms * 6));
+
+    // 3. Consonant: high-band dominance.
+    const fricRatio = high / (low + mid + high + 0.001);
+    const brightness = clamp01((centroid - 1500) / 2500);
+    const consonantTarget = clamp01(
+      voicingGate * (0.55 * brightness + 0.7 * fricRatio)
+    );
+
+    // 4. Vowel identity from F1/F2. Compete the three membership scores so
+    //    /aa/ doesn't also light up /oo/.
+    const vowelMass = clamp01(voicingGate * (1 - consonantTarget));
+    let aaScore = 0;
+    let eeScore = 0;
+    let ooScore = 0;
+    if (vowelMass > 0.1 && f1Hz > 0 && f2Hz > 0) {
+      aaScore = smoothstep(550, 850, f1Hz);
+      const f1Low = 1 - smoothstep(350, 600, f1Hz);
+      const f2High = smoothstep(1700, 2400, f2Hz);
+      eeScore = f1Low * f2High;
+      const f2Low = 1 - smoothstep(900, 1400, f2Hz);
+      ooScore = f1Low * f2Low;
+    }
+    const sum = aaScore + eeScore + ooScore + 0.001;
+    aaScore = (aaScore / sum) * vowelMass;
+    eeScore = (eeScore / sum) * vowelMass;
+    ooScore = (ooScore / sum) * vowelMass;
+
+    // 5. Frame-rate-independent smoothing.
+    const vowelAlpha = 1 - Math.exp(-dt / this.vowelTau);
+    const consAlpha = 1 - Math.exp(-dt / this.consonantTau);
+    this.current = {
+      jawOpen: lerp(this.current.jawOpen, jawTarget, vowelAlpha),
+      aa: lerp(this.current.aa, aaScore, vowelAlpha),
+      oo: lerp(this.current.oo, ooScore, vowelAlpha),
+      // Formant heuristic doesn't have a separate /oh/ signal; the model
+      // mapper supplies it instead.
+      oh: 0,
+      ee: lerp(this.current.ee, eeScore, vowelAlpha),
+      consonant: lerp(this.current.consonant, consonantTarget, consAlpha),
+    };
+    return this.current;
+  }
+
+  reset(): void {
+    this.current = {...ZERO_VISEME};
+  }
+}
+
+function clamp01(x: number): number {
+  return Math.min(1, Math.max(0, x));
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = clamp01((x - edge0) / (edge1 - edge0));
+  return t * t * (3 - 2 * t);
+}
+
+function lerp(current: number, target: number, alpha: number): number {
+  return current + (target - current) * alpha;
+}

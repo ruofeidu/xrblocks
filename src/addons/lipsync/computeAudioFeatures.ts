@@ -1,0 +1,93 @@
+import type {AudioFeatures} from './FormantVisemeMapper';
+
+export interface AudioFeatureInputs {
+  /** `analyser.getByteFrequencyData()` output. */
+  freqData: Uint8Array;
+  /** `analyser.getFloatFrequencyData()` output (dB), same length as `freqData`. */
+  freqDataFloat: Float32Array;
+  /** `analyser.getByteTimeDomainData()` output, length == `analyser.fftSize`. */
+  timeData: Uint8Array;
+  /**
+   * 13-element MFCC vector already computed from `freqDataFloat`. Caller
+   * owns the buffer; passed through unchanged in the returned features so
+   * downstream consumers (e.g. ModelMapper) see the same numbers.
+   */
+  mfcc: Float32Array;
+}
+
+/**
+ * Pure-function feature extractor. Given the raw analyser buffers and the
+ * audio context's sample rate, returns the per-frame features the viseme
+ * mappers consume. Extracted from `LipsyncMouth` so the math is testable
+ * without a real `AudioContext` / `AnalyserNode`.
+ */
+export function computeAudioFeatures(
+  inputs: AudioFeatureInputs,
+  sampleRate: number
+): AudioFeatures & {mfcc: Float32Array} {
+  const {freqData, timeData, mfcc} = inputs;
+
+  // RMS from time domain. timeData is unsigned 8-bit: 128 == silence.
+  let sumSq = 0;
+  for (let i = 0; i < timeData.length; i++) {
+    const v = timeData[i] / 128 - 1;
+    sumSq += v * v;
+  }
+  const rms = Math.sqrt(sumSq / timeData.length);
+
+  // Spectral bands and centroid.
+  const binHz = sampleRate / 2 / freqData.length;
+  let totalEnergy = 0;
+  let weightedSum = 0;
+  let low = 0;
+  let mid = 0;
+  let high = 0;
+  for (let i = 0; i < freqData.length; i++) {
+    const energy = freqData[i] / 255;
+    const hz = i * binHz;
+    totalEnergy += energy;
+    weightedSum += hz * energy;
+    if (hz < 500) low += energy;
+    else if (hz < 2000) mid += energy;
+    else if (hz < 8000) high += energy;
+  }
+  const centroid = totalEnergy > 0 ? weightedSum / totalEnergy : 0;
+  const norm = (x: number) => Math.min(1, x / 50);
+
+  const f1Hz = peakHzInRange(freqData, binHz, 200, 1000);
+  const f2Hz = peakHzInRange(freqData, binHz, 800, 3000);
+  const lowMid = low + mid;
+  const voiced = rms > 0.02 && lowMid > high * 1.2 && lowMid > 1;
+
+  return {
+    rms,
+    centroid,
+    low: norm(low),
+    mid: norm(mid),
+    high: norm(high),
+    f1Hz,
+    f2Hz,
+    voiced,
+    mfcc,
+  };
+}
+
+function peakHzInRange(
+  freqData: Uint8Array,
+  binHz: number,
+  lowHz: number,
+  highHz: number
+): number {
+  const loBin = Math.max(0, Math.floor(lowHz / binHz));
+  const hiBin = Math.min(freqData.length - 1, Math.ceil(highHz / binHz));
+  let bestBin = -1;
+  let bestVal = 0;
+  for (let i = loBin; i <= hiBin; i++) {
+    if (freqData[i] > bestVal) {
+      bestVal = freqData[i];
+      bestBin = i;
+    }
+  }
+  if (bestVal < 20) return 0;
+  return bestBin * binHz;
+}
