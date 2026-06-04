@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import * as xb from 'xrblocks';
 import 'xrblocks/addons/simulator/SimulatorAddons.js';
+import type {UserEventDetail} from 'netblocks';
 import {BroadcastChannelTransport} from 'netblocks';
 
-import {LipsyncMouth} from 'lipsync';
+import {LipsyncMouth, StylizedMouth} from 'lipsync';
 
 import {NetSample} from '../../../netblocks/samples/Sample';
 
@@ -24,7 +25,11 @@ import {NetSample} from '../../../netblocks/samples/Sample';
  */
 class NetblocksLipsyncSample extends NetSample {
   private sharedCtx = THREE.AudioContext.getContext() as AudioContext;
-  private mouths = new Map<string, LipsyncMouth>();
+  // Per-peer face. Either a plain StylizedMouth (eyes + closed mouth)
+  // when the peer has no active voice track, or a LipsyncMouth driving
+  // the same look from audio when they do. Swapping between them on
+  // voice-track add/remove keeps every visible peer showing a face.
+  private faces = new Map<string, StylizedMouth | LipsyncMouth>();
   private domBtn?: HTMLButtonElement;
   private spatialBtn?: xb.TextButton;
   private spatialStatus?: xb.TextView;
@@ -41,32 +46,74 @@ class NetblocksLipsyncSample extends NetSample {
   }
 
   protected override onSession(session: NonNullable<this['net']['session']>) {
-    // Per remote peer: when their voice MediaStream arrives, attach a
-    // LipsyncMouth to their avatar's headPivot. Reuses the shared
-    // AudioContext so N peers don't exhaust the browser's per-page
-    // AudioContext quota. `voice.onTrack` is additive, so this runs
-    // alongside (not instead of) NetSession's own SpatialVoice attach.
+    // Give every peer a face from the moment they join. Voice may
+    // arrive later (or never, if they don't enable mic), but the eyes
+    // and a closed mouth are visible immediately so a peer never looks
+    // like a featureless sphere.
+    const attachStatic = (peerId: string) => {
+      const user = session.users.get(peerId);
+      if (!user) return;
+      this.detachFace(peerId);
+      // Eyes-only when the peer has no voice track: the absence of a
+      // mouth is the affordance for "you can't hear them".
+      const face = new StylizedMouth();
+      user.avatar.headPivot.add(face);
+      this.faces.set(peerId, face);
+    };
+    session.addEventListener('user-join', (e) => {
+      attachStatic((e as CustomEvent<UserEventDetail>).detail.user.peerId);
+    });
+    session.addEventListener('user-leave', (e) => {
+      this.detachFace((e as CustomEvent<UserEventDetail>).detail.user.peerId);
+    });
+    // Peers already in the room when our session opens.
+    for (const peerId of session.users.keys()) attachStatic(peerId);
+
+    // When a peer's voice MediaStream arrives, swap their static face
+    // for a LipsyncMouth that animates from the audio. Reuses the
+    // shared AudioContext so N peers don't exhaust the browser's
+    // per-page context quota. `voice.onTrack` is additive, so this
+    // runs alongside NetSession's own SpatialVoice attach.
     session.voice.onTrack((peerId, stream) => {
       const user = session.users.get(peerId);
       if (!user) return;
-      this.detachMouth(peerId);
+      this.detachFace(peerId);
       const mouth = new LipsyncMouth(stream, {audioContext: this.sharedCtx});
       user.avatar.headPivot.add(mouth);
-      this.mouths.set(peerId, mouth);
+      this.faces.set(peerId, mouth);
     });
-    session.voice.onTrackRemoved((peerId) => this.detachMouth(peerId));
+    session.voice.onTrackRemoved((peerId) => {
+      // Voice ended but peer is still here; fall back to the static face.
+      attachStatic(peerId);
+    });
+
+    // Track local voice state from the authoritative NetSession event
+    // rather than an optimistic flag, so a fast double-tap or a failed
+    // enable() can't drift the UI.
+    session.addEventListener('local-voice-state', (e) => {
+      const on = (e as CustomEvent<{on: boolean}>).detail.on;
+      this.voiceOn = on;
+      const label = on ? '🔇 Disable voice' : '🎙️ Enable voice';
+      if (this.domBtn) this.domBtn.textContent = label;
+      this.spatialBtn?.setText(label);
+      this.spatialStatus?.setText(
+        on ? 'voice: on. other tabs will see your mouth' : 'voice: off'
+      );
+    });
 
     this.buildDomButton(session);
     this.buildSpatialPanel(session);
   }
 
-  private detachMouth(peerId: string) {
-    const m = this.mouths.get(peerId);
-    if (!m) return;
-    m.parent?.remove(m);
-    // `dispose` is auto-called by xrblocks ScriptsManager when removed
-    // from the scene graph; no manual cleanup needed beyond removal.
-    this.mouths.delete(peerId);
+  private detachFace(peerId: string) {
+    const f = this.faces.get(peerId);
+    if (!f) return;
+    f.parent?.remove(f);
+    // LipsyncMouth's dispose runs via ScriptsManager on scene removal;
+    // a standalone StylizedMouth needs explicit disposal of its texture
+    // and geometry.
+    if (f instanceof StylizedMouth) f.dispose();
+    this.faces.delete(peerId);
   }
 
   private buildDomButton(session: NonNullable<this['net']['session']>) {
@@ -124,21 +171,11 @@ class NetblocksLipsyncSample extends NetSample {
   private async toggleVoice(
     session: NonNullable<this['net']['session']>
   ): Promise<void> {
-    if (this.voiceOn) {
+    if (session.voice.isEnabled()) {
       session.voice.disable();
-      this.voiceOn = false;
-      if (this.domBtn) this.domBtn.textContent = '🎙️ Enable voice';
-      this.spatialBtn?.setText('🎙️ Enable voice');
-      this.spatialStatus?.setText('voice: off');
     } else {
       try {
         await session.voice.enable(session.transport.remotePeerIds);
-        this.voiceOn = true;
-        if (this.domBtn) this.domBtn.textContent = '🔇 Disable voice';
-        this.spatialBtn?.setText('🔇 Disable voice');
-        this.spatialStatus?.setText(
-          'voice: on. other tabs will see your mouth'
-        );
       } catch (err) {
         const msg = (err as Error).message;
         this.spatialStatus?.setText(`voice error: ${msg}`);
