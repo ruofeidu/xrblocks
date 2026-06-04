@@ -40,6 +40,11 @@ class MockAnalyserNode {
       this._time[i] = 128 + Math.round(64 * Math.sin((i / 8) * Math.PI));
     }
   }
+  __setSilent() {
+    this._freq.fill(0);
+    this._freqDb.fill(-120);
+    this._time.fill(128);
+  }
 }
 
 class MockMediaStreamSource {
@@ -112,8 +117,30 @@ describe('LipsyncMouth', () => {
       audioContext: ctx as unknown as AudioContext,
     });
     await m.init();
-    for (let i = 0; i < 50; i++) m.update(i * 0.016);
+    for (let i = 0; i < 50; i++) m.update(i * 16);
     expect(m.mouth.visemes.jawOpen).toBeLessThan(0.05);
+  });
+
+  it('loud then silent → mouth converges back to zero (not frozen on the last viseme)', async () => {
+    const m = new LipsyncMouth(makeStream(), {
+      audioContext: ctx as unknown as AudioContext,
+    });
+    await m.init();
+    const analyser = ctx.createAnalyser.mock.results[0]
+      .value as MockAnalyserNode;
+    analyser.__setLoudVoiced();
+    for (let i = 0; i < 60; i++) m.update(i * 16);
+    expect(m.mouth.visemes.jawOpen).toBeGreaterThan(0.05);
+    analyser.__setSilent();
+    // One silent-frame update is enough: the silence branch forces
+    // ZERO_VISEME directly rather than relying on smoothing.
+    m.update(60 * 16);
+    expect(m.mouth.visemes.jawOpen).toBe(0);
+    expect(m.mouth.visemes.aa).toBe(0);
+    expect(m.mouth.visemes.ee).toBe(0);
+    expect(m.mouth.visemes.oo).toBe(0);
+    expect(m.mouth.visemes.oh).toBe(0);
+    expect(m.mouth.visemes.consonant).toBe(0);
   });
 
   it('dispose() disconnects analyser + source and removes the mouth child', async () => {

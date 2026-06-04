@@ -1,5 +1,6 @@
 import {Script} from 'xrblocks';
 
+import {ZERO_VISEME} from './BlendshapeReducer';
 import {computeAudioFeatures} from './computeAudioFeatures';
 import {FormantVisemeMapper} from './FormantVisemeMapper';
 import {MfccExtractor} from './MfccExtractor';
@@ -175,9 +176,14 @@ export class LipsyncMouth extends Script {
     );
 
     if (features.rms < this.silenceThreshold) {
-      // Force convergence toward zero on true silence.
+      // True silence: collapse the mouth to its rest pose. Reset the
+      // mapper so a subsequent voiced frame doesn't smooth from a
+      // stale-but-zero internal state, and explicitly write ZERO_VISEME
+      // — `setVisemes(this.mouth.visemes)` would reapply whatever shape
+      // was last drawn, leaving the mouth frozen open after a mid-word
+      // mute or peer disconnect.
       this.mapper.reset();
-      this.mouth.setVisemes(this.mouth.visemes);
+      this.mouth.setVisemes(ZERO_VISEME);
       return;
     }
 
