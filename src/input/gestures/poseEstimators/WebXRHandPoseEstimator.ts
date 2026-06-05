@@ -4,23 +4,25 @@ import {Handedness, JointName} from '../../Hands';
 import {HAND_JOINT_NAMES} from '../../components/HandJointNames';
 import {User} from '../../../core/User';
 import {
-  BaseHandContext,
   HAND_INDEX_TO_LABEL,
   HandLabel,
+  HandContext,
   JointPositions,
   PoseEstimator,
 } from '../GestureTypes';
 
 export type WebXRJointRotations = Map<JointName, THREE.Quaternion>;
 
-export class WebXRHandContext extends BaseHandContext {
+export class WebXRHandContext implements HandContext {
   constructor(
-    handedness: Handedness,
-    handLabel: HandLabel,
-    joints: JointPositions,
+    public handedness: Handedness,
+    public handLabel: HandLabel,
+    public joints: JointPositions,
     public jointRotations: WebXRJointRotations
-  ) {
-    super(handedness, handLabel, joints);
+  ) {}
+
+  getJoint(jointName: JointName) {
+    return this.joints.get(jointName);
   }
 }
 
