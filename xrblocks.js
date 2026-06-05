@@ -15,8 +15,8 @@
  *
  * @file xrblocks.js
  * @version v0.15.0
- * @commitid d0dd79c
- * @builddate 2026-06-05T22:31:32.226Z
+ * @commitid 1be054c
+ * @builddate 2026-06-05T22:31:39.462Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -1653,6 +1653,12 @@ class AI extends Script {
         if (!this.isAvailable()) {
             throw new Error("AI is not available. Check if it's enabled and properly initialized.");
         }
+        if (this.model instanceof Gemini) {
+            return await this.model.query(input);
+        }
+        if (typeof input !== 'object' || input === null || !('prompt' in input)) {
+            throw new Error(`${this.options.model} only supports {prompt: string} query inputs.`);
+        }
         return await this.model.query(input, tools);
     }
     async startLiveSession(config = {}, model) {
@@ -1713,7 +1719,13 @@ class AI extends Script {
      */
     triggerKeyPopup() { }
     async generate(prompt, type = 'image', systemInstruction = 'Generate an image', model = undefined) {
-        return this.model.generate(prompt, type, systemInstruction, model);
+        if (!this.isAvailable()) {
+            throw new Error("AI is not available. Check if it's enabled and properly initialized.");
+        }
+        if (this.model instanceof Gemini) {
+            return this.model.generate(prompt, type, systemInstruction, model);
+        }
+        throw new Error(`${this.options.model} does not support generate().`);
     }
     /**
      * Create a sample keys.json file structure for reference
@@ -18998,9 +19010,10 @@ class MaterialSymbolsView extends View {
         });
         this.loadingSvgPath = undefined;
         this.loadedSvgPath = svgPath;
-        const [viewMinX, viewMinY, viewWidth, viewHeight] = 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        svgData.xml.attributes.viewBox.value.split(' ');
+        const viewBox = svgData.xml.getAttribute('viewBox');
+        const [viewMinX, viewMinY, viewWidth, viewHeight] = viewBox
+            .split(' ')
+            .map(Number);
         const paths = svgData.paths;
         const group = new THREE.Group();
         const scale = 1 / Math.max(viewWidth, viewHeight);
