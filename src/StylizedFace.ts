@@ -20,6 +20,7 @@
 import * as THREE from 'three';
 
 import {Script} from './core/Script';
+import {clamp} from './utils/utils';
 import {VisemeWeights, ZERO_VISEME} from './VisemeWeights';
 
 export interface StylizedFaceOptions {
@@ -231,10 +232,6 @@ export class StylizedFace extends Script {
     }
     return 1;
   }
-}
-
-function clamp(x: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, x));
 }
 
 function computeMetrics(v: VisemeWeights): LipMetrics {
