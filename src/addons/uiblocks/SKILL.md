@@ -35,11 +35,11 @@ The XR Blocks core ships a lighter UI system (`xb.SpatialPanel().addGrid().addRo
 deliberately — **do not mix the two on the same panel**, and never import `UIPanel`/`UICard`
 from `xrblocks` core (they exist only in this addon).
 
-| Use **core `xb.SpatialPanel`** when... | Use **uiblocks** when                                           |
-| ------------------------------------ | ------------------------------------------------------------------|
-| Quick HUD, menu, or debug panel      | You need real flexbox layout (rows/columns, grow/shrink, gap)     |
-| No extra dependencies wanted         | You need gradients, strokes, rounded corners, drop/inner shadows  |
-| Simple text + buttons                | You want web-like styling fidelity and reusable spatial behaviors |
+| Use **core `xb.SpatialPanel`** when... | Use **uiblocks** when                                             |
+| -------------------------------------- | ----------------------------------------------------------------- |
+| Quick HUD, menu, or debug panel        | You need real flexbox layout (rows/columns, grow/shrink, gap)     |
+| No extra dependencies wanted           | You need gradients, strokes, rounded corners, drop/inner shadows  |
+| Simple text + buttons                  | You want web-like styling fidelity and reusable spatial behaviors |
 
 ## 1. Setup & Bootstrap
 
