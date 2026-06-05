@@ -4,7 +4,7 @@ import { effect } from '@preact/signals-core';
 // Unicode-aware regex to split text into standard words, whitespace, and emoji symbols.
 // It matches all emoji presentation sequences (including warning signs, hearts, and sparkles)
 // and groups Variation Selectors (\uFE0F), ZWJ Joiners (\u200D), and modifiers with their parent emoji.
-const WORD_EMOJI_REGEX = /(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F))*(?:\p{Emoji_Modifier})*|\s+|[a-zA-Z0-9]+|[^a-zA-Z0-9\s]/gu;
+const WORD_EMOJI_REGEX = /(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F))*(?:\p{Emoji_Modifier})*|\n|[ \t\r]+|[a-zA-Z0-9]+|[^a-zA-Z0-9\s]/gu;
 function getEmojiHex(emoji) {
     let hex = Array.from(emoji)
         .map((char) => char.codePointAt(0).toString(16))
@@ -81,7 +81,7 @@ class TextWithEmoji extends Container {
         }, initialClasses, inputConfig);
         // Reactively rebuild children when the text or sizing properties change
         this.cleanupEffect = effect(() => {
-            const currentText = this.properties.value.text ?? '';
+            const currentText = (this.properties.value.text ?? '').replace(/\r\n/g, '\n');
             const currentFontSize = this.properties.value.fontSize ?? 16;
             const emojiCdn = (this.properties.value.emojiCdn ?? 'twemoji');
             const emojiSizeMultiplier = this.properties.value.emojiSizeMultiplier ?? 1.05;
@@ -90,9 +90,24 @@ class TextWithEmoji extends Container {
             // Parse text into active structural segment tokens
             const segments = currentText.match(WORD_EMOJI_REGEX) || [];
             const activeSegments = [];
-            for (const segment of segments) {
-                if (/^\s+$/.test(segment)) {
-                    activeSegments.push({ type: 'space', text: segment });
+            for (let i = 0; i < segments.length; i++) {
+                const segment = segments[i];
+                if (segment === '\n') {
+                    const isConsecutiveNewline = i === 0 || segments[i - 1] === '\n';
+                    activeSegments.push({
+                        type: 'newline',
+                        text: segment,
+                        isConsecutiveNewline,
+                    });
+                }
+                else if (/^[ \t\r]+$/.test(segment)) {
+                    const prev = activeSegments[activeSegments.length - 1];
+                    if (prev && (prev.type === 'word' || prev.type === 'emoji')) {
+                        prev.trailingSpaceWidth = currentFontSize * 0.26 * segment.length;
+                    }
+                    else {
+                        activeSegments.push({ type: 'space', text: segment });
+                    }
                 }
                 else if (/(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)/u.test(segment)) {
                     activeSegments.push({ type: 'emoji', text: segment });
@@ -110,7 +125,7 @@ class TextWithEmoji extends Container {
                 for (let i = 0; i < this.children.length; i++) {
                     const child = this.children[i];
                     const seg = activeSegments[i];
-                    if (seg.type === 'space' &&
+                    if ((seg.type === 'space' || seg.type === 'newline') &&
                         !(child instanceof Container &&
                             !(child instanceof Image) &&
                             !(child instanceof Text))) {
@@ -139,6 +154,13 @@ class TextWithEmoji extends Container {
                             height: currentFontSize,
                         });
                     }
+                    else if (seg.type === 'newline') {
+                        const newlineContainer = child;
+                        newlineContainer.setProperties({
+                            width: '100%',
+                            height: seg.isConsecutiveNewline ? currentFontSize : 0,
+                        });
+                    }
                     else if (seg.type === 'emoji') {
                         const img = child;
                         img.setProperties({
@@ -146,6 +168,7 @@ class TextWithEmoji extends Container {
                             width: calculatedEmojiSize,
                             height: calculatedEmojiSize,
                             transformTranslateY: calculatedEmojiOffsetY,
+                            marginRight: seg.trailingSpaceWidth,
                         });
                     }
                     else {
@@ -155,6 +178,7 @@ class TextWithEmoji extends Container {
                             fontSize: currentFontSize,
                             lineHeight: this.properties.value.lineHeight,
                             color: this.properties.value.color,
+                            marginRight: seg.trailingSpaceWidth,
                         });
                     }
                 }
@@ -186,6 +210,13 @@ class TextWithEmoji extends Container {
                         });
                         this.add(spaceContainer);
                     }
+                    else if (seg.type === 'newline') {
+                        const newlineContainer = new Container({
+                            width: '100%',
+                            height: seg.isConsecutiveNewline ? currentFontSize : 0,
+                        });
+                        this.add(newlineContainer);
+                    }
                     else if (seg.type === 'emoji') {
                         const img = new Image({
                             src: getEmojiUrl(seg.text, emojiCdn),
@@ -193,6 +224,7 @@ class TextWithEmoji extends Container {
                             height: calculatedEmojiSize,
                             keepAspectRatio: true,
                             transformTranslateY: calculatedEmojiOffsetY,
+                            marginRight: seg.trailingSpaceWidth,
                         });
                         this.add(img);
                     }
@@ -203,6 +235,7 @@ class TextWithEmoji extends Container {
                             lineHeight: this.properties.value.lineHeight,
                             color: this.properties.value.color,
                             whiteSpace: 'pre',
+                            marginRight: seg.trailingSpaceWidth,
                         });
                         this.add(txt);
                     }

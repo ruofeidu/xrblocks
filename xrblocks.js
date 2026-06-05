@@ -15,8 +15,8 @@
  *
  * @file xrblocks.js
  * @version v0.15.0
- * @commitid 83494a6
- * @builddate 2026-06-02T02:05:50.433Z
+ * @commitid 8d0e1b4
+ * @builddate 2026-06-05T02:57:14.681Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -16877,6 +16877,7 @@ class Panel extends View {
         this.mesh.setAspectRatio(this.aspectRatio);
         const parentAspectRatio = this.isRoot || !this.parent ? 1.0 : this.parent.aspectRatio;
         this.mesh.setWidthHeight(this.width * Math.max(parentAspectRatio, 1.0), this.height * Math.max(1.0 / parentAspectRatio, 1.0));
+        this.mesh.renderOrder = this.renderOrder;
     }
     /**
      * Gets the panel's width in meters.
