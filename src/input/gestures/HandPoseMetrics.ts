@@ -67,22 +67,18 @@ const DIGIT_JOINTS: Record<DigitName, JointName[]> = {
 
 const EPSILON = 1e-6;
 
-export function getJoint(context: HandContext, jointName: JointName) {
-  return context.getJoint(jointName) ?? context.joints.get(jointName);
-}
-
 export function getFingerJoint(
   context: HandContext,
   finger: FingerName,
   suffix: string
 ) {
   const prefix = FINGER_PREFIX[finger];
-  return getJoint(context, `${prefix}-${suffix}` as JointName);
+  return context.getJoint(`${prefix}-${suffix}` as JointName);
 }
 
 export function estimateHandScale(context: HandContext) {
-  const wrist = getJoint(context, 'wrist');
-  const middleTip = getJoint(context, 'middle-finger-tip');
+  const wrist = context.getJoint('wrist');
+  const middleTip = context.getJoint('middle-finger-tip');
   const palmWidth = getPalmWidth(context);
 
   const measurements: number[] = [];
@@ -101,7 +97,7 @@ export function getPalmWidth(context: HandContext) {
 }
 
 export function getPalmNormal(context: HandContext) {
-  const wrist = getJoint(context, 'wrist');
+  const wrist = context.getJoint('wrist');
   const indexBase = getFingerJoint(context, 'index', 'metacarpal');
   const pinkyBase = getFingerJoint(context, 'pinky', 'metacarpal');
   if (!wrist || !indexBase || !pinkyBase) return null;
@@ -137,7 +133,7 @@ export function getPalmUp(context: HandContext) {
 }
 
 export function getPalmPose(context: HandContext): PalmPose | null {
-  const wrist = getJoint(context, 'wrist');
+  const wrist = context.getJoint('wrist');
   const indexBase = getFingerJoint(context, 'index', 'metacarpal');
   const pinkyBase = getFingerJoint(context, 'pinky', 'metacarpal');
   const width = getPalmWidth(context);
@@ -267,10 +263,10 @@ export function getFingertipPalmDistance(
   return tip.distanceTo(palmPose.center);
 }
 
-export function getBoneVectors(context: HandContext, global = false) {
+export function getBoneVectors(context: HandContext) {
   return HAND_JOINT_IDX_CONNECTION_MAP.map(([joint1, joint2]) => {
-    const start = context.getJoint(HAND_JOINT_NAMES[joint1], global);
-    const end = context.getJoint(HAND_JOINT_NAMES[joint2], global);
+    const start = context.getJoint(HAND_JOINT_NAMES[joint1]);
+    const end = context.getJoint(HAND_JOINT_NAMES[joint2]);
     if (!start || !end) return new THREE.Vector3();
 
     const boneVector = new THREE.Vector3().subVectors(end, start);
@@ -279,8 +275,8 @@ export function getBoneVectors(context: HandContext, global = false) {
   });
 }
 
-export function getRelativeBoneAngles(context: HandContext, global = false) {
-  const boneVectors = getBoneVectors(context, global);
+export function getRelativeBoneAngles(context: HandContext) {
+  const boneVectors = getBoneVectors(context);
   const angles = new Float32Array(HAND_BONE_IDX_CONNECTION_MAP.length);
   HAND_BONE_IDX_CONNECTION_MAP.forEach(([bone1, bone2], index) => {
     angles[index] = boneVectors[bone1].dot(boneVectors[bone2]);
@@ -325,16 +321,16 @@ function getDigitDirection(context: HandContext, digit: DigitName) {
 }
 
 function getDigitBase(context: HandContext, digit: DigitName) {
-  return getJoint(context, DIGIT_JOINTS[digit][0]);
+  return context.getJoint(DIGIT_JOINTS[digit][0]);
 }
 
 function getDigitTip(context: HandContext, digit: DigitName) {
-  return getJoint(context, DIGIT_JOINTS[digit][DIGIT_JOINTS[digit].length - 1]);
+  return context.getJoint(DIGIT_JOINTS[digit][DIGIT_JOINTS[digit].length - 1]);
 }
 
 function getDigitSegmentDirections(context: HandContext, digit: DigitName) {
   const joints = DIGIT_JOINTS[digit]
-    .map((jointName) => getJoint(context, jointName))
+    .map((jointName) => context.getJoint(jointName))
     .filter(Boolean) as THREE.Vector3[];
 
   if (joints.length !== DIGIT_JOINTS[digit].length) return null;

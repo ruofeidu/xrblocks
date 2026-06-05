@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import {Handedness, JointName} from '../Hands';
+import {HAND_JOINT_NAMES} from '../components/HandJointNames';
 import type {User} from '../../core/User';
 import type {GestureConfiguration} from './GestureRecognitionOptions';
 
@@ -11,12 +12,29 @@ export type JointPositions = Map<JointName, THREE.Vector3>;
 export interface HandContext {
   handedness: Handedness;
   handLabel: HandLabel;
-  globalTransform: THREE.Matrix4;
   joints: JointPositions;
 
-  getLocalJointPositions(): Float32Array;
-  getGlobalJointPositions(): Float32Array;
-  getJoint(jointName: JointName, global?: boolean): THREE.Vector3 | undefined;
+  getJoint(jointName: JointName): THREE.Vector3 | undefined;
+}
+
+export class BaseHandContext implements HandContext {
+  private validJointNames: Set<string>;
+
+  constructor(
+    public handedness: Handedness,
+    public handLabel: HandLabel,
+    public joints: JointPositions,
+    validJointNames: readonly string[] = HAND_JOINT_NAMES
+  ) {
+    this.validJointNames = new Set(validJointNames);
+  }
+
+  getJoint(jointName: JointName) {
+    if (!this.validJointNames.has(jointName)) {
+      throw new Error(`Invalid hand joint name: ${jointName}`);
+    }
+    return this.joints.get(jointName);
+  }
 }
 
 export type GestureDetectionResult = {
