@@ -5,21 +5,20 @@ import {HAND_JOINT_NAMES} from '../../components/HandJointNames';
 import {User} from '../../../core/User';
 import {
   BaseHandContext,
+  HAND_INDEX_TO_LABEL,
   HandLabel,
   JointPositions,
   PoseEstimator,
 } from '../GestureTypes';
 
-const HAND_INDEX_TO_LABEL: Record<number, HandLabel> = {
-  [Handedness.LEFT]: 'left',
-  [Handedness.RIGHT]: 'right',
-};
+export type WebXRJointRotations = Map<JointName, THREE.Quaternion>;
 
-class WebXRHandContext extends BaseHandContext {
+export class WebXRHandContext extends BaseHandContext {
   constructor(
     handedness: Handedness,
     handLabel: HandLabel,
-    joints: JointPositions
+    joints: JointPositions,
+    public jointRotations: WebXRJointRotations
   ) {
     super(handedness, handLabel, joints);
   }
@@ -44,19 +43,22 @@ export class WebXRHandPoseEstimator implements PoseEstimator {
     if (!hand?.joints || !handLabel) return null;
 
     const joints: JointPositions = new Map();
+    const jointRotations: WebXRJointRotations = new Map();
+    const position = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
 
     for (const jointName of HAND_JOINT_NAMES) {
       const joint = hand.joints[jointName];
       if (!joint) continue;
 
-      joints.set(
-        jointName,
-        new THREE.Vector3().setFromMatrixPosition(joint.matrixWorld)
-      );
+      joint.matrixWorld.decompose(position, rotation, scale);
+      joints.set(jointName, position.clone());
+      jointRotations.set(jointName, rotation.clone());
     }
 
     if (!joints.size) return null;
-    return new WebXRHandContext(handedness, handLabel, joints);
+    return new WebXRHandContext(handedness, handLabel, joints, jointRotations);
   }
 
   getHandContexts() {

@@ -7,6 +7,11 @@ import type {GestureConfiguration} from './GestureRecognitionOptions';
 
 export type HandLabel = 'left' | 'right';
 
+export const HAND_INDEX_TO_LABEL: Partial<Record<Handedness, HandLabel>> = {
+  [Handedness.LEFT]: 'left',
+  [Handedness.RIGHT]: 'right',
+};
+
 export type JointPositions = Map<JointName, THREE.Vector3>;
 
 export interface HandContext {

@@ -5,16 +5,16 @@ import {User} from '../../core/User';
 import {Script} from '../../core/Script';
 import {GestureEventDetail, GestureEventType} from './GestureEvents';
 import {GestureRecognitionOptions} from './GestureRecognitionOptions';
-import type {GestureScoreMap, HandContext, HandLabel} from './GestureTypes';
+import {
+  HAND_INDEX_TO_LABEL,
+  type GestureScoreMap,
+  type HandContext,
+  type HandLabel,
+} from './GestureTypes';
 
 type ActiveGestureState = {
   confidence: number;
   data?: Record<string, unknown>;
-};
-
-const HAND_INDEX_TO_LABEL: Record<number, HandLabel> = {
-  [Handedness.LEFT]: 'left',
-  [Handedness.RIGHT]: 'right',
 };
 
 type GestureScriptEvent = THREE.Event & {
@@ -83,8 +83,8 @@ export class GestureRecognition extends Script<GestureRecognitionEventMap> {
 
   private evaluateHand(handedness: Handedness) {
     const handLabel = HAND_INDEX_TO_LABEL[handedness];
-    const activeMap = this.activeGestures[handLabel];
     if (!handLabel) return;
+    const activeMap = this.activeGestures[handLabel];
 
     const context = this.options.poseEstimator.getHandContext(handedness);
     if (!context) {
