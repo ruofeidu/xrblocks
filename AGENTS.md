@@ -59,7 +59,7 @@ XR Blocks is a **singleton engine driven by a script lifecycle**:
 ### Repository layout
 
 | Path          | Purpose                                                                                                             |
-| ------------- | --------------------------------------------------------------------------------------------------------------------|
+| ------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `src/`        | SDK source — one folder per subsystem (overview: [`src/SKILL.md`](src/SKILL.md))                                    |
 | `src/addons/` | Opt-in modules built separately: `uiblocks`, `netblocks`, `glasses`, `simulator`, `volumes`, `virtualkeyboard`, ... |
 | `samples/`    | Focused feature examples (served by the docs site)                                                                  |

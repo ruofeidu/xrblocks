@@ -194,21 +194,21 @@ gradients, and shadows, use the **uiblocks addon** instead — see
 
 ## Directory map (read deeper on demand)
 
-| Path                                                                                 | What lives there                                                                                                                         |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| [`core/`](core)                                                                      | `Core` singleton, `Script`, `Options`, `User`, DI `Registry`, `XRButton`, WebXR session mgmt                                             |
-| [`input/`](input)                                                                    | controllers, hands, gaze, mouse, gamepad; `gestures/`; `strokes/`                                                                        |
-| [`world/`](world)                                                                    | `World` + `planes/`, `mesh/`, `objects/` (Gemini & MediaPipe backends), `sounds/`                                                        |
-| [`depth/`](depth)                                                                    | depth sensing, depth mesh, `occlusion/` shaders & passes                                                                                 |
-| [`ai/`](ai)                                                                          | `AI` facade over `Gemini` + `OpenAI` (query / live / image gen)                                                                          |
-| [`agent/`](agent)                                                                    | agent framework: tools, memory, context (WIP — see `agent/README.md`)                                                                    |
-| [`ui/`](ui)                                                                          | core spatial UI: `SpatialPanel`, `Grid`/`Row`/`Col`, views, `ModelViewer`, `Reticle`                                                     |
-| [`ux/`](ux)                                                                          | `DragManager`, reusable interaction behaviors                                                                                            |
-| [`simulator/`](simulator)                                                            | desktop XR simulator (virtual user/hands/depth/planes, control modes)                                                                    |
-| [`sound/`](sound)                                                                    | spatial audio, speech recognizer/synthesizer (see `sound/README.md`)                                                                     |
-| [`physics/`](physics)                                                                | Rapier3D integration                                                                                                                     |
-| [`lighting/`](lighting), [`camera/`](camera), [`video/`](video), [`stereo/`](stereo) | light estimation, device camera, video streams, stereo utils                                                                             |
-| [`utils/`](utils)                                                                    | `ModelLoader`, dependency injection, helpers                                                                                             |
+| Path                                                                                 | What lives there                                                                                                                           |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`core/`](core)                                                                      | `Core` singleton, `Script`, `Options`, `User`, DI `Registry`, `XRButton`, WebXR session mgmt                                               |
+| [`input/`](input)                                                                    | controllers, hands, gaze, mouse, gamepad; `gestures/`; `strokes/`                                                                          |
+| [`world/`](world)                                                                    | `World` + `planes/`, `mesh/`, `objects/` (Gemini & MediaPipe backends), `sounds/`                                                          |
+| [`depth/`](depth)                                                                    | depth sensing, depth mesh, `occlusion/` shaders & passes                                                                                   |
+| [`ai/`](ai)                                                                          | `AI` facade over `Gemini` + `OpenAI` (query / live / image gen)                                                                            |
+| [`agent/`](agent)                                                                    | agent framework: tools, memory, context (WIP — see `agent/README.md`)                                                                      |
+| [`ui/`](ui)                                                                          | core spatial UI: `SpatialPanel`, `Grid`/`Row`/`Col`, views, `ModelViewer`, `Reticle`                                                       |
+| [`ux/`](ux)                                                                          | `DragManager`, reusable interaction behaviors                                                                                              |
+| [`simulator/`](simulator)                                                            | desktop XR simulator (virtual user/hands/depth/planes, control modes)                                                                      |
+| [`sound/`](sound)                                                                    | spatial audio, speech recognizer/synthesizer (see `sound/README.md`)                                                                       |
+| [`physics/`](physics)                                                                | Rapier3D integration                                                                                                                       |
+| [`lighting/`](lighting), [`camera/`](camera), [`video/`](video), [`stereo/`](stereo) | light estimation, device camera, video streams, stereo utils                                                                               |
+| [`utils/`](utils)                                                                    | `ModelLoader`, dependency injection, helpers                                                                                               |
 | [`addons/`](addons)                                                                  | opt-in modules, each often with its own README/skills: `uiblocks`, `netblocks`, `glasses`, `volumes`, `virtualkeyboard`, simulator UI, ... |
 
 ## Two UI systems — pick deliberately
@@ -232,7 +232,7 @@ core — they only exist in the uiblocks addon.
 | Use `xb.core.renderer` / `xb.core.physics` in a constructor | They're created during `xb.init()`; use them in/after `init()`                                     |
 | `new xb.UIPanel(...)` / `new xb.UICard(...)`                | Those are the **uiblocks addon**; core uses `xb.SpatialPanel().addGrid()`                          |
 | `xb.ai.query('text')` (bare string)                         | `xb.ai.query({prompt: 'text'})`, and guard with `xb.ai.isAvailable()`                              |
-| Assume AI works with no key                                 | Provide `?key=...` or `keys.json`; handle the unavailable case                                       |
+| Assume AI works with no key                                 | Provide `?key=...` or `keys.json`; handle the unavailable case                                     |
 | `rgba()`/`hsla()` colors in UI                              | hex strings (`'#ffffff'`) or `THREE.Color`                                                         |
 | Drive your own `requestAnimationFrame` loop                 | Put per-frame logic in `update(time, frame)`                                                       |
 | Forget `xb.add(script)` before `xb.init()`                  | Register every Script first                                                                        |
