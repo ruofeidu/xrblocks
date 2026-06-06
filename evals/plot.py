@@ -284,7 +284,7 @@ def plot_api_match_breakdown(by_model: dict) -> pathlib.Path | None:
     ax.set_ylabel("mean api_match (fraction of expected APIs called)")
     ax.set_title("api_match: did the agent call the APIs the skill defines?",
                  pad=12)
-    ax.legend(loc="upper right")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0))
     ax.grid(axis="y", alpha=0.3)
     for i, r in enumerate(rows):
         ax.text(i - width / 2, r["with"] + 0.01, f"{r['with']:.2f}",
@@ -351,7 +351,7 @@ def plot_prompt_style_breakdown(by_model: dict) -> pathlib.Path | None:
     ax.set_ylim(0, 1.15)
     ax.set_ylabel("mean composite score")
     ax.set_title("skill effect by model and prompt style", pad=12)
-    ax.legend(loc="upper right")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0))
     ax.grid(axis="y", alpha=0.3)
     for i, r in enumerate(rows):
         ax.text(i - width / 2, r["with"] + 0.01, f"{r['with']:.2f}",
