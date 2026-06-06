@@ -1,0 +1,3 @@
+tasks/*/golden.diff
+results/*/
+!results/.gitkeep

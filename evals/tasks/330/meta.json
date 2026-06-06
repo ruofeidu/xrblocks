@@ -1,0 +1,11 @@
+{
+  "number": 330,
+  "title": "fix(uiblocks): prevent leading spaces on wrapped lines in TextWithEmoji",
+  "author": "dli7319",
+  "merged_at": "2026-06-02T22:18:33Z",
+  "additions": 49,
+  "deletions": 12,
+  "changed_files_count": 3,
+  "base_sha": "cb674bab19997c42ed3bb09c56f9bac3e4ca521f",
+  "merge_sha": "04dfe88d4dd74de161177fdf69bedf9141d5b61f"
+}

@@ -1,0 +1,4 @@
+[
+  "samples/glasses_ui/main.ts",
+  "src/addons/glasses/ui/GlassesModelManager.ts"
+]
