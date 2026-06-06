@@ -1,109 +1,116 @@
 # XR Blocks Skill Evaluation Harness
 
-A lightweight benchmark for measuring whether `SKILL.md` files (or any agent
-context change) actually help an agent produce the same kind of changes a
-human contributor would.
+A reproducible benchmark for the `xb-*` skills used by Gemini Canvas Gems when generating xrblocks apps.
 
-## Why replay merged PRs?
+## What it tests
 
-- **No handcrafted tasks.** Every merged PR is, by definition, a real change
-  someone wanted made.
-- **Ground truth comes for free.** The merged diff is the gold standard.
-- **Re-runs are cheap.** Same harness, different model or skill version, new
-  result column. No need to redesign the eval each time.
+Each task is a short "build an X with xrblocks" prompt that maps to a single skill (e.g. `netblocks-presence` tests `xb-netblocks`). We run the task twice through `gemini-2.5-pro` via the Gemini API: once with the matching `SKILL.md` injected into the system prompt, once with an empty system prompt. The agent has no filesystem access. The two outputs are scored against the same rubric and the delta is the skill's contribution.
 
-## What's measured
+This mirrors the Canvas Gem deployment ("XR Blocks for Gemini Canvas"), which bakes skill content into its system prompt rather than relying on filesystem-side skill discovery.
 
-For each PR, after the agent runs against the base commit:
-
-| metric                | meaning                                            |
-| --------------------- | -------------------------------------------------- | ------------- | --- | ------------- | -------------------- |
-| `file_jaccard`        | `                                                  | agent ∩ human | /   | agent ∪ human | ` over changed files |
-| `file_overlap_recall` | did the agent touch the files the human touched?   |
-| `line_similarity`     | rough similarity between agent diff and human diff |
-| `extra_files`         | files the agent edited the human didn't            |
-| `missed_files`        | files the human edited the agent didn't            |
-
-These are proxies, not grades. A 0.0 jaccard doesn't mean wrong (the agent
-may have solved the same problem a different way). For real verdicts, layer
-in: did the agent's branch pass CI? did a strong judge model rate the diff as
-equivalent?
-
-## Workflow
+## Quick start
 
 ```bash
-# 1. Pick PRs and materialize task folders (writes evals/tasks/<num>/).
-python evals/fetch_prs.py 335 330 329 328 325 326
+export GEMINI_API_KEY=...
 
-# 2. For each task, run the agent in an isolated worktree.
-./evals/setup_worktree.sh 335
-# … work in /tmp/xrblocks-eval-335 with your agent of choice …
-cd /tmp/xrblocks-eval-335 && git diff > /tmp/agent-335.diff && cd -
+# Run every task × {with-skill, without-skill}, then summarize.
+./evals/run_all.sh
 
-# 3. Score the agent's diff.
-mkdir -p evals/results/skill-on
-python evals/score.py evals/tasks/335 /tmp/agent-335.diff \
-  > evals/results/skill-on/335.json
+# Same plus an llm-judge column.
+./evals/run_all.sh --judge
 
-# 4. Summarize when all tasks are done.
-python evals/summarize.py evals/results/skill-on
+# Only a subset.
+TASKS="netblocks-presence ui-button-hud" ./evals/run_all.sh
 ```
 
-## Comparing skill on vs off
+Results land under `evals/results/`:
 
-Run the agent twice on each task: once with `src/SKILL.md` (and addon
-SKILL.md files) in context, once without. Save results to
-`results/skill-on/` and `results/skill-off/`. The delta on each metric is
-the skill's contribution.
+- `gem-api-with-skill/<task>.json` — score for the with-skill run
+- `gem-api-without-skill/<task>.json` — score for the without-skill run
+- `judge/<task>-<mode>.json` — judge output (if `--judge`)
+- `_summary.md` — side-by-side table written by `summarize_proto.py`
 
-For ablations, comment out one section of a SKILL at a time and re-run a
-subset to see which sentences carry the weight.
+## Scoring
 
-## Picking PRs
+`score_proto.py` produces a binary 0–1 score per dimension:
 
-Good candidates are mid-size: 10-500 LOC, 1-8 changed files, not pure
-dependency bumps, not pure version tags. The seed set (`335 330 329 328 325
-326`) is a starting point covering bug fixes, new components, and docs
-wireup.
+| metric            | meaning                                             |
+| ----------------- | --------------------------------------------------- |
+| `import_match`    | fraction of `expected_imports` the agent referenced |
+| `api_match`       | fraction of `expected_apis` the agent called        |
+| `forbidden_clean` | 1 if no `forbidden_patterns` matched, else 0        |
+| `parse_ok`        | 1 if `node --check` parses the file                 |
+| `composite`       | mean of the four above                              |
 
-Skip:
+For finer-grained signal:
 
-- PRs where the contributor is the same person running the eval (context bias).
-- Dependabot or release-only PRs.
-- PRs that depend on external state the agent can't see (e.g., a redirect
-  that depends on infra changes outside the repo).
+- `judge.py` — `gemini-2.5-pro` rates the output against the full
+`SKILL.md` as ground truth. Returns `accomplishes_task` and `idiomatic_xrblocks` on 1-5 scales, plus `would_merge` yes/no with a prose rationale.
+- `smoke.py` — Playwright + headless Chromium loads the generated
+workspace and captures uncaught errors / failed requests. Catches hallucinated import URLs that parse-only checking misses.
+- `ablate.py` — drops one skill section at a time, scores each variant.
+Useful for finding which parts of a `SKILL.md` carry the weight.
 
-## What's NOT in this MVP
+## Adding a task
 
-- No automated agent invocation. The runner is a worktree + a manual paste of
-  the prompt into your agent. Wire your own CLI shim if you want full auto.
-- No CI-pass verification. To add: after the agent commits to the worktree,
-  run `npm run build && npm run lint && npm run format:check && npm test`,
-  capture pass/fail.
-- No LLM-as-judge. For "is this diff functionally equivalent?", layer in a
-  strong model later.
+Two files per task:
+
+```
+evals/prototypes/tasks/<id>/prompt.md   # the user-facing instructions
+evals/prototypes/tasks/<id>/spec.json   # the scoring spec
+```
+
+`spec.json` schema:
+
+```json
+{
+  "skill": "xb-<area>", // which xb-* skill is being tested
+  "template": "templates/0_basic", // which template to start from
+  "edit_file": "main.js", // which file the agent should edit
+  "expected_imports": ["..."], // substrings that should appear in the import lines
+  "expected_apis": ["..."], // substrings that should appear anywhere in the code
+  "forbidden_patterns": ["..."] // regex patterns that should NOT appear
+}
+```
+
+Aim for prompts that are unambiguous on intent but open on implementation, so the skill content (not the prompt itself) is what disambiguates the API surface.
 
 ## Files
 
 ```
 evals/
-├── README.md
-├── fetch_prs.py        Materialize task folders from merged PRs
-├── score.py            Score a candidate diff against the golden diff
-├── summarize.py        Roll task results into CSV + markdown
-├── setup_worktree.sh   Git worktree at the task's base commit
-├── .gitignore          Ignore golden diffs (regenerable) and results
-├── tasks/              Per-PR task folders (committed: prompt + meta only)
-│   └── <pr_num>/
-│       ├── prompt.md
-│       ├── base.sha
-│       ├── merge.sha
-│       ├── changed_files.json
-│       ├── meta.json
-│       └── golden.diff   (gitignored: regenerable from base/merge SHAs)
-└── results/            Per-run scoring artifacts (gitignored)
-    └── <run_id>/
-        ├── <task>.json
-        ├── _summary.csv
-        └── _summary.md
+├── README.md                   this file
+├── FINDINGS.md                 running design log + results
+├── run_all.sh                  orchestrator: every task × 2 modes
+├── summarize_proto.py          rolls results into a markdown table
+├── prototypes/
+│   ├── score_proto.py          binary scorer
+│   ├── judge.py                llm-as-judge (gemini-2.5-pro)
+│   ├── smoke.py                playwright + headless chromium
+│   ├── ablate.py               drop one section at a time
+│   ├── runners/
+│   │   └── run_gem_api.py      agent runner (Gemini API)
+│   └── tasks/
+│       └── <task_id>/
+│           ├── prompt.md
+│           └── spec.json
+└── results/                    gitignored, regenerable
 ```
+
+## What this is not
+
+- Not a runtime correctness check. `parse_ok` and `smoke.py` only
+catch some failure modes; a "passing" output may still be wrong.
+- Not a model comparison. We only run `gemini-2.5-pro`. Adding flash
+or other models is a one-line change in `run_gem_api.py`.
+- Not stable across runs. Even with `temperature=0.2`, gemini varies.
+For real signal repeat each cell 3-5 times and report the median.
+
+## What it IS for
+
+- Validating that a `SKILL.md` actually moves the needle on the kinds
+of apps users want to build.
+- Catching regressions when a skill is edited: re-run the relevant
+tasks, diff the scores.
+- Surfacing real bugs in skill examples (e.g. the `xb-netblocks`
+import-path 404 caught by `smoke.py` and fixed in google/xrblocks#349).
