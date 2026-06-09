@@ -63,7 +63,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   const options = new xb.Options();
-  options.enableDepth();
+  // Depth/occlusion runs a full-screen pass every frame — disabled to test its
+  // contribution to lag vs. the avatar rendering.
+  // options.enableDepth();
   options.setAppTitle('VRM Avatar Companion');
 
   await xb.init(options);

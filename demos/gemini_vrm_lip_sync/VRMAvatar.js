@@ -274,6 +274,11 @@ export class VRMAvatar {
         obj.castShadow = false;
         obj.receiveShadow = false;
 
+        // Exclude from pointer/reticle raycasts. SkinnedMesh.raycast() CPU-skins
+        // every vertex and tests all triangles per ray — pointing at the avatar
+        // tanks the frame rate. Nothing needs to click the avatar, so no-op it.
+        obj.raycast = () => {};
+
         // Disable MToon ink outlines — each outlined material is otherwise drawn
         // a second time (and again per eye in XR). Small look change, real GPU win.
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
