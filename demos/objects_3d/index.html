@@ -93,9 +93,17 @@
         max-width: 420px;
         width: 92%;
       }
-      .key-card h2 {margin: 0 0 8px 0;}
-      .key-card p {font-size: 13px; color: #bbb; line-height: 1.5;}
-      .key-card a {color: #4cd964;}
+      .key-card h2 {
+        margin: 0 0 8px 0;
+      }
+      .key-card p {
+        font-size: 13px;
+        color: #bbb;
+        line-height: 1.5;
+      }
+      .key-card a {
+        color: #4cd964;
+      }
       .key-card input {
         width: 100%;
         box-sizing: border-box;
@@ -123,8 +131,8 @@
       <div class="key-card">
         <h2>Gemini API key</h2>
         <p>
-          This demo uses Gemini for open-vocabulary object detection (so it
-          can find lamps, plants, anything you ask for — not just the 80 COCO
+          This demo uses Gemini for open-vocabulary object detection (so it can
+          find lamps, plants, anything you ask for — not just the 80 COCO
           classes). Get a free key from
           <a
             href="https://aistudio.google.com/app/apikey"
@@ -358,7 +366,9 @@
           const ib = (Math.random() * points.length) | 0;
           const ic = (Math.random() * points.length) | 0;
           if (ia === ib || ib === ic || ia === ic) continue;
-          const a = points[ia], b = points[ib], c = points[ic];
+          const a = points[ia],
+            b = points[ib],
+            c = points[ic];
           ab.subVectors(b, a);
           ac.subVectors(c, a);
           n.crossVectors(ab, ac);
@@ -370,9 +380,7 @@
             if (Math.abs(n.dot(p) + d) < eps) count++;
           }
           if (count > best.inliers.length) {
-            const inliers = points.filter(
-              (p) => Math.abs(n.dot(p) + d) < eps
-            );
+            const inliers = points.filter((p) => Math.abs(n.dot(p) + d) < eps);
             best = {inliers, normal: n.clone(), point: a};
           }
         }
@@ -406,10 +414,34 @@
       // Project the 4 bbox corners onto the plane. Returns {TL, TR, BR, BL}
       // or null if any corner misses the plane.
       function projectBboxToPlane(box2d, camera, planePoint, planeNormal) {
-        const TL = rayToPlane(box2d.min.x, box2d.min.y, camera, planePoint, planeNormal);
-        const TR = rayToPlane(box2d.max.x, box2d.min.y, camera, planePoint, planeNormal);
-        const BR = rayToPlane(box2d.max.x, box2d.max.y, camera, planePoint, planeNormal);
-        const BL = rayToPlane(box2d.min.x, box2d.max.y, camera, planePoint, planeNormal);
+        const TL = rayToPlane(
+          box2d.min.x,
+          box2d.min.y,
+          camera,
+          planePoint,
+          planeNormal
+        );
+        const TR = rayToPlane(
+          box2d.max.x,
+          box2d.min.y,
+          camera,
+          planePoint,
+          planeNormal
+        );
+        const BR = rayToPlane(
+          box2d.max.x,
+          box2d.max.y,
+          camera,
+          planePoint,
+          planeNormal
+        );
+        const BL = rayToPlane(
+          box2d.min.x,
+          box2d.max.y,
+          camera,
+          planePoint,
+          planeNormal
+        );
         if (!TL || !TR || !BR || !BL) return null;
         return {TL, TR, BR, BL};
       }
@@ -453,13 +485,19 @@
         const cy = (opts.box2d.min.y + opts.box2d.max.y) * 0.5;
         _tfNdc.set(cx * 2 - 1, (1 - cy) * 2 - 1);
         _tfRay.setFromCamera(_tfNdc, cam);
-        const o = _tfRay.ray.origin, d = _tfRay.ray.direction;
+        const o = _tfRay.ray.origin,
+          d = _tfRay.ray.direction;
         // Use the SDK anchor distance if it looks plausible (within a 6m room),
         // otherwise pick the closest cardinal wall the ray hits.
         let anchorOk = false;
         if (opts.anchor) {
           const a = opts.anchor;
-          if (Math.abs(a.x) <= 4 && Math.abs(a.z) <= 4 && a.y >= -0.5 && a.y <= 4) {
+          if (
+            Math.abs(a.x) <= 4 &&
+            Math.abs(a.z) <= 4 &&
+            a.y >= -0.5 &&
+            a.y <= 4
+          ) {
             anchorOk = true;
           }
         }
@@ -467,10 +505,10 @@
         // z = ±roomHalf with roomHalf=3m (matches the wood-cabin sim).
         const roomHalf = 3.0;
         const candidates = [
-          {n: new THREE.Vector3( 1, 0, 0), d: -roomHalf},  // x = -3
-          {n: new THREE.Vector3(-1, 0, 0), d: -roomHalf},  // x = +3
-          {n: new THREE.Vector3(0, 0,  1), d: -roomHalf},  // z = -3
-          {n: new THREE.Vector3(0, 0, -1), d: -roomHalf},  // z = +3
+          {n: new THREE.Vector3(1, 0, 0), d: -roomHalf}, // x = -3
+          {n: new THREE.Vector3(-1, 0, 0), d: -roomHalf}, // x = +3
+          {n: new THREE.Vector3(0, 0, 1), d: -roomHalf}, // z = -3
+          {n: new THREE.Vector3(0, 0, -1), d: -roomHalf}, // z = +3
         ];
         let best = null;
         for (const c of candidates) {
@@ -480,7 +518,11 @@
           const t = num / denom;
           if (t <= 0.05) continue;
           const hit = o.clone().addScaledVector(d, t);
-          if (Math.abs(hit.x) > roomHalf + 0.5 || Math.abs(hit.z) > roomHalf + 0.5) continue;
+          if (
+            Math.abs(hit.x) > roomHalf + 0.5 ||
+            Math.abs(hit.z) > roomHalf + 0.5
+          )
+            continue;
           if (!best || t < best.t) best = {t, hit, n: c.n.clone()};
         }
         if (!best) return null;
@@ -515,19 +557,25 @@
         const corners = projectBboxToPlane(opts.box2d, cam, center, normal);
         if (!corners) return null;
         const angle = Math.atan2(normal.x, normal.z);
-        const cs = Math.cos(angle), sn = Math.sin(angle);
-        let umin = Infinity, umax = -Infinity;
-        let ymin = Infinity, ymax = -Infinity;
-        let cxw = 0, czw = 0;
+        const cs = Math.cos(angle),
+          sn = Math.sin(angle);
+        let umin = Infinity,
+          umax = -Infinity;
+        let ymin = Infinity,
+          ymax = -Infinity;
+        let cxw = 0,
+          czw = 0;
         for (const c of [corners.TL, corners.TR, corners.BR, corners.BL]) {
           const u = (c.x - center.x) * cs - (c.z - center.z) * sn;
           if (u < umin) umin = u;
           if (u > umax) umax = u;
           if (c.y < ymin) ymin = c.y;
           if (c.y > ymax) ymax = c.y;
-          cxw += c.x; czw += c.z;
+          cxw += c.x;
+          czw += c.z;
         }
-        cxw /= 4; czw /= 4;
+        cxw /= 4;
+        czw /= 4;
         const sizeU = Math.max(0.04, Math.min(0.4, umax - umin));
         const sizeY = Math.max(0.04, Math.min(0.4, ymax - ymin));
         return {
@@ -578,9 +626,12 @@
         const planePoint = new THREE.Vector3(n.x * offset, 0, n.z * offset);
         // Use mask inlier extents — these hug the actual painting/TV pixels,
         // unlike the 2D bbox which often includes neighboring geometry.
-        const cs = Math.cos(angle), sn = Math.sin(angle);
-        let umin = Infinity, umax = -Infinity;
-        let ymin = Infinity, ymax = -Infinity;
+        const cs = Math.cos(angle),
+          sn = Math.sin(angle);
+        let umin = Infinity,
+          umax = -Infinity;
+        let ymin = Infinity,
+          ymax = -Infinity;
         for (const p of inliers) {
           const u = (p.x - planePoint.x) * cs - (p.z - planePoint.z) * sn;
           if (u < umin) umin = u;
@@ -611,35 +662,47 @@
         const sorted = ds.slice().sort((a, b) => a - b);
         const depth = sorted[Math.floor(sorted.length / 2)];
         // Build a camera-facing plane at the median depth, gravity-aligned.
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(opts.camera.quaternion);
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(
+          opts.camera.quaternion
+        );
         fwd.y = 0;
         if (fwd.lengthSq() < 1e-6) return null;
         fwd.normalize();
         const planePoint = camPos.clone().addScaledVector(fwd, depth);
         const planeNormal = fwd.clone().multiplyScalar(-1);
         const corners = projectBboxToPlane(
-          opts.box2d, opts.camera, planePoint, planeNormal
+          opts.box2d,
+          opts.camera,
+          planePoint,
+          planeNormal
         );
         if (!corners) return null;
         const angle = Math.atan2(planeNormal.x, planeNormal.z);
-        const cs = Math.cos(angle), sn = Math.sin(angle);
+        const cs = Math.cos(angle),
+          sn = Math.sin(angle);
         const all = [corners.TL, corners.TR, corners.BR, corners.BL];
-        let umin = Infinity, umax = -Infinity;
-        let ymin = Infinity, ymax = -Infinity;
-        let cx = 0, cz = 0;
+        let umin = Infinity,
+          umax = -Infinity;
+        let ymin = Infinity,
+          ymax = -Infinity;
+        let cx = 0,
+          cz = 0;
         for (const c of all) {
           const u = (c.x - planePoint.x) * cs - (c.z - planePoint.z) * sn;
           if (u < umin) umin = u;
           if (u > umax) umax = u;
           if (c.y < ymin) ymin = c.y;
           if (c.y > ymax) ymax = c.y;
-          cx += c.x; cz += c.z;
+          cx += c.x;
+          cz += c.z;
         }
-        cx /= 4; cz /= 4;
+        cx /= 4;
+        cz /= 4;
         const sizeU = Math.max(0.02, umax - umin);
         const sizeY = Math.max(0.02, ymax - ymin);
         // Depth (thickness): use mask point depth spread, clamp small.
-        const dmin = sorted[0], dmax = sorted[sorted.length - 1];
+        const dmin = sorted[0],
+          dmax = sorted[sorted.length - 1];
         const sizeV = Math.max(0.05, Math.min(0.4, dmax - dmin));
         return {
           center: new THREE.Vector3(cx, (ymin + ymax) / 2, cz),
@@ -654,7 +717,7 @@
       function fitLightOBB(points, opts) {
         if (points.length < 6) return null;
         // Tight depth filter (5cm) — lampshade is roughly planar in depth.
-        const tight = rejectByDepth(points, opts.camera.position, 0.10);
+        const tight = rejectByDepth(points, opts.camera.position, 0.1);
         return fitFurnitureOBB(tight);
       }
 
@@ -669,11 +732,18 @@
         const ys = points.map((p) => p.y).sort((a, b) => a - b);
         const zs = points.map((p) => p.z).sort((a, b) => a - b);
         const med = (arr) => arr[Math.floor(arr.length / 2)];
-        let cx = med(xs), cy = med(ys), cz = med(zs);
-        let Sxx = 0, Sxz = 0, Szz = 0;
+        let cx = med(xs),
+          cy = med(ys),
+          cz = med(zs);
+        let Sxx = 0,
+          Sxz = 0,
+          Szz = 0;
         for (const p of points) {
-          const dx = p.x - cx, dz = p.z - cz;
-          Sxx += dx * dx; Sxz += dx * dz; Szz += dz * dz;
+          const dx = p.x - cx,
+            dz = p.z - cz;
+          Sxx += dx * dx;
+          Sxz += dx * dz;
+          Szz += dz * dz;
         }
         let angle = 0.5 * Math.atan2(2 * Sxz, Sxx - Szz);
         // Snap to nearest cardinal (0/±90/180). Indoor furniture is almost
@@ -681,17 +751,27 @@
         // too noisy to trust the off-axis rotation. The rare genuinely-rotated
         // chair will be off by a few degrees, which is a good trade.
         const candidates = [0, Math.PI / 2, -Math.PI / 2, Math.PI, -Math.PI];
-        let bestSnap = angle, bestErr = Infinity;
+        let bestSnap = angle,
+          bestErr = Infinity;
         for (const c of candidates) {
-          const err = Math.abs(((angle - c + Math.PI) % (2 * Math.PI)) - Math.PI);
-          if (err < bestErr) { bestErr = err; bestSnap = c; }
+          const err = Math.abs(
+            ((angle - c + Math.PI) % (2 * Math.PI)) - Math.PI
+          );
+          if (err < bestErr) {
+            bestErr = err;
+            bestSnap = c;
+          }
         }
         angle = bestSnap;
-        const cs = Math.cos(angle), sn = Math.sin(angle);
+        const cs = Math.cos(angle),
+          sn = Math.sin(angle);
         // Project all points to local axes.
-        const us = [], vs = [], ysProj = [];
+        const us = [],
+          vs = [],
+          ysProj = [];
         for (const p of points) {
-          const dx = p.x - cx, dz = p.z - cz;
+          const dx = p.x - cx,
+            dz = p.z - cz;
           us.push(dx * cs + dz * sn);
           vs.push(-dx * sn + dz * cs);
           ysProj.push(p.y);
@@ -699,8 +779,12 @@
         // Percentile clipping to drop ~5% extreme outliers per axis.
         const pctile = (arr, p) => {
           const sorted = arr.slice().sort((a, b) => a - b);
-          return sorted[Math.max(0, Math.min(sorted.length - 1,
-            Math.floor(p * sorted.length)))];
+          return sorted[
+            Math.max(
+              0,
+              Math.min(sorted.length - 1, Math.floor(p * sorted.length))
+            )
+          ];
         };
         const umin = pctile(us, 0.05);
         const umax = pctile(us, 0.95);
@@ -724,7 +808,6 @@
           angle,
         };
       }
-
 
       // Per-category line colors so categories are visually distinguishable
       // at a glance: flat (paintings/TV) = orange, furniture = green,
@@ -985,50 +1068,66 @@
               // unrelated nearby geometry.
               points = rejectByAnchor(raw, obj.position, 1.4);
             }
-          const obb = fitYawOBB(points, {
-            category: cat,
-            camera: xb.core.camera,
-            anchor: obj.position,
-            box2d,
-            tinyFlat: isTinyFlatLabel(obj.label),
-          });
-          if (!obb) continue;
-          // Reject implausible detections: too far from origin (likely
-          // depth was sampled on a far background through a window/sky),
-          // too few inlier points to trust, or absurd dimensions. The
-          // point-count threshold is category-aware — small objects like
-          // a cup or remote naturally only get a handful of depth samples.
-          const c = obb.center;
-          const farFromRoom =
-            Math.abs(c.x) > 6 || Math.abs(c.z) > 6 || c.y < -1 || c.y > 5;
-          const minPoints = cat === 'small' ? 4 : cat === 'light' ? 8 : cat === 'flat' ? 8 : 20;
-          const tinyFlat = isTinyFlatLabel(obj.label);
-          const tooFewPoints = !tinyFlat && points.length < minPoints;
-          const oversize =
-            obb.size.x > 4 || obb.size.y > 3 || obb.size.z > 4;
-          if (farFromRoom || tooFewPoints || oversize) {
-            console.warn(
-              '[objects_3d] reject',
-              obj.label,
-              'far',
-              farFromRoom,
-              'fewPts',
-              tooFewPoints,
-              'oversize',
-              oversize,
-              'kept',
-              points.length,
-              'center',
-              c.toArray().map((v) => +v.toFixed(2)),
-              'size',
-              obb.size.toArray().map((v) => +v.toFixed(2))
+            const obb = fitYawOBB(points, {
+              category: cat,
+              camera: xb.core.camera,
+              anchor: obj.position,
+              box2d,
+              tinyFlat: isTinyFlatLabel(obj.label),
+            });
+            if (!obb) continue;
+            // Reject implausible detections: too far from origin (likely
+            // depth was sampled on a far background through a window/sky),
+            // too few inlier points to trust, or absurd dimensions. The
+            // point-count threshold is category-aware — small objects like
+            // a cup or remote naturally only get a handful of depth samples.
+            const c = obb.center;
+            const farFromRoom =
+              Math.abs(c.x) > 6 || Math.abs(c.z) > 6 || c.y < -1 || c.y > 5;
+            const minPoints =
+              cat === 'small'
+                ? 4
+                : cat === 'light'
+                  ? 8
+                  : cat === 'flat'
+                    ? 8
+                    : 20;
+            const tinyFlat = isTinyFlatLabel(obj.label);
+            const tooFewPoints = !tinyFlat && points.length < minPoints;
+            const oversize = obb.size.x > 4 || obb.size.y > 3 || obb.size.z > 4;
+            if (farFromRoom || tooFewPoints || oversize) {
+              console.warn(
+                '[objects_3d] reject',
+                obj.label,
+                'far',
+                farFromRoom,
+                'fewPts',
+                tooFewPoints,
+                'oversize',
+                oversize,
+                'kept',
+                points.length,
+                'center',
+                c.toArray().map((v) => +v.toFixed(2)),
+                'size',
+                obb.size.toArray().map((v) => +v.toFixed(2))
+              );
+              continue;
+            }
+            boxes.add(
+              buildBoxGroup(
+                obb,
+                obj.label || 'object',
+                CAT_COLOR[cat] || 0x4cd964
+              )
             );
-            continue;
-          }
-          boxes.add(buildBoxGroup(obb, obj.label || 'object', CAT_COLOR[cat] || 0x4cd964));
-          kept++;
+            kept++;
           } catch (e) {
-            console.warn('[objects_3d] per-object pipeline threw for', obj.label, e);
+            console.warn(
+              '[objects_3d] per-object pipeline threw for',
+              obj.label,
+              e
+            );
           }
         }
         setStatus(`fit ${kept} / ${detected.length} oriented boxes`);
