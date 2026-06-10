@@ -101,7 +101,8 @@ evals/
 │       └── <task_id>/
 │           ├── prompt.md
 │           └── spec.json
-├── charts/                     committed PNGs from plot.py
+├── charts/                     local matplotlib output (gitignored,
+│                               published to xrblocks/evals instead)
 └── results/                    per-model results (gitignored, regenerable)
 ```
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Render result charts for the eval. Reads from
 evals/results/<model>/{with-skill,without-skill,judge}/ for every model dir
-present and emits png files under evals/charts/.
+present and emits png files under evals/charts/. The charts directory is
+gitignored locally; the canonical published copies live at
+https://github.com/xrblocks/evals.
 
 Usage:
   python evals/plot.py
