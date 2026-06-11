@@ -98,8 +98,6 @@ export class IconButton extends TextView {
   }
 
   /**
-
-  /**
    * Handles behavior when the cursor hovers over the button.
    */
   onHoverOver() {

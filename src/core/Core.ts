@@ -21,6 +21,7 @@ import {UI} from '../ui/UI';
 import {callInitWithDependencyInjection} from '../utils/DependencyInjection';
 import {loadingSpinnerManager} from '../utils/LoadingSpinnerManager';
 import {traverseUtil} from '../utils/SceneGraphUtils';
+import {warnOnce} from '../utils/utils';
 import {DragManager} from '../ux/DragManager';
 import {World} from '../world/World';
 import {WorldOptions} from '../world/WorldOptions';
@@ -100,7 +101,7 @@ export class Core {
   /** Manages drag-and-drop interactions. */
   dragManager = new DragManager();
 
-  /** Manages drag-and-drop interactions. */
+  /** Manages real-world understanding: planes, meshes, objects, and sounds. */
   world = new World();
 
   /** A shared texture loader. */
@@ -111,7 +112,7 @@ export class Core {
   /** Whether the XR simulator is currently active. */
   simulatorRunning = false;
 
-  renderer!: THREE.WebGLRenderer;
+  private _renderer?: THREE.WebGLRenderer;
   options!: Options;
   deviceCamera?: XRDeviceCamera;
   depth = new Depth();
@@ -136,6 +137,24 @@ export class Core {
   ) => void;
   webXRSessionManager?: WebXRSessionManager;
   permissionsManager = new PermissionsManager();
+
+  /**
+   * The WebGL renderer, created during {@link Core.init}. Reading it before
+   * `init()` has run returns `undefined` and logs a one-time warning.
+   */
+  get renderer(): THREE.WebGLRenderer {
+    if (!this._renderer) {
+      warnOnce(
+        'xb.core.renderer is not available until xb.init() creates it. ' +
+          "Access it in or after your Script's init() method."
+      );
+    }
+    return this._renderer!;
+  }
+
+  set renderer(renderer: THREE.WebGLRenderer) {
+    this._renderer = renderer;
+  }
 
   /**
    * Core is a singleton manager that manages all XR "blocks".
@@ -168,7 +187,6 @@ export class Core {
     this.registry.register(this.ui);
     this.registry.register(this.sound);
     this.registry.register(this.dragManager);
-    this.registry.register(this.user);
     this.registry.register(this.simulator);
     this.registry.register(this.scriptsManager);
     this.registry.register(this.depth);

@@ -119,7 +119,27 @@ export class TextButton extends TextView {
     this.textObj!.raycast = () => {};
   }
 
-  // TODO: Implement onHoverOver() and onHoverOut().
+  /**
+   * Handles behavior when the cursor hovers over the button.
+   */
+  onHoverOver() {
+    if (!this.ux) return;
+    this.update();
+  }
+
+  /**
+   * Handles behavior when the cursor moves off the button.
+   */
+  onHoverOut() {
+    if (!this.ux) return;
+    this.update();
+  }
+
+  /**
+   * Updates the text color and background opacity for the hover and selection
+   * states. The background never drops below its idle opacity, so buttons with
+   * an opaque background only change text color.
+   */
   update() {
     if (!this.textObj) {
       return;
@@ -128,15 +148,21 @@ export class TextButton extends TextView {
     this.textObj.renderOrder = this.renderOrder + 1;
 
     const ux = this.ux;
+    const idleOpacity = this.defaultOpacity * this.opacity;
     if (ux.isHovered()) {
       if (ux.isSelected()) {
         this.setTextColor(this.selectedFontColor);
+        this.uniforms.uOpacity.value = Math.max(
+          this.selectedOpacity,
+          idleOpacity
+        );
       } else {
         this.setTextColor(this.hoverColor);
+        this.uniforms.uOpacity.value = Math.max(this.hoverOpacity, idleOpacity);
       }
     } else {
       this.setTextColor(this.fontColor);
-      this.uniforms.uOpacity.value = this.defaultOpacity * this.opacity;
+      this.uniforms.uOpacity.value = idleOpacity;
     }
   }
 }
