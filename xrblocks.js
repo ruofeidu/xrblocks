@@ -15,8 +15,8 @@
  *
  * @file xrblocks.js
  * @version v0.16.0
- * @commitid 28df634
- * @builddate 2026-06-11T04:25:48.467Z
+ * @commitid ffe55e1
+ * @builddate 2026-06-11T04:34:33.017Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -16118,22 +16118,6 @@ class TextButton extends TextView {
         // Disable raycasting on the text part so it doesn't interfere
         // with the main button geometry's interaction.
         this.textObj.raycast = () => { };
-    }
-    /**
-     * Handles behavior when the cursor hovers over the button.
-     */
-    onHoverOver() {
-        if (!this.ux)
-            return;
-        this.update();
-    }
-    /**
-     * Handles behavior when the cursor moves off the button.
-     */
-    onHoverOut() {
-        if (!this.ux)
-            return;
-        this.update();
     }
     /**
      * Updates the text color and background opacity for the hover and selection

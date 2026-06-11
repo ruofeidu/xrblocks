@@ -15,8 +15,8 @@
  *
  * @file xrblocks.js
  * @version v0.16.0
- * @commitid 28df634
- * @builddate 2026-06-11T04:25:48.467Z
+ * @commitid ffe55e1
+ * @builddate 2026-06-11T04:34:33.017Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -6750,14 +6750,6 @@ declare class TextButton extends TextView {
      * Initializes the text object after async dependencies are loaded.
      */
     init(): Promise<void>;
-    /**
-     * Handles behavior when the cursor hovers over the button.
-     */
-    onHoverOver(): void;
-    /**
-     * Handles behavior when the cursor moves off the button.
-     */
-    onHoverOut(): void;
     /**
      * Updates the text color and background opacity for the hover and selection
      * states. The background never drops below its idle opacity, so buttons with
