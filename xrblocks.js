@@ -15,8 +15,8 @@
  *
  * @file xrblocks.js
  * @version v0.16.0
- * @commitid ffe55e1
- * @builddate 2026-06-11T04:34:33.017Z
+ * @commitid f642cac
+ * @builddate 2026-06-11T04:36:35.731Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -15729,22 +15729,6 @@ class IconButton extends TextView {
         if (this.textObj) {
             this.textObj.renderOrder = this.renderOrder + 1;
         }
-    }
-    /**
-     * Handles behavior when the cursor hovers over the button.
-     */
-    onHoverOver() {
-        if (!this.ux)
-            return;
-        this.update(); // Consolidate logic in update()
-    }
-    /**
-     * Handles behavior when the cursor moves off the button.
-     */
-    onHoverOut() {
-        if (!this.ux)
-            return;
-        this.update(); // Consolidate logic in update()
     }
     /**
      * Updates the button's visual state based on hover and selection status.
