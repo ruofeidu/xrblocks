@@ -996,8 +996,27 @@
         const fovRad = (camera.fov * Math.PI) / 180;
         const frameH = 2 * dist * Math.tan(fovRad / 2);
         const frameW = frameH * camera.aspect;
-        const worldW = bw * frameW;
-        const worldH = bh * frameH;
+        // Same aspect correction as uvToNdc: when the snapshot is
+        // center-cropped to a different aspect than the camera (sim's
+        // 512x512 vs 16:9 camera), a bbox of normalized width 0.5
+        // doesn't actually span half the camera's horizontal FOV — it
+        // spans (snap_aspect / cam_aspect) of it when snap is narrower.
+        // Without this correction the radius was ~78% too wide
+        // horizontally and the rejectByAnchor filter kept extra
+        // background / neighbor points that shouldn't belong to the
+        // object. Reads snapAspect from camera.userData where detect()
+        // stashes it; defaults to camera.aspect (no correction) when
+        // unset, which matches the legacy behaviour.
+        const snapAspect = camera.userData?.snapAspect ?? camera.aspect;
+        let sx = 1;
+        let sy = 1;
+        if (snapAspect < camera.aspect) {
+          sx = snapAspect / camera.aspect;
+        } else if (snapAspect > camera.aspect) {
+          sy = camera.aspect / snapAspect;
+        }
+        const worldW = bw * frameW * sx;
+        const worldH = bh * frameH * sy;
         const halfDiag = 0.5 * Math.hypot(worldW, worldH);
         return Math.min(maxR, Math.max(minR, pad * halfDiag));
       }
