@@ -222,9 +222,9 @@
       <div class="row">
         <label for="detectorSelect">detector</label>
         <select id="detectorSelect">
-          <option value="both">both (best recall)</option>
-          <option value="mediapipe">mediapipe (on-device, COCO)</option>
           <option value="gemini">gemini (cloud, open-vocab)</option>
+          <option value="mediapipe">mediapipe (on-device, COCO)</option>
+          <option value="both">both (union, can double-up)</option>
         </select>
         <label for="maskSelect">mask</label>
         <select id="maskSelect">
@@ -263,15 +263,17 @@
       //   ?mask=segmenter             (MediaPipe InteractiveSegmenter, looser)
       const _qp = new URLSearchParams(window.location.search);
       const _backendParam = _qp.get('backend');
-      // Default to 'both' for the best out-of-the-box demo: runs MediaPipe
-      // (deterministic COCO) and Gemini (open-vocab) and unions the results,
-      // giving the most labels per single press. Falls back to mediapipe via
-      // the selector dropdown if the user has no API key.
+      // Default to 'gemini' for the best out-of-the-box demo: open-vocab
+      // labels with the most fits per single press. 'both' unions Gemini
+      // + MediaPipe but doubles non-overlapping detections (IoU dedupe
+      // only catches near-identical boxes), so it visually adds clutter
+      // without adding accuracy. Falls back to mediapipe via the
+      // selector dropdown if the user has no API key.
       const DETECT_BACKEND = ['gemini', 'mediapipe', 'both'].includes(
         _backendParam
       )
         ? _backendParam
-        : 'both';
+        : 'gemini';
       const MASK_BACKEND =
         _qp.get('mask') === 'segmenter' ? 'segmenter' : 'slimsam';
 
@@ -487,16 +489,23 @@
         box2d,
         stride = 6,
         maxDistance = 12,
-        cameraOverride = null
+        cameraOverride = null,
+        meshOverride = null,
+        snapAspect = null
       ) {
         const points = [];
-        // Prefer the snapshot-time camera passed in over `xb.core.camera`.
-        // Reading `xb.core.camera` here would race the live render loop —
-        // any tiny camera move during the 5–30 s Detect window translates
-        // directly into a horizontal/vertical offset on every fitted box.
+        // Prefer snapshot-time camera + depth-mesh passed in over the live
+        // ones. Reading `xb.core.camera` or the live depth mesh here would
+        // race the render loop: the camera moves with mouse-look / head
+        // pose, and the depth mesh re-poses every frame to track the
+        // current camera. Raycasting frozen rays into a re-posed mesh
+        // produces a systematic offset between the snapshot pixels and
+        // the world-space hit, which is what shows up as boxes that
+        // hover next to objects instead of hugging them.
         const camera = cameraOverride || xb.core.camera;
-        const mesh = xb.core.depth?.depthMesh;
+        const mesh = meshOverride || xb.core.depth?.depthMesh;
         if (!camera || !mesh) return points;
+        const sa = snapAspect ?? camera.userData?.snapAspect ?? camera.aspect;
         const mw = mask.width;
         const mh = mask.height;
         const arr = mask.getAsUint8Array();
@@ -511,7 +520,7 @@
             fg++;
             const u = (px + 0.5) / mw;
             const v = (py + 0.5) / mh;
-            _ndc.set(u * 2 - 1, (1 - v) * 2 - 1);
+            uvToNdc(u, v, sa, camera.aspect, _ndc);
             _raycaster.setFromCamera(_ndc, camera);
             const hits = _raycaster.intersectObject(mesh, false);
             // Cap depth distance: ray can shoot through a window or open
@@ -524,6 +533,71 @@
           }
         }
         return {points, foregroundPixels: fg};
+      }
+
+      // Cast a single ray through the 2D bbox centre using the *frozen*
+      // camera + depth-mesh snapshot to get the world-space anchor that
+      // actually matches the snapshot pixels we masked. The SDK provides
+      // obj.position, but it's computed against the SDK's own internal
+      // camera snapshot taken inside runDetection (milliseconds after
+      // our snapshot), so any live-camera drift in that gap shifts the
+      // anchor and visibly offsets the box. Returns null if the ray
+      // misses the mesh; callers fall back to the SDK anchor.
+      function anchorFromBboxCenter(box2d, camera, mesh, snapAspect = null) {
+        if (!box2d || !camera || !mesh) return null;
+        const sa = snapAspect ?? camera.userData?.snapAspect ?? camera.aspect;
+        const cx = (box2d.min.x + box2d.max.x) * 0.5;
+        const cy = (box2d.min.y + box2d.max.y) * 0.5;
+        uvToNdc(cx, cy, sa, camera.aspect, _ndc);
+        _raycaster.setFromCamera(_ndc, camera);
+        const hits = _raycaster.intersectObject(mesh, false);
+        return hits.length > 0 ? hits[0].point.clone() : null;
+      }
+
+      // Convert a snapshot uv coordinate ([0,1] left-right, top-bottom) to
+      // camera NDC. The simulator (and any source that center-crops the
+      // renderer to a different aspect than the camera) gives us a snapshot
+      // that only covers part of the camera's frustum. Mapping (u, v) ->
+      // (u*2-1, (1-v)*2-1) assumes the snapshot fills the full frustum,
+      // which is only true when their aspects match. The correction:
+      // when snap is narrower than camera the snapshot covers the full
+      // vertical FOV but only (snap_aspect / cam_aspect) of the horizontal
+      // FOV, and vice versa. Without this, every bbox-derived raycast is
+      // pulled outward along the mismatched axis and lands on the wrong
+      // world point.
+      function uvToNdc(u, v, snapAspect, camAspect, out) {
+        const sa = snapAspect ?? camAspect;
+        let sx = 1;
+        let sy = 1;
+        if (sa < camAspect) {
+          sx = sa / camAspect;
+        } else {
+          sy = camAspect / sa;
+        }
+        out.set((u * 2 - 1) * sx, ((1 - v) * 2 - 1) * sy);
+        return out;
+      }
+
+      // Clone the live depth mesh into a static snapshot mesh that won't
+      // re-pose during the Detect window. Mirrors the SDK's internal
+      // `getDepthMeshSnapshot` (src/world/objects/ObjectDetector.ts) so
+      // every per-detection raycast hits the exact mesh state the
+      // snapshot pixels correspond to.
+      function snapshotDepthMesh() {
+        const live = xb.core.depth?.depthMesh;
+        if (!live || !live.geometry) return null;
+        const clonedGeom = live.geometry.clone();
+        clonedGeom.computeBoundingSphere();
+        clonedGeom.computeBoundingBox();
+        const snap = new THREE.Mesh(
+          clonedGeom,
+          new THREE.MeshBasicMaterial({visible: false})
+        );
+        live.getWorldPosition(snap.position);
+        live.getWorldQuaternion(snap.quaternion);
+        live.getWorldScale(snap.scale);
+        snap.updateMatrixWorld(true);
+        return snap;
       }
 
       // Multi-frame averaging wrapper. Each call to sampleDepthInMask reads
@@ -542,20 +616,25 @@
         box2d,
         stride = 6,
         frames = 3,
-        cameraOverride = null
+        cameraOverride = null,
+        meshOverride = null,
+        snapAspect = null
       ) {
-        // With a frozen camera, multi-frame averaging would hurt: the depth
-        // mesh keeps tracking the live camera, so successive frames sample
-        // different mesh states with the same rays. Take a single snapshot
-        // if we have a frozen camera, otherwise fall back to the multi-frame
-        // average that gave us some jitter reduction before.
-        if (cameraOverride) {
+        // With a frozen camera + depth-mesh snapshot, multi-frame averaging
+        // is unnecessary and counterproductive: the snapshot already gives
+        // us a stable mesh state, and successive frames of the *live* mesh
+        // would only re-introduce the drift we just fixed. Take a single
+        // sample when overrides are provided, fall back to multi-frame
+        // accumulation only when neither override is set.
+        if (cameraOverride || meshOverride) {
           const {points, foregroundPixels} = sampleDepthInMask(
             mask,
             box2d,
             stride,
             12,
-            cameraOverride
+            cameraOverride,
+            meshOverride,
+            snapAspect
           );
           return {points, foregroundPixels};
         }
@@ -611,7 +690,16 @@
       // sample count, union the extents to enclose both observations, and
       // increment the sample counter so further presses converge.
       function fuseIntoBoxes(newObb, label, cat) {
-        const half = (s) => Math.max(s.x, s.y, s.z) * 0.5 + 0.15; // 15 cm grace
+        // Use the average of the three half-dims as the merge radius
+        // contribution, not max(...) + 15cm. Max-based grace overcounts
+        // for spherical/cubic small objects (a 30cm pendant lamp gives
+        // 30cm radius, so two lamps spaced under 60cm always merge into
+        // one box even though they're distinct fixtures). Average-based
+        // shrinks the radius for compact objects while keeping it
+        // generous for elongated furniture, which is what fusion needs:
+        // press-again from a different angle of *the same* sofa should
+        // still merge, but two adjacent lamps shouldn't.
+        const half = (s) => (s.x + s.y + s.z) / 6;
         for (const g of boxes.children) {
           const u = g.userData || {};
           if (u.cat !== cat) continue;
@@ -875,11 +963,28 @@
       // metres from the median.
       function rejectByDepth(points, camera, tol) {
         if (!camera || points.length < 4) return points;
-        const ds = points.map((p) => p.distanceTo(camera));
+        const ds = points.map((p) => p.distanceTo(camera.position));
         const sorted = ds.slice().sort((a, b) => a - b);
         const med = sorted[Math.floor(sorted.length / 2)];
         const kept = points.filter((_, i) => Math.abs(ds[i] - med) < tol);
         return kept.length >= 6 ? kept : points;
+      }
+
+      // Like rejectByDepth but anchors against the SDK's bbox-centre
+      // raycast hit instead of the median sample distance. Critical when
+      // the SAM mask leaks badly onto the floor or wall: the median
+      // depth then *is* the floor/wall, so a median-based filter keeps
+      // the bleed. The anchor is set from the original 2D bbox centre
+      // and is close to the real object depth even when the mask is
+      // dominated by background pixels. Falls through to the filtered
+      // set when it's small so downstream point-count rejects the
+      // detection instead of silently using the bad points.
+      function rejectByAnchorDepth(points, camera, anchor, tol) {
+        if (!camera || !anchor || points.length < 4) return points;
+        const anchorDist = camera.position.distanceTo(anchor);
+        return points.filter(
+          (p) => Math.abs(p.distanceTo(camera.position) - anchorDist) < tol
+        );
       }
 
       // Keep only points within ±dy of the median Y. Used for hanging
@@ -941,7 +1046,7 @@
       const _bboxNdc = new THREE.Vector2();
       const _diff = new THREE.Vector3();
       function rayToPlane(u, v, camera, planePoint, planeNormal) {
-        _bboxNdc.set(u * 2 - 1, (1 - v) * 2 - 1);
+        uvToNdc(u, v, camera.userData?.snapAspect, camera.aspect, _bboxNdc);
         _bboxRay.setFromCamera(_bboxNdc, camera);
         const denom = _bboxRay.ray.direction.dot(planeNormal);
         if (Math.abs(denom) < 1e-6) return null;
@@ -1025,7 +1130,7 @@
         const cam = opts.camera;
         const cx = (opts.box2d.min.x + opts.box2d.max.x) * 0.5;
         const cy = (opts.box2d.min.y + opts.box2d.max.y) * 0.5;
-        _tfNdc.set(cx * 2 - 1, (1 - cy) * 2 - 1);
+        uvToNdc(cx, cy, cam.userData?.snapAspect, cam.aspect, _tfNdc);
         _tfRay.setFromCamera(_tfNdc, cam);
         const o = _tfRay.ray.origin,
           d = _tfRay.ray.direction;
@@ -1267,7 +1372,7 @@
       function fitLightOBB(points, opts) {
         if (points.length < 6) return null;
         // Tight depth filter (5cm) — lampshade is roughly planar in depth.
-        const tight = rejectByDepth(points, opts.camera.position, 0.1);
+        const tight = rejectByDepth(points, opts.camera, 0.1);
         return fitFurnitureOBB(tight);
       }
 
@@ -1534,9 +1639,33 @@
           return;
         }
         setStatus('detecting…');
-        // Freeze the camera state at detect start. All subsequent raycasts
-        // use this clone so the boxes don't drift if the user (or the sim
-        // mouse-look) moves the live camera during the multi-second detect.
+        // Capture pixels first, then freeze the camera. Two reasons:
+        //   1. getSnapshot reads the current video frame, which itself
+        //      reflects the camera at the most recent render. Freezing
+        //      *after* the snapshot returns minimises drift between the
+        //      pixels and the camera matrices we'll raycast with.
+        //   2. We only call getSnapshot once and derive base64 from the
+        //      same imageData via canvas. The previous code called
+        //      getSnapshot twice (base64 then imageData), each of which
+        //      awaits and may end up reading two *different* video
+        //      frames, so SAM and the detectors would see different
+        //      pixels. One drawImage, one frame, two formats.
+        const snapImageData = await xb.core.deviceCamera.getSnapshot({
+          outputFormat: 'imageData',
+        });
+        if (!snapImageData) {
+          setStatus('no camera frame');
+          return;
+        }
+        const _b64Canvas = document.createElement('canvas');
+        _b64Canvas.width = snapImageData.width;
+        _b64Canvas.height = snapImageData.height;
+        _b64Canvas.getContext('2d').putImageData(snapImageData, 0, 0);
+        const snapBase64 = _b64Canvas.toDataURL('image/jpeg', 0.9);
+        // Now freeze the camera. State here reflects whatever the live
+        // camera became *after* the snapshot's drawImage finished, which
+        // is at most one render-loop tick later — close enough that the
+        // pixels and the matrix represent the same view.
         const liveCam = xb.core.camera;
         const frozenCam = liveCam.clone();
         frozenCam.matrixAutoUpdate = false;
@@ -1548,6 +1677,46 @@
         frozenCam.projectionMatrixInverse.copy(liveCam.projectionMatrixInverse);
         frozenCam.position.copy(liveCam.position);
         frozenCam.quaternion.copy(liveCam.quaternion);
+        // Diagnostic: if the snapshot aspect doesn't match the camera
+        // aspect, bbox-centre → NDC conversion will systematically miss
+        // along the mismatched axis (uvToNdc corrects for this; the warn
+        // is here so a regression in the correction surfaces quickly).
+        // Fire once per session: the simulator setup is constant, and
+        // logging on every Detect press is just noise after the first.
+        const snapAspect = snapImageData.width / snapImageData.height;
+        if (
+          !window._aspectWarned &&
+          Math.abs(snapAspect - liveCam.aspect) > 0.02
+        ) {
+          window._aspectWarned = true;
+          console.info(
+            '[objects_3d] snapshot vs camera aspect mismatch (corrected by uvToNdc)',
+            'snap',
+            snapImageData.width + 'x' + snapImageData.height,
+            '(' + snapAspect.toFixed(3) + ')',
+            'cam',
+            liveCam.aspect.toFixed(3)
+          );
+        }
+        // Stash the snapshot aspect on the frozen camera so every helper
+        // that has the camera (rayToPlane, fitTinyFlatOBB, etc.) can do
+        // the snapshot-vs-camera NDC correction without explicit threading.
+        frozenCam.userData.snapAspect = snapAspect;
+        // Snapshot the depth mesh in the same tick as the camera freeze
+        // so all three (pixels, camera, depth geometry) are coherent.
+        const frozenDepthMesh = snapshotDepthMesh();
+        if (!frozenDepthMesh) {
+          setStatus('no depth mesh');
+          return;
+        }
+        const _origGetSnapshot = xb.core.deviceCamera.getSnapshot.bind(
+          xb.core.deviceCamera
+        );
+        xb.core.deviceCamera.getSnapshot = async (opts) => {
+          if (opts?.outputFormat === 'base64') return snapBase64;
+          if (opts?.outputFormat === 'imageData') return snapImageData;
+          return _origGetSnapshot(opts);
+        };
         let detected = [];
         try {
           if (DETECT_BACKEND === 'both') {
@@ -1570,6 +1739,7 @@
         } catch (e) {
           console.warn('[objects_3d] detection threw', e);
           setStatus('detection failed (see console)');
+          xb.core.deviceCamera.getSnapshot = _origGetSnapshot;
           return;
         }
         console.log(
@@ -1587,6 +1757,7 @@
         );
         if (!detected.length) {
           setStatus('nothing detected');
+          xb.core.deviceCamera.getSnapshot = _origGetSnapshot;
           return;
         }
         // Multi-view fusion: keep existing boxes across Detect presses so
@@ -1603,16 +1774,13 @@
           } catch (e) {
             console.warn('[objects_3d] sam init failed', e);
             setStatus('sam failed to load (see console)');
+            xb.core.deviceCamera.getSnapshot = _origGetSnapshot;
             return;
           }
         }
-        const snapshot = await xb.core.deviceCamera.getSnapshot({
-          outputFormat: 'imageData',
-        });
-        if (!snapshot) {
-          setStatus('no camera frame');
-          return;
-        }
+        // Reuse the same imageData snapshot captured before runDetection so
+        // SAM masks line up exactly with the bboxes the detectors returned.
+        const snapshot = snapImageData;
         if (MASK_BACKEND === 'slimsam') {
           setStatus('encoding snapshot…');
           try {
@@ -1620,9 +1788,14 @@
           } catch (e) {
             console.warn('[objects_3d] sam encoder failed', e);
             setStatus('sam encoding failed (see console)');
+            xb.core.deviceCamera.getSnapshot = _origGetSnapshot;
             return;
           }
         }
+        // Restore the original snapshot getter; everything downstream
+        // (fitting, raycasting) uses the cached pixel data and the frozen
+        // camera, so there's no need to keep the monkey-patch active.
+        xb.core.deviceCamera.getSnapshot = _origGetSnapshot;
         setStatus('fitting boxes…');
         const floorY = estimateFloorY();
         let kept = 0;
@@ -1654,8 +1827,27 @@
               continue;
             }
             const {points: raw, foregroundPixels} =
-              await sampleDepthInMaskAcrossFrames(mask, box2d, 6, 3, frozenCam);
+              await sampleDepthInMaskAcrossFrames(
+                mask,
+                box2d,
+                6,
+                3,
+                frozenCam,
+                frozenDepthMesh,
+                snapAspect
+              );
             mask.close();
+            // Recompute the anchor ourselves through the frozen camera +
+            // frozen depth mesh so it lines up with the snapshot pixels.
+            // Falls back to the SDK anchor when the bbox-centre ray
+            // misses the mesh (e.g. the centre falls on a thin gap).
+            const anchor =
+              anchorFromBboxCenter(
+                box2d,
+                frozenCam,
+                frozenDepthMesh,
+                snapAspect
+              ) || obj.position;
             const cat = categorize(obj.label);
             // Category-specific outlier rejection. Flats skip upfront rejection
             // entirely so RANSAC sees the full point set and finds the
@@ -1667,23 +1859,23 @@
               // Wall switches / outlets / small fixtures: tight ball, but
               // back off the bbox-derived size to under 0.3m for the truly
               // tiny objects this category targets.
-              const r = radiusFromBbox(box2d, frozenCam, obj.position, {
+              const r = radiusFromBbox(box2d, frozenCam, anchor, {
                 pad: 1.1,
                 minR: 0.12,
                 maxR: 0.3,
                 fallback: 0.25,
               });
-              points = rejectByAnchor(raw, obj.position, r);
+              points = rejectByAnchor(raw, anchor, r);
             } else if (cat === 'light') {
               // Hanging fixtures: bbox-derived ball, then tight Y cluster to
               // drop cord/ceiling stragglers that share x/z with the shade.
-              const r = radiusFromBbox(box2d, frozenCam, obj.position, {
+              const r = radiusFromBbox(box2d, frozenCam, anchor, {
                 pad: 1.2,
                 minR: 0.2,
                 maxR: 0.7,
                 fallback: 0.5,
               });
-              points = rejectByY(rejectByAnchor(raw, obj.position, r), 0.15);
+              points = rejectByY(rejectByAnchor(raw, anchor, r), 0.15);
             } else {
               // Furniture: ball radius scales with the 2D detection's
               // angular extent projected to the anchor's depth. A small
@@ -1691,22 +1883,50 @@
               // matched to their on-screen size, instead of one fixed 1.4 m
               // bucket that grabs walls in tight rooms and crops wide
               // pieces in big ones.
-              const r = radiusFromBbox(box2d, frozenCam, obj.position, {
+              const r = radiusFromBbox(box2d, frozenCam, anchor, {
                 pad: 1.3,
                 minR: 0.4,
                 maxR: 2.0,
                 fallback: 1.0,
               });
-              points = rejectByAnchor(raw, obj.position, r);
+              // Depth-cluster filter first: when the SAM mask bleeds onto
+              // the floor (common for big furniture against a busy ground),
+              // depth samples fan across many metres. Anchor the filter
+              // against the bbox-centre depth (not median, which
+              // becomes the floor itself when the mask leaks heavily).
+              // Tolerance is the bbox-derived radius, the same physical
+              // scale the object should occupy at this distance.
+              const depthFiltered = rejectByAnchorDepth(
+                raw,
+                frozenCam,
+                anchor,
+                r
+              );
+              points = rejectByAnchor(depthFiltered, anchor, r);
             }
             const obb = fitYawOBB(points, {
               category: cat,
               camera: frozenCam,
-              anchor: obj.position,
+              anchor: anchor,
               box2d,
               tinyFlat: isTinyFlatLabel(obj.label),
             });
-            if (!obb) continue;
+            if (!obb) {
+              // Most common cause: rejectByAnchor / rejectByAnchorDepth
+              // dropped too many points for fitFurnitureOBB's 6-point
+              // minimum. Log enough to triage but don't spam the user.
+              console.info(
+                '[objects_3d] no obb',
+                obj.label,
+                'cat',
+                cat,
+                'rawPts',
+                raw.length,
+                'keptPts',
+                points.length
+              );
+              continue;
+            }
             // Floor snap for ground-resting categories. Furniture and small
             // objects always sit on a surface (chair on floor, mug on
             // table). Flats are wall-mounted at arbitrary heights so they
@@ -1717,9 +1937,15 @@
             }
             // Reject implausible detections: too far from origin (likely
             // depth was sampled on a far background through a window/sky),
-            // too few inlier points to trust, or absurd dimensions. The
-            // point-count threshold is category-aware — small objects like
-            // a cup or remote naturally only get a handful of depth samples.
+            // too few inlier points to trust, absurd dimensions, or a
+            // degenerate fit. Degenerate = a non-flat category fit to an
+            // essentially planar point cloud (Y is a tiny fraction of the
+            // larger horizontal extent). That's the floor-bleed signature:
+            // the SAM mask missed the actual object and grabbed ground
+            // pixels, so PCA produced a wide thin sheet labelled "couch".
+            // The point-count threshold is category-aware: small objects
+            // like a cup or remote naturally only get a handful of depth
+            // samples.
             const c = obb.center;
             const farFromRoom =
               Math.abs(c.x) > 6 || Math.abs(c.z) > 6 || c.y < -1 || c.y > 5;
@@ -1734,7 +1960,10 @@
             const tinyFlat = isTinyFlatLabel(obj.label);
             const tooFewPoints = !tinyFlat && points.length < minPoints;
             const oversize = obb.size.x > 4 || obb.size.y > 3 || obb.size.z > 4;
-            if (farFromRoom || tooFewPoints || oversize) {
+            const horizMax = Math.max(obb.size.x, obb.size.z);
+            const degenerate =
+              cat !== 'flat' && horizMax > 0.5 && obb.size.y / horizMax < 0.1;
+            if (farFromRoom || tooFewPoints || oversize || degenerate) {
               console.warn(
                 '[objects_3d] reject',
                 obj.label,
@@ -1744,6 +1973,8 @@
                 tooFewPoints,
                 'oversize',
                 oversize,
+                'degenerate',
+                degenerate,
                 'kept',
                 points.length,
                 'center',
@@ -1768,13 +1999,20 @@
             console.warn(
               '[objects_3d] per-object pipeline threw for',
               obj.label,
-              e
+              e?.message || String(e),
+              e?.stack || ''
             );
           }
         }
         setStatus(
           `fit ${kept} / ${detected.length} oriented boxes (press again from a new angle to refine)`
         );
+        // Release the depth-mesh snapshot's GPU buffers. Geometry is a
+        // clone of the live mesh's geometry, material is a fresh basic
+        // material owned by the snapshot.
+        frozenDepthMesh.geometry.dispose();
+        if (frozenDepthMesh.material?.dispose)
+          frozenDepthMesh.material.dispose();
       }
 
       const options = new xb.Options();
