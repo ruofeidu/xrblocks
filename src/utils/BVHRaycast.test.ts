@@ -117,4 +117,27 @@ describe('BVHRaycast', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((batched.geometry as any).boundsTree).toBeUndefined();
   });
+
+  it('applyBVH applies the right policy to a mixed tree of Mesh + SkinnedMesh + InstancedMesh + BatchedMesh + non-mesh in a single call', async () => {
+    const root = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry());
+    const skinned = new THREE.SkinnedMesh(new THREE.BoxGeometry());
+    const instanced = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(),
+      new THREE.MeshBasicMaterial(),
+      4
+    );
+    const batched = new THREE.BatchedMesh(1, 8, 12);
+    const nonMesh = new THREE.Object3D();
+    root.add(mesh, skinned, instanced, batched, nonMesh);
+    await applyBVH(root);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((mesh.geometry as any).boundsTree).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((skinned.geometry as any).boundsTree).toBeUndefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((instanced.geometry as any).boundsTree).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((batched.geometry as any).boundsTree).toBeUndefined();
+  });
 });
