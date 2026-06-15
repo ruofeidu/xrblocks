@@ -107,6 +107,14 @@ export async function enableAcceleratedRaycast(): Promise<boolean> {
  * overrides the patched `Mesh.prototype.raycast` and does its own CPU
  * skinning, so the BVH would never be consulted anyway.
  *
+ * Skips `THREE.BatchedMesh`: three-mesh-bvh ships a dedicated
+ * `computeBatchedBoundsTree` / `disposeBatchedBoundsTree` pair that
+ * builds per-draw-range BVHs on `this.boundsTrees` (plural), and
+ * `acceleratedRaycast` has a separate `isBatchedMesh` branch that
+ * consults those. The standard `computeBoundsTree` would index the
+ * combined batched buffer and produce wrong hits. Conservative skip
+ * until the batched helpers are wired up.
+ *
  * `THREE.InstancedMesh` is NOT skipped: its `.raycast()` calls a
  * shared internal `Mesh` per instance, which does route through the
  * patched `Mesh.prototype.raycast`, so a BVH on the shared geometry
@@ -125,6 +133,7 @@ export async function applyBVH(
     if (
       obj instanceof THREE.Mesh &&
       !(obj instanceof THREE.SkinnedMesh) &&
+      !(obj instanceof THREE.BatchedMesh) &&
       obj.geometry
     ) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

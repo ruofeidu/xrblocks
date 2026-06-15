@@ -108,4 +108,13 @@ describe('BVHRaycast', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((inst.geometry as any).boundsTree).toBeDefined();
   });
+
+  it('applyBVH skips BatchedMesh (three-mesh-bvh needs the batched-specific helpers)', async () => {
+    const root = new THREE.Group();
+    const batched = new THREE.BatchedMesh(1, 8, 12);
+    root.add(batched);
+    await applyBVH(root);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((batched.geometry as any).boundsTree).toBeUndefined();
+  });
 });
