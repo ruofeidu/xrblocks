@@ -374,9 +374,10 @@ export class FaceMirror extends xb.Script {
         width: 180,
       });
       const track = new UIPanel({
-        flex: 1,
+        flexGrow: 1,
+        flexShrink: 1,
         height: 10,
-        fillColor: 'rgba(255, 255, 255, 0.08)',
+        fillColor: 'rgba(255, 255, 255, 0.15)',
         cornerRadius: 5,
         flexDirection: 'row',
         alignItems: 'stretch',
