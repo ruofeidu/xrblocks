@@ -3,17 +3,19 @@ import {getCameraParametersSnapshot} from '../../camera/CameraUtils';
 import {XRDeviceCamera} from '../../camera/XRDeviceCamera';
 import {Script} from '../../core/Script';
 import {Depth} from '../../depth/Depth';
-import {enableAcceleratedRaycast} from '../../utils/BVHRaycast';
+import {enableAcceleratedRaycast, isBVHReady} from '../../utils/BVHRaycast';
 import {WorldOptions} from '../WorldOptions';
 import {DetectedFace} from './DetectedFace';
 import {BaseFaceBackend, FaceBackendContext} from './FaceDetectorBackend';
 import {MediaPipeFaceBackend} from './backends/MediaPipeFaceBackend';
 
-// Install the BVH-accelerated raycast prototype patches at module
+// Kick off the BVH-accelerated raycast prototype patches at module
 // load so the per-landmark raycasts inside processFaceLandmarkerResult
-// go through the accelerated path. enableAcceleratedRaycast is
-// idempotent across modules so this is safe even if another subsystem
-// already called it.
+// go through the accelerated path. Fire-and-forget: the helper loads
+// three-mesh-bvh dynamically and the SDK keeps working even if the
+// module isn't installed or in the importmap (raycasts fall back to
+// the stock walker). idempotent across modules so multiple subsystems
+// can ping it safely.
 //
 // FaceLandmarker emits 478 landmarks per face and we raycast each one
 // against the depth-mesh snapshot. Stock three.js is O(triangles) per
@@ -188,12 +190,16 @@ export class FaceRecognizer extends Script {
     const clonedGeometry = geometry.clone();
     clonedGeometry.computeBoundingSphere();
     clonedGeometry.computeBoundingBox();
-    // Build a BVH over the cloned depth-mesh geometry so the per-
-    // landmark raycasts inside processFaceLandmarkerResult go through
-    // the BVH-accelerated path instead of walking every triangle 478
-    // times.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (clonedGeometry as any).computeBoundsTree();
+    // Build a BVH over the cloned depth-mesh geometry when three-mesh-bvh
+    // is available so the per-landmark raycasts inside
+    // processFaceLandmarkerResult go through the BVH-accelerated path
+    // instead of walking every triangle 478 times. If BVH isn't ready
+    // yet (dynamic import in flight or three-mesh-bvh not installed),
+    // we skip computeBoundsTree and the stock raycaster takes over.
+    if (isBVHReady()) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (clonedGeometry as any).computeBoundsTree();
+    }
     const depthMeshSnapshot = new THREE.Mesh(
       clonedGeometry,
       new THREE.MeshBasicMaterial()
