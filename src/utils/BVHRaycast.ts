@@ -112,7 +112,12 @@ export async function applyBVH(
   const ok = await enableAcceleratedRaycast();
   if (!ok) return;
   const visit = (obj: THREE.Object3D) => {
-    if (obj instanceof THREE.Mesh && obj.geometry) {
+    if (
+      obj instanceof THREE.Mesh &&
+      !(obj instanceof THREE.SkinnedMesh) &&
+      !(obj instanceof THREE.InstancedMesh) &&
+      obj.geometry
+    ) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const geom = obj.geometry as any;
       if (!geom.boundsTree && typeof geom.computeBoundsTree === 'function') {

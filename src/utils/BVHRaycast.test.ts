@@ -86,4 +86,26 @@ describe('BVHRaycast', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((m.geometry as any).boundsTree).toBeFalsy();
   });
+
+  it('applyBVH skips SkinnedMesh subclasses (they override raycast on their own prototype, so BVH would be ignored anyway)', async () => {
+    const root = new THREE.Group();
+    const skinned = new THREE.SkinnedMesh(new THREE.BoxGeometry());
+    root.add(skinned);
+    await applyBVH(root);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((skinned.geometry as any).boundsTree).toBeUndefined();
+  });
+
+  it('applyBVH skips InstancedMesh subclasses (same prototype-override reasoning)', async () => {
+    const root = new THREE.Group();
+    const inst = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(),
+      new THREE.MeshBasicMaterial(),
+      4
+    );
+    root.add(inst);
+    await applyBVH(root);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((inst.geometry as any).boundsTree).toBeUndefined();
+  });
 });
