@@ -91,19 +91,22 @@ export async function enableAcceleratedRaycast(): Promise<boolean> {
 
 /**
  * Walk the given object3D (recursively) and build a bounds tree on
- * every mesh's geometry that doesn't already have one. After this
- * call any `raycaster.intersectObject(root, true)` against the tree
- * goes through the BVH-accelerated path instead of walking every
- * triangle per ray.
+ * every standard `THREE.Mesh` whose geometry doesn't already have one.
+ * Subsequent `raycaster.intersectObject(root, true)` calls then go
+ * through the BVH-accelerated path.
  *
- * Use this on the root of a scene (or sub-tree) that the SDK's
- * interaction raycaster walks every frame. The build cost is
- * proportional to total triangle count and happens once per geometry.
+ * Use on dense, static environmental meshes only (loaded immersive
+ * scenes, photogrammetry scans, baked levels). The tree has a one-time
+ * build + memory cost and assumes static vertices, so it's a net loss
+ * for low-poly / UI / dynamic meshes. Don't apply globally to
+ * `xb.core.scene`.
  *
- * Async because it awaits the dynamic import of three-mesh-bvh. If
- * the module isn't available, this is a no-op. Geometries that
- * already have a `boundsTree` are left alone so repeat calls are
- * idempotent.
+ * Skips `THREE.SkinnedMesh` and `THREE.InstancedMesh` since both
+ * override `.raycast()` on their own prototypes, so a BVH would never
+ * be consulted for them.
+ *
+ * Async because it awaits the dynamic import of three-mesh-bvh. If the
+ * module isn't available, this is a no-op. Idempotent across calls.
  */
 export async function applyBVH(
   root: THREE.Object3D,
