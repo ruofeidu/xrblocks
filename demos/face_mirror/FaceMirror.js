@@ -378,6 +378,13 @@ export class FaceMirror extends xb.Script {
         height: 10,
         fillColor: 'rgba(255, 255, 255, 0.08)',
         cornerRadius: 5,
+        // Anchor children to the left so the fill grows rightward from
+        // 0%. Without this the fill (which has an explicit width) is
+        // centered in the track and visibly bleeds past the left edge
+        // as the bar grows.
+        flexDirection: 'row',
+        justifyContent: 'flex-start',
+        alignItems: 'flex-start',
       });
       const fill = new UIPanel({
         width: '0%',
