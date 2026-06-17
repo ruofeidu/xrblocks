@@ -101,4 +101,25 @@ describe('HandPose Inverse Kinematics (IK)', () => {
       computedRotations['index-finger-phalanx-intermediate']!;
     expect(computedPipRot[0]).toBeCloseTo(0, 1e-4);
   });
+
+  it('should handle degenerate (all-zero or coincident) keypoints gracefully without NaNs', () => {
+    // Create degenerate joints (all zero positions)
+    const degenerateJoints = HAND_JOINT_NAMES.map(() => ({
+      t: [0, 0, 0],
+      r: [0, 0, 0, 1],
+    }));
+
+    const computedRotations = resolveSimulatorRotationsFromKeypoints(
+      Handedness.LEFT,
+      degenerateJoints,
+      false
+    );
+
+    // Verify all returned rotations are valid numbers (no NaNs)
+    for (const rotations of Object.values(computedRotations)) {
+      expect(rotations[0]).not.toBeNaN();
+      expect(rotations[1]).not.toBeNaN();
+      expect(rotations[2]).not.toBeNaN();
+    }
+  });
 });

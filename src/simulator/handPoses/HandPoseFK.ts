@@ -279,7 +279,17 @@ export function resolveSimulatorRotationsFromKeypoints(
     const temp = new THREE.Vector3()
       .subVectors(indexMcpPos, wristPos)
       .normalize();
-    const zAxis = new THREE.Vector3().crossVectors(yAxis, temp).normalize();
+
+    if (yAxis.lengthSq() < 1e-8 || temp.lengthSq() < 1e-8) {
+      return new THREE.Quaternion();
+    }
+
+    const zAxis = new THREE.Vector3().crossVectors(yAxis, temp);
+    if (zAxis.lengthSq() < 1e-8) {
+      return new THREE.Quaternion();
+    }
+    zAxis.normalize();
+
     const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
 
     const matrix = new THREE.Matrix4();
