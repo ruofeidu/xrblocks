@@ -7,6 +7,7 @@ import {
   type EmbodiedControlOptions,
   type EmbodiedControlStep,
   type EmbodiedControlStepResult,
+  type XRCompoundControl,
 } from './EmbodiedControlTypes';
 
 export class EmbodiedControl extends Script {
@@ -52,6 +53,13 @@ export class EmbodiedControl extends Script {
       throw new Error('EmbodiedControl is not initialized.');
     }
     return this.executor.step(step);
+  }
+
+  applyControl(control: XRCompoundControl) {
+    if (!this.executor) {
+      throw new Error('EmbodiedControl is not initialized.');
+    }
+    this.executor.applyControl(control);
   }
 
   get busy() {

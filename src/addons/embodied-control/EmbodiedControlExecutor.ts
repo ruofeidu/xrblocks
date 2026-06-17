@@ -9,6 +9,7 @@ import {
 
 import {
   DEFAULT_EMBODIED_CONTROL_OPTIONS,
+  type XRCompoundControl,
   type EmbodiedControlExecutorOptions,
   type EmbodiedControlObservation,
   type EmbodiedControlOptions,
@@ -88,6 +89,17 @@ export class EmbodiedControlExecutor {
     return this.activeStep;
   }
 
+  applyControl(control: XRCompoundControl) {
+    if (this.activeStep) {
+      throw new EmbodiedControlBusyError();
+    }
+    this.applyControlFraction(
+      control,
+      1,
+      this.dependencies.camera.quaternion.clone()
+    );
+  }
+
   async step(step: EmbodiedControlStep): Promise<EmbodiedControlStepResult> {
     if (this.activeStep) {
       throw new EmbodiedControlBusyError();
@@ -102,9 +114,6 @@ export class EmbodiedControlExecutor {
       const initialCameraQuaternion =
         this.dependencies.camera.quaternion.clone();
 
-      this.applyInstantHandControls(step.control.leftHand, 0);
-      this.applyInstantHandControls(step.control.rightHand, 1);
-
       let screenshotPromise: Promise<string> | undefined;
       for (let i = 0; i < stepCount; i++) {
         const remainingMs = Math.max(0, durationMs - elapsedMs);
@@ -114,13 +123,11 @@ export class EmbodiedControlExecutor {
             : Math.min(tickMs, remainingMs);
         const fraction = durationMs > 0 ? currentTickMs / durationMs : 1;
 
-        this.applyLocomotion(
-          step.control.locomotion,
+        this.applyControlFraction(
+          step.control,
           fraction,
           initialCameraQuaternion
         );
-        this.applyHandMotion(step.control.leftHand, 0, fraction);
-        this.applyHandMotion(step.control.rightHand, 1, fraction);
 
         if (this.options.includeScreenshot && i === stepCount - 1) {
           screenshotPromise =
@@ -143,6 +150,18 @@ export class EmbodiedControlExecutor {
     } finally {
       this.activeStep = false;
     }
+  }
+
+  private applyControlFraction(
+    control: XRCompoundControl,
+    fraction: number,
+    initialCameraQuaternion: THREE.Quaternion
+  ) {
+    this.applyInstantHandControls(control.leftHand, 0);
+    this.applyInstantHandControls(control.rightHand, 1);
+    this.applyLocomotion(control.locomotion, fraction, initialCameraQuaternion);
+    this.applyHandMotion(control.leftHand, 0, fraction);
+    this.applyHandMotion(control.rightHand, 1, fraction);
   }
 
   private applyLocomotion(
