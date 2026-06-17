@@ -1,0 +1,215 @@
+import * as THREE from 'three';
+import * as xb from 'xrblocks';
+
+import {SegmenterController} from './SegmenterController.js';
+
+// Backdrop modes for the cut-out background.
+//   0 = passthrough: background pixels are discarded so you see straight
+//       through the window to the real world behind it.
+//   1 = solid:       background replaced with a flat colour.
+//   2 = gradient:    background replaced with a vertical gradient.
+export const Backdrop = {
+  Passthrough: 0,
+  Solid: 1,
+  Gradient: 2,
+};
+
+const BACKDROP_PRESETS = [
+  {mode: Backdrop.Gradient, a: '#1d2b53', b: '#7e2553'},
+  {mode: Backdrop.Gradient, a: '#0b486b', b: '#3b8686'},
+  {mode: Backdrop.Solid, a: '#00b140', b: '#00b140'},
+  {mode: Backdrop.Passthrough, a: '#000000', b: '#000000'},
+];
+
+const VERTEX_SHADER = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const FRAGMENT_SHADER = /* glsl */ `
+  precision highp float;
+  varying vec2 vUv;
+  uniform sampler2D uCamera;
+  uniform sampler2D uMask;
+  uniform int uBackdrop;
+  uniform vec3 uColorA;
+  uniform vec3 uColorB;
+  uniform float uHasMask;
+
+  void main() {
+    vec3 cam = texture2D(uCamera, vUv).rgb;
+    // The camera texture uses GL flipY; the mask DataTexture does not, so
+    // flip the mask's v to line the two up.
+    float id = texture2D(uMask, vec2(vUv.x, 1.0 - vUv.y)).r * 255.0;
+    // Until the first mask arrives, show the raw feed. Category 0 is the
+    // background; everything else is a person.
+    bool isPerson = (uHasMask < 0.5) || (id >= 0.5);
+    if (isPerson) {
+      gl_FragColor = vec4(cam, 1.0);
+      return;
+    }
+    if (uBackdrop == 0) {
+      discard;
+    }
+    vec3 bg = (uBackdrop == 2) ? mix(uColorA, uColorB, vUv.y) : uColorA;
+    gl_FragColor = vec4(bg, 1.0);
+  }
+`;
+
+export class MagicWindow extends xb.Script {
+  constructor() {
+    super();
+    this.segmenter = new SegmenterController();
+    this.frameCanvas = document.createElement('canvas');
+    this.frameCtx = this.frameCanvas.getContext('2d', {
+      willReadFrequently: true,
+    });
+    this.cameraTexture = null;
+    this.maskTexture = null;
+    this.plane = null;
+    this.material = null;
+    this.backdropIndex = 0;
+    this.lastGrabMs_ = 0;
+    this.grabbing_ = false;
+  }
+
+  init() {
+    this.material = new THREE.ShaderMaterial({
+      uniforms: {
+        uCamera: {value: null},
+        uMask: {value: null},
+        uBackdrop: {value: BACKDROP_PRESETS[0].mode},
+        uColorA: {value: new THREE.Color(BACKDROP_PRESETS[0].a)},
+        uColorB: {value: new THREE.Color(BACKDROP_PRESETS[0].b)},
+        uHasMask: {value: 0},
+      },
+      vertexShader: VERTEX_SHADER,
+      fragmentShader: FRAGMENT_SHADER,
+      transparent: true,
+      side: THREE.DoubleSide,
+    });
+
+    // Thin dark frame behind the feed so the window reads as an object.
+    const frame = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.84, 0.64),
+      new THREE.MeshBasicMaterial({color: 0x0a0c10})
+    );
+    frame.position.z = -0.002;
+
+    this.plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.8, 0.6),
+      this.material
+    );
+    this.plane.add(frame);
+    this.plane.position.set(0, 1.5, -1.2);
+    this.add(this.plane);
+
+    this.segmenter.load();
+
+    // Quick keyboard control until the spatial panel lands: B cycles backdrop.
+    this.onKeyDown_ = (event) => {
+      if (event.key === 'b' || event.key === 'B') {
+        this.cycleBackdrop();
+      }
+    };
+    window.addEventListener('keydown', this.onKeyDown_);
+  }
+
+  cycleBackdrop() {
+    this.backdropIndex = (this.backdropIndex + 1) % BACKDROP_PRESETS.length;
+    const preset = BACKDROP_PRESETS[this.backdropIndex];
+    this.material.uniforms.uBackdrop.value = preset.mode;
+    this.material.uniforms.uColorA.value.set(preset.a);
+    this.material.uniforms.uColorB.value.set(preset.b);
+  }
+
+  update() {
+    const now = performance.now();
+    if (this.grabbing_ || now - this.lastGrabMs_ < 66) {
+      return;
+    }
+    this.lastGrabMs_ = now;
+    this.grabFrame_();
+  }
+
+  async grabFrame_() {
+    this.grabbing_ = true;
+    try {
+      const camera = xb.core.deviceCamera;
+      if (!camera) {
+        return;
+      }
+      const image = await camera.getSnapshot({outputFormat: 'imageData'});
+      if (!image) {
+        return;
+      }
+      if (this.frameCanvas.width !== image.width) {
+        this.frameCanvas.width = image.width;
+        this.frameCanvas.height = image.height;
+      }
+      this.frameCtx.putImageData(image, 0, 0);
+      this.updateCameraTexture_();
+      this.updateMask_();
+    } catch (error) {
+      console.warn('[magic_window] frame grab failed', error);
+    } finally {
+      this.grabbing_ = false;
+    }
+  }
+
+  updateCameraTexture_() {
+    const w = this.frameCanvas.width;
+    const h = this.frameCanvas.height;
+    if (
+      !this.cameraTexture ||
+      this.cameraTexW_ !== w ||
+      this.cameraTexH_ !== h
+    ) {
+      // (Re)allocate the texture whenever the frame size changes; updating a
+      // texture in place with a differently sized source overflows the GPU
+      // allocation.
+      this.cameraTexture?.dispose();
+      this.cameraTexture = new THREE.CanvasTexture(this.frameCanvas);
+      this.cameraTexture.colorSpace = THREE.SRGBColorSpace;
+      this.cameraTexW_ = w;
+      this.cameraTexH_ = h;
+      this.material.uniforms.uCamera.value = this.cameraTexture;
+    } else {
+      this.cameraTexture.needsUpdate = true;
+    }
+  }
+
+  updateMask_() {
+    if (!this.segmenter.isReady) {
+      return;
+    }
+    const mask = this.segmenter.segment(this.frameCanvas);
+    if (!mask) {
+      return;
+    }
+    if (
+      !this.maskTexture ||
+      this.maskTexture.image.width !== mask.width ||
+      this.maskTexture.image.height !== mask.height
+    ) {
+      this.maskTexture = new THREE.DataTexture(
+        mask.data,
+        mask.width,
+        mask.height,
+        THREE.RedFormat,
+        THREE.UnsignedByteType
+      );
+      this.maskTexture.minFilter = THREE.LinearFilter;
+      this.maskTexture.magFilter = THREE.LinearFilter;
+      this.maskTexture.flipY = false;
+      this.material.uniforms.uMask.value = this.maskTexture;
+      this.material.uniforms.uHasMask.value = 1;
+    } else {
+      this.maskTexture.image.data = mask.data;
+    }
+    this.maskTexture.needsUpdate = true;
+  }
+}
