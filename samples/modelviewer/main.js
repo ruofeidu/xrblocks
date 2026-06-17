@@ -12,11 +12,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   options.simulator.instructions.customInstructions = [
     {
       header: html`<h1>Model Viewer</h1>`,
-      videoSrc: 'model_viewer_simulator_usage.webm',
+      videoSrc:
+        xb.XR_BLOCKS_ASSETS_PATH +
+        'samples/modelviewer/model_viewer_simulator_usage.webm',
       description: html`Click or pinch the object to rotate. Drag the platform
       to move.`,
     },
   ];
   options.setAppTitle('Model Viewer');
+  options.world.enablePlaneDetection();
   await xb.init(options);
 });

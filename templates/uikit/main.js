@@ -104,12 +104,9 @@ class UikitTemplate extends xb.Script {
 
 const options = new xb.Options();
 options.enableUI();
+options.uikit.enable(uikit);
 
 document.addEventListener('DOMContentLoaded', async function () {
   xb.add(new UikitTemplate());
-  options.simulator.instructions.enabled = false;
   await xb.init(options);
-  const renderer = xb.core.renderer;
-  renderer.localClippingEnabled = true;
-  renderer.setTransparentSort(uikit.reversePainterSortStable);
 });

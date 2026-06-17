@@ -9,6 +9,8 @@ import {DepthOptions} from '../depth/DepthOptions';
 import {Hands} from '../input/Hands';
 import {GestureRecognition} from '../input/gestures/GestureRecognition';
 import {GestureRecognitionOptions} from '../input/gestures/GestureRecognitionOptions.js';
+import type {PoseEstimator} from '../input/gestures/GestureTypes';
+import {StrokeRecognitionOptions} from '../input/strokes/StrokeRecognitionOptions';
 import {Input} from '../input/Input';
 import {Lighting} from '../lighting/Lighting';
 import {Physics} from '../physics/Physics';
@@ -37,6 +39,7 @@ import {XRButton} from './components/XRButton';
 import {XREffects} from './components/XREffects';
 import {XRTransition} from './components/XRTransition';
 import {Options} from './Options';
+import {UIKitOptions} from './UIKitOptions';
 import {Script} from './Script';
 import {User} from './User';
 import {PermissionsManager} from './components/PermissionsManager';
@@ -64,7 +67,7 @@ export class Core {
   registry = new Registry();
 
   /**
-   * A clock for tracking time deltas. Call clock.getDeltaTime().
+   * A timer for tracking time deltas. Call timer.getDelta() or getDeltaTime().
    */
   timer = new THREE.Timer();
 
@@ -89,15 +92,16 @@ export class Core {
   /** A container to hold all the systems in the scene hierarchy. */
   xrSystemsGroup = new XRSystems();
 
-  private renderSceneBound = this.renderScene.bind(this);
+  private renderSceneCallback = (cameraOverride?: THREE.Camera) =>
+    this.renderScene(cameraOverride);
 
   /** Manages the desktop XR simulator. */
-  simulator = new Simulator(this.renderSceneBound);
+  simulator = new Simulator(this.renderSceneCallback);
 
   /** Manages drag-and-drop interactions. */
   dragManager = new DragManager();
 
-  /** Manages drag-and-drop interactions. */
+  /** Manages real-world understanding: planes, meshes, objects, and sounds. */
   world = new World();
 
   /** A shared texture loader. */
@@ -108,7 +112,10 @@ export class Core {
   /** Whether the XR simulator is currently active. */
   simulatorRunning = false;
 
-  renderer!: THREE.WebGLRenderer;
+  private _isPaused = false;
+  private isSteppingFrame = false;
+  private manualStepTime = 0;
+  private _renderer?: THREE.WebGLRenderer;
   options!: Options;
   deviceCamera?: XRDeviceCamera;
   depth = new Depth();
@@ -117,6 +124,7 @@ export class Core {
   xrButton?: XRButton;
   effects?: XREffects;
   ai = new AI();
+  poseEstimation?: PoseEstimator;
   gestureRecognition?: GestureRecognition;
   transition?: XRTransition;
   currentFrame?: XRFrame;
@@ -133,6 +141,55 @@ export class Core {
   ) => void;
   webXRSessionManager?: WebXRSessionManager;
   permissionsManager = new PermissionsManager();
+
+  /**
+   * The WebGL renderer, created during {@link Core.init}. Reading it before
+   * `init()` has run returns `undefined` and logs a one-time warning.
+   */
+  get renderer(): THREE.WebGLRenderer {
+    if (!this._renderer) {
+      console.warn(
+        'xb.core.renderer is not available until xb.init() creates it. ' +
+          "Access it in or after your Script's init() method."
+      );
+    }
+    return this._renderer!;
+  }
+
+  set renderer(renderer: THREE.WebGLRenderer) {
+    this._renderer = renderer;
+  }
+
+  get isPaused() {
+    return this._isPaused;
+  }
+
+  pause() {
+    this._isPaused = true;
+  }
+
+  resume() {
+    this._isPaused = false;
+  }
+
+  stepFrame(dtMs = 16.67) {
+    if (this.isSteppingFrame) {
+      throw new Error(
+        'Core.stepFrame() cannot be called while already stepping.'
+      );
+    }
+
+    this.isSteppingFrame = true;
+    try {
+      this.manualStepTime += dtMs;
+      this.update(this.manualStepTime, undefined as unknown as XRFrame);
+      if (this.physics) {
+        this.physicsStep();
+      }
+    } finally {
+      this.isSteppingFrame = false;
+    }
+  }
 
   /**
    * Core is a singleton manager that manages all XR "blocks".
@@ -157,6 +214,7 @@ export class Core {
     );
 
     this.registry.register(this.registry);
+    this.registry.register(this);
     this.registry.register(this.waitFrame);
     this.registry.register(this.scene);
     this.registry.register(this.timer);
@@ -165,7 +223,6 @@ export class Core {
     this.registry.register(this.ui);
     this.registry.register(this.sound);
     this.registry.register(this.dragManager);
-    this.registry.register(this.user);
     this.registry.register(this.simulator);
     this.registry.register(this.scriptsManager);
     this.registry.register(this.depth);
@@ -188,9 +245,11 @@ export class Core {
     this.registry.register(options.simulator, SimulatorOptions);
     this.registry.register(options.world, WorldOptions);
     this.registry.register(options.world.meshes, MeshDetectionOptions);
+    this.registry.register(options.uikit, UIKitOptions);
     this.registry.register(options.ai, AIOptions);
     this.registry.register(options.sound, SoundOptions);
     this.registry.register(options.gestures, GestureRecognitionOptions);
+    this.registry.register(options.strokes, StrokeRecognitionOptions);
 
     if (options.transition.enabled) {
       this.transition = new XRTransition();
@@ -224,6 +283,15 @@ export class Core {
     };
     this.registry.register(this.renderer);
 
+    if (options.uikit.enabled) {
+      this.renderer.localClippingEnabled = true;
+      if (options.uikit.reversePainterSortStable) {
+        this.renderer.setTransparentSort(
+          options.uikit.reversePainterSortStable
+        );
+      }
+    }
+
     this.renderer.xr.setReferenceSpaceType(options.referenceSpaceType);
     // For desktop simulator:
     window.addEventListener('resize', this.onWindowResize);
@@ -235,6 +303,7 @@ export class Core {
     }
 
     this.options = options;
+    this.scriptsManager.catchExceptions = options.catchScriptExceptions;
 
     // Sets up controllers.
     if (options.controllers.enabled) {
@@ -244,14 +313,14 @@ export class Core {
         options: options,
         renderer: this.renderer,
       });
-      this.input.bindSelectStart(this.scriptsManager.callSelectStartBound);
-      this.input.bindSelectEnd(this.scriptsManager.callSelectEndBound);
-      this.input.bindSelect(this.scriptsManager.callSelectBound);
-      this.input.bindSqueezeStart(this.scriptsManager.callSqueezeStartBound);
-      this.input.bindSqueezeEnd(this.scriptsManager.callSqueezeEndBound);
-      this.input.bindSqueeze(this.scriptsManager.callSqueezeBound);
-      this.input.bindKeyDown(this.scriptsManager.callKeyDownBound);
-      this.input.bindKeyUp(this.scriptsManager.callKeyUpBound);
+      this.input.bindSelectStart(this.scriptsManager.callSelectStart);
+      this.input.bindSelectEnd(this.scriptsManager.callSelectEnd);
+      this.input.bindSelect(this.scriptsManager.callSelect);
+      this.input.bindSqueezeStart(this.scriptsManager.callSqueezeStart);
+      this.input.bindSqueezeEnd(this.scriptsManager.callSqueezeEnd);
+      this.input.bindSqueeze(this.scriptsManager.callSqueeze);
+      this.input.bindKeyDown(this.scriptsManager.callKeyDown);
+      this.input.bindKeyUp(this.scriptsManager.callKeyUp);
     }
 
     // Sets up device camera.
@@ -292,8 +361,10 @@ export class Core {
       webXRRequiredFeatures.push('hand-tracking');
       this.user.hands = new Hands(this.input.hands);
       if (options.gestures.enabled) {
+        this.poseEstimation = options.gestures.poseEstimator;
         this.gestureRecognition = new GestureRecognition();
         this.xrSystemsGroup.add(this.gestureRecognition);
+        this.registry.register(this.poseEstimation);
         this.registry.register(this.gestureRecognition);
       }
     }
@@ -341,7 +412,7 @@ export class Core {
     );
     this.webXRSessionManager.addEventListener(
       WebXRSessionEventType.SESSION_END,
-      this.onXRSessionEnded.bind(this)
+      this.onXRSessionEnded
     );
 
     // Sets up xrButton.
@@ -358,7 +429,7 @@ export class Core {
         options.xrButton?.invalidText,
         options.xrButton?.startSimulatorText,
         options.xrButton?.showEnterSimulatorButton,
-        this.startSimulator.bind(this),
+        this.startSimulator,
         options.permissions
       );
       document.body.appendChild(this.xrButton.domElement);
@@ -392,10 +463,10 @@ export class Core {
 
     await this.scriptsManager.syncScriptsWithScene(this.scene);
 
-    this.renderer.setAnimationLoop(this.update.bind(this));
+    this.renderer.setAnimationLoop(this.update);
 
     if (this.physics) {
-      setInterval(this.physicsStep.bind(this), 1000 * this.physics.timestep);
+      setInterval(this.physicsStep, 1000 * this.physics.timestep);
     }
 
     if (this.options.reticles.enabled) {
@@ -423,8 +494,13 @@ export class Core {
    * @param time - The current time in milliseconds.
    * @param frame - The WebXR frame object, if in an XR session.
    */
-  private update(time: number, frame: XRFrame) {
+  private update = (time: number, frame: XRFrame) => {
+    if (this._isPaused && !this.isSteppingFrame) {
+      return;
+    }
+
     this.currentFrame = frame;
+    this.manualStepTime = Math.max(this.manualStepTime, time);
     this.timer.update(time);
     if (this.simulatorRunning) {
       this.simulator.simulatorUpdate();
@@ -444,25 +520,19 @@ export class Core {
     this.scriptsManager.syncScriptsWithScene(this.scene);
 
     // Updates reticles and UIs.
-    for (const script of this.scriptsManager.scripts) {
-      script.ux.reset();
-    }
+    this.scriptsManager.resetUX();
     this.input.update();
 
     // Updates scripts with user interactions.
     for (const controller of this.input.controllers) {
       if (controller.userData.selected) {
-        for (const script of this.scriptsManager.scripts) {
-          script.onSelecting({target: controller});
-        }
+        this.scriptsManager.callSelecting(controller);
       }
     }
 
     for (const controller of this.input.controllers) {
       if (controller.userData.squeezing) {
-        for (const script of this.scriptsManager.scripts) {
-          script.onSqueezing({target: controller});
-        }
+        this.scriptsManager.callSqueezing(controller);
       }
     }
 
@@ -470,31 +540,31 @@ export class Core {
     this.waitFrame.onFrame();
 
     // Updates renderings.
-    for (const script of this.scriptsManager.scripts) {
-      script.update(time, frame);
-    }
+    this.scriptsManager.update(time, frame);
 
     this.renderSimulatorAndScene();
     this.screenshotSynthesizer.onAfterRender(
       this.renderer,
-      this.renderSceneBound,
+      this.renderSceneCallback,
       this.deviceCamera
     );
     if (this.simulatorRunning) {
       this.simulator.renderSimulatorScene();
     }
-  }
+  };
 
   /**
    * Advances the physics simulation by a fixed timestep and calls the
    * corresponding physics update on all active scripts.
    */
-  private physicsStep() {
-    this.physics!.physicsStep();
-    for (const script of this.scriptsManager.scripts) {
-      script.physicsStep();
+  private physicsStep = () => {
+    if (this._isPaused && !this.isSteppingFrame) {
+      return;
     }
-  }
+
+    this.physics!.physicsStep();
+    this.scriptsManager.physicsStep();
+  };
 
   /**
    * Lifecycle callback executed when an XR session starts. Notifies all active
@@ -508,20 +578,20 @@ export class Core {
     this.scriptsManager.onXRSessionStarted(session);
   }
 
-  private async startSimulator() {
+  private startSimulator = async () => {
     this.xrButton?.domElement.remove();
     this.xrSystemsGroup.add(this.simulator);
     await this.scriptsManager.initScript(this.simulator);
     this.onSimulatorStarted();
-  }
+  };
 
   /**
    * Lifecycle callback executed when an XR session ends. Notifies all active
    * scripts.
    */
-  private onXRSessionEnded() {
+  private onXRSessionEnded = () => {
     this.scriptsManager.onXRSessionEnded();
-  }
+  };
 
   /**
    * Lifecycle callback executed when the desktop simulator starts. Notifies

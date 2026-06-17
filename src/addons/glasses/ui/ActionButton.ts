@@ -3,14 +3,15 @@ import {
   Container,
   InProperties,
   RenderContext,
-  Text,
   WithSignal,
 } from '@pmndrs/uikit';
 import {computed} from '@preact/signals-core';
 
 import {HighlightMaterial} from './HighlightMaterial';
 import {MaterialSymbolsIcon} from './MaterialSymbolsIcon';
+import {TextWithEmoji} from '../../uiblocks/src/core/primitives/TextWithEmoji';
 
+/** Properties for the ActionButton component. */
 export type ActionButtonOutProperties = {
   text: string;
   icon?: string;
@@ -18,6 +19,7 @@ export type ActionButtonOutProperties = {
   iconWeight?: number;
 } & BaseOutProperties;
 
+/** A reusable action button component with icon and text support. */
 export class ActionButton<
   OutProperties extends ActionButtonOutProperties = ActionButtonOutProperties,
 > extends Container<OutProperties> {
@@ -54,24 +56,28 @@ export class ActionButton<
       ...config,
     });
 
+    const iconContainer = new Container({});
+    this.add(iconContainer);
     const icon = new MaterialSymbolsIcon({
       icon: this.properties.signal.icon,
       iconStyle: this.properties.signal.iconStyle,
       iconWeight: this.properties.signal.iconWeight,
-      width: 40,
+      height: 40,
       color: 0xa8c7fa,
       display: computed(() =>
         this.properties.signal.icon ? 'initial' : 'none'
       ),
+      alignSelf: 'center',
     });
-    this.add(icon);
+    iconContainer.add(icon);
 
-    const text = new Text({
+    const text = new TextWithEmoji({
       text: this.properties.signal.text,
       fontSize: 24,
       color: 'white',
       fontWeight: 600,
       letterSpacing: 1.26,
+      wordBreak: 'keep-all',
     });
     this.add(text);
   }

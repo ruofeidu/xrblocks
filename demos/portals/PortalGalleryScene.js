@@ -53,7 +53,6 @@ export class PortalGalleryScene extends xb.Script {
   portals = [];
   labels = [];
   immersives = []; // index -> ImmersiveInstance | null
-  clock = new THREE.Clock();
   _held = null;
   _activeIndex = -1; // Portal index user has walked into, or -1.
   _activeImmersive = null;
@@ -176,6 +175,13 @@ export class PortalGalleryScene extends xb.Script {
         this.immersives.push(null);
       }
     }
+
+    // Build BVH bounds-trees on every mesh under this scene root so
+    // the SDK's per-frame raycast against `xb.core.scene` goes through
+    // the BVH-accelerated path instead of walking every triangle per
+    // ray. With 5 immersive scenes loaded the raycast loop dominated
+    // the main thread in perf traces before this.
+    xb.applyBVH?.(this);
   }
 
   onSelectStart(event) {
@@ -222,7 +228,7 @@ export class PortalGalleryScene extends xb.Script {
   }
 
   update() {
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const dt = Math.min(xb.getDeltaTime(), 0.05);
     const cam = xb.core.camera;
 
     // Animate fade transition and keep it centered on camera.

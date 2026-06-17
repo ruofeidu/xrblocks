@@ -32,7 +32,7 @@ export class GazeController
   extends Script<GazeControllerEventMap>
   implements Controller
 {
-  static dependencies = {camera: THREE.Camera};
+  static dependencies = {camera: THREE.Camera, timer: THREE.Timer};
 
   /**
    * User data for the controller, including its connection status, unique ID,
@@ -68,15 +68,16 @@ export class GazeController
   lastReticlePosition = new THREE.Vector3();
 
   /**
-   * A clock to measure the time delta between frames for smooth animation and
+   * A timer to measure the time delta between frames for smooth animation and
    * movement calculation.
    */
-  clock = new THREE.Clock();
+  timer!: THREE.Timer;
 
   camera!: THREE.Camera;
 
-  init({camera}: {camera: THREE.Camera}) {
+  init({camera, timer}: {camera: THREE.Camera; timer: THREE.Timer}) {
     this.camera = camera;
+    this.timer = timer;
   }
 
   /**
@@ -84,12 +85,16 @@ export class GazeController
    * It handles syncing the controller with the camera and manages the gaze
    * selection logic.
    */
-  update() {
-    super.update();
+  updatePose() {
     this.position.copy(this.camera.position);
     this.quaternion.copy(this.camera.quaternion);
     this.updateMatrixWorld();
-    const delta = this.clock.getDelta();
+  }
+
+  update() {
+    super.update();
+    this.updatePose();
+    const delta = this.timer.getDelta();
     this.activationAmount.update(delta);
     const movement =
       this.lastReticlePosition.distanceTo(this.reticle.position) / delta;

@@ -53,6 +53,8 @@ and [white paper](https://arxiv.org/abs/2509.25504) for a visionary roadmap.
 
 ### Usage
 
+[![Build Size](https://badgen.net/bundlephobia/minzip/xrblocks)](https://bundlephobia.com/result?p=xrblocks)
+
 XR Blocks can be imported directly into a webpage using an importmap. This code
 creates a basic XR scene containing a cylinder. When you view the scene, you can
 pinch your fingers (in XR) or click (in the desktop simulator) to change the
@@ -78,8 +80,8 @@ code below:
     <script type="importmap">
       {
         "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/",
+          "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
           "xrblocks": "https://cdn.jsdelivr.net/gh/google/xrblocks@build/xrblocks.js",
           "xrblocks/addons/": "https://cdn.jsdelivr.net/gh/google/xrblocks@build/addons/"
         }
@@ -92,7 +94,7 @@ code below:
       import * as xb from 'xrblocks';
 
       /**
-       * A basic example of XRBlocks to render a cylinder and pinch to change its color.
+       * A basic example of XR Blocks to render a cylinder and pinch to change its color.
        */
       class MainScript extends xb.Script {
         init() {

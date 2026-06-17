@@ -7,12 +7,14 @@ import {
 import {DepthOptions, xrDepthMeshOptions} from '../depth/DepthOptions.js';
 import {HandsOptions} from '../input/HandsOptions.js';
 import {GestureRecognitionOptions} from '../input/gestures/GestureRecognitionOptions.js';
+import {StrokeRecognitionOptions} from '../input/strokes/StrokeRecognitionOptions';
 import {LightingOptions} from '../lighting/LightingOptions.js';
 import {PhysicsOptions} from '../physics/PhysicsOptions';
 import {SimulatorOptions} from '../simulator/SimulatorOptions';
 import {SoundOptions} from '../sound/SoundOptions';
 import {deepMerge} from '../utils/OptionsUtils';
 import {DeepPartial, DeepReadonly} from '../utils/Types';
+import {UIKitOptions} from './UIKitOptions.js';
 import {WorldOptions} from '../world/WorldOptions';
 import {getUrlParameter} from '../utils/utils';
 
@@ -106,11 +108,13 @@ export class Options {
   deviceCamera = new DeviceCameraOptions();
   hands = new HandsOptions();
   gestures = new GestureRecognitionOptions();
+  strokes = new StrokeRecognitionOptions();
   reticles = new ReticleOptions();
   sound = new SoundOptions();
   ai = new AIOptions();
   simulator = new SimulatorOptions();
   world = new WorldOptions();
+  uikit = new UIKitOptions();
   physics = new PhysicsOptions();
   transition = new XRTransitionOptions();
   camera = {
@@ -124,6 +128,13 @@ export class Options {
   usePostprocessing = false;
 
   enableSimulator = true;
+
+  /**
+   * Whether to catch all exceptions thrown by developer scripts in the main update loop
+   * and physics step, and log them using console.error instead of crashing the application.
+   * When enabled, exceptions in one script will not prevent other scripts or subsystems from updating.
+   */
+  catchScriptExceptions = true;
 
   /**
    * Configuration for the XR session button.
@@ -259,6 +270,32 @@ export class Options {
   }
 
   /**
+   * Enables human pose detection.
+   * @returns The instance for chaining.
+   */
+  enableHumanDetection() {
+    this.permissions.camera = true;
+    this.enableCamera();
+    this.enableDepth();
+    this.world.enableHumanDetection();
+    return this;
+  }
+
+  /**
+   * Enables face landmark detection. Provides 478 per-face landmarks in
+   * world space, optional 52 ARKit-style blendshape weights, and an
+   * optional rigid 4x4 facial transformation matrix per detected face.
+   * @returns The instance for chaining.
+   */
+  enableFaceDetection() {
+    this.permissions.camera = true;
+    this.enableCamera();
+    this.enableDepth();
+    this.world.enableFaceDetection();
+    return this;
+  }
+
+  /**
    * Enables device camera (passthrough) with a specific facing mode.
    * @param facingMode - The desired camera facing mode, either 'environment' or
    *     'user'.
@@ -290,6 +327,16 @@ export class Options {
   enableGestures() {
     this.enableHands();
     this.gestures.enable();
+    return this;
+  }
+
+  /**
+   * Enables the stroke recognition block and ensures gestures are available.
+   * @returns The instance for chaining.
+   */
+  enableStrokes() {
+    this.enableGestures();
+    this.strokes.enable();
     return this;
   }
 
