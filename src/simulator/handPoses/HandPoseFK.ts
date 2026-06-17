@@ -178,7 +178,7 @@ function getHandednessRotation(
   }
   return [rotation[0], -rotation[1], -rotation[2]];
 }
-// apply constraints applies a biomechanical constraint onto hand pose rotations
+
 function resolveHandPoseRotations(
   handedness: Handedness,
   restJoints: Map<JointName, RestJoint>,
