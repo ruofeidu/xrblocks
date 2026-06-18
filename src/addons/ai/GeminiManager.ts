@@ -372,13 +372,14 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
   }
 
   cleanup() {
+    // Stop any scheduled playback and reset nextAudioStartTime so a later
+    // session doesn't have its audio delayed by the previous one's clock.
+    this.stopPlayingAudio();
+
     if (this.screenshotInterval) {
       clearInterval(this.screenshotInterval);
       this.screenshotInterval = undefined;
     }
-
-    // Clear audio queue and stop playback
-    this.audioQueue = [];
 
     if (this.processorNode) {
       this.processorNode.disconnect();
