@@ -29,6 +29,31 @@ const WINDOW_HEIGHT = 0.6;
 const WINDOW_MARGIN = 0.02;
 const DEFAULT_ASPECT = 16 / 9;
 
+// Builds the dark window frame as a rectangular ring (a rectangle with a
+// rectangular hole the size of the feed) rather than a solid plane, so that in
+// passthrough mode the discarded background pixels reveal the real world behind
+// the window instead of a dark backing.
+function makeFrameGeometry(w, h, margin) {
+  const ow = w / 2 + margin;
+  const oh = h / 2 + margin;
+  const iw = w / 2;
+  const ih = h / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(-ow, -oh);
+  shape.lineTo(ow, -oh);
+  shape.lineTo(ow, oh);
+  shape.lineTo(-ow, oh);
+  shape.lineTo(-ow, -oh);
+  const hole = new THREE.Path();
+  hole.moveTo(-iw, -ih);
+  hole.lineTo(-iw, ih);
+  hole.lineTo(iw, ih);
+  hole.lineTo(iw, -ih);
+  hole.lineTo(-iw, -ih);
+  shape.holes.push(hole);
+  return new THREE.ShapeGeometry(shape);
+}
+
 const VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -100,11 +125,13 @@ export class MagicWindow extends xb.Script {
       side: THREE.DoubleSide,
     });
 
-    // Thin dark frame behind the feed so the window reads as an object.
+    // Thin dark frame around the feed so the window reads as an object. A ring
+    // (not a solid plane) so passthrough shows through the centre.
     this.windowFrame_ = new THREE.Mesh(
-      new THREE.PlaneGeometry(
-        WINDOW_HEIGHT * DEFAULT_ASPECT + 2 * WINDOW_MARGIN,
-        WINDOW_HEIGHT + 2 * WINDOW_MARGIN
+      makeFrameGeometry(
+        WINDOW_HEIGHT * DEFAULT_ASPECT,
+        WINDOW_HEIGHT,
+        WINDOW_MARGIN
       ),
       new THREE.MeshBasicMaterial({color: 0x0a0c10})
     );
@@ -215,9 +242,10 @@ export class MagicWindow extends xb.Script {
     this.plane.geometry.dispose();
     this.plane.geometry = new THREE.PlaneGeometry(w, WINDOW_HEIGHT);
     this.windowFrame_.geometry.dispose();
-    this.windowFrame_.geometry = new THREE.PlaneGeometry(
-      w + 2 * WINDOW_MARGIN,
-      WINDOW_HEIGHT + 2 * WINDOW_MARGIN
+    this.windowFrame_.geometry = makeFrameGeometry(
+      w,
+      WINDOW_HEIGHT,
+      WINDOW_MARGIN
     );
   }
 
