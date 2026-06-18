@@ -245,11 +245,20 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
               this.overlayScreenshotOnCamera
             );
       if (typeof base64Image == 'string') {
-        // Strip the data URL prefix if present
-        const base64Data = base64Image.startsWith('data:')
-          ? base64Image.split(',')[1]
-          : base64Image;
-        this.sendVideoFrame(base64Data);
+        // Strip the data URL prefix if present, preserving its declared MIME
+        // type (screenshots are PNG, camera snapshots are JPEG).
+        let mimeType = this.cameraMimeType;
+        let base64Data = base64Image;
+        if (base64Image.startsWith('data:')) {
+          const match = base64Image.match(/^data:([^;,]+)[^,]*,(.*)$/s);
+          if (match) {
+            mimeType = match[1];
+            base64Data = match[2];
+          } else {
+            base64Data = base64Image.split(',')[1];
+          }
+        }
+        this.sendVideoFrame(base64Data, mimeType);
       }
     } catch (error) {
       console.error('Failed to capture frame:', error);
@@ -270,13 +279,13 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     }
   }
 
-  sendVideoFrame(base64Image: string) {
+  sendVideoFrame(base64Image: string, mimeType: string = this.cameraMimeType) {
     if (!this.isAIRunning || !this.ai || !this.ai.sendRealtimeInput) {
       throw new Error('AI not ready to send video frame');
     }
     try {
       this.ai.sendRealtimeInput({
-        video: {data: base64Image, mimeType: 'image/jpeg'},
+        video: {data: base64Image, mimeType},
       });
     } catch (error) {
       console.error('❌ Failed to send video frame:', error);
