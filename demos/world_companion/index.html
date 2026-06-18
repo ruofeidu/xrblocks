@@ -314,7 +314,10 @@
         'example "Done" or "I couldn\'t find the lamp".';
 
       const embedCache = new Map();
-      const SIM_THRESHOLD = 0.7;
+      // Cosine threshold for the SEMANTIC_SIMILARITY embeddings. Calibrated so
+      // related furniture words (chair/stool, light/ceiling lamp, table/desk)
+      // match while unrelated ones (chair/window, lamp/sofa) don't.
+      const SIM_THRESHOLD = 0.88;
       function cosine(a, b) {
         if (!a || !b || a.length !== b.length) return 0;
         let dot = 0,
@@ -338,7 +341,11 @@
         const ai = xb.core.ai?.model?.ai;
         if (!ai?.models?.embedContent) return null;
         const promise = ai.models
-          .embedContent({model: 'gemini-embedding-001', contents: k})
+          .embedContent({
+            model: 'gemini-embedding-001',
+            contents: k,
+            config: {taskType: 'SEMANTIC_SIMILARITY'},
+          })
           .then((r) => {
             const vec = r.embeddings?.[0]?.values || null;
             if (vec) embedCache.set(k, vec);
@@ -558,23 +565,9 @@
                 .toLowerCase()
                 .split(/[^a-z0-9]+/)
                 .filter((t) => t && !STOPWORDS.has(t));
-            const SYNONYMS = {
-              couch: ['sofa'],
-              sofa: ['couch'],
-              tv: ['television'],
-              television: ['tv'],
-              fridge: ['refrigerator'],
-              refrigerator: ['fridge'],
-              mug: ['cup'],
-              cup: ['mug'],
-              picture: ['painting', 'artwork', 'art'],
-              painting: ['picture', 'artwork', 'art'],
-              artwork: ['picture', 'painting', 'art'],
-            };
             const expand = (s) => {
               const t = (s || '').toLowerCase().trim();
-              if (!t) return [];
-              return [t, ...(SYNONYMS[t] || [])];
+              return t ? [t] : [];
             };
             const used = new Set();
             const findMatch = (text) => {
