@@ -275,8 +275,11 @@ export class VRMAvatar {
         obj.receiveShadow = false;
 
         // Exclude from pointer/reticle raycasts. SkinnedMesh.raycast() CPU-skins
-        // every vertex and tests all triangles per ray — pointing at the avatar
-        // tanks the frame rate. Nothing needs to click the avatar, so no-op it.
+        // every vertex and tests all triangles per ray — pointing at (or standing
+        // near) the avatar tanks the frame rate. This only disables ray PICKING;
+        // physics collisions use separate Rapier colliders and are unaffected, so
+        // dropping/colliding items onto the avatar later still works. If ray
+        // picking is needed, raycast a cheap proxy (bbox/capsule) instead.
         obj.raycast = () => {};
 
         // Disable MToon ink outlines — each outlined material is otherwise drawn
