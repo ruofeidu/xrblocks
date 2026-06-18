@@ -10,6 +10,7 @@ export interface GeminiManagerEventMap extends THREE.Object3DEventMap {
   outputTranscription: {message: string};
   turnComplete: object;
   interrupted: object;
+  close: object;
 }
 
 export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
@@ -207,6 +208,10 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
         },
         onclose: () => {
           this.isAIRunning = false;
+          // Free the mic, audio nodes and screenshot loop even when the
+          // session is closed by the server, not just via stopGeminiLive.
+          this.cleanup();
+          this.dispatchEvent({type: 'close'});
         },
       });
 
