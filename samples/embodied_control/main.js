@@ -33,19 +33,6 @@ const ACTION_GROUPS = [
       step('Turn Right', {locomotion: {rotate: [0, -20, 0]}}),
       step('Look Up', {locomotion: {rotate: [12, 0, 0]}}),
       step('Look Down', {locomotion: {rotate: [-12, 0, 0]}}),
-    ],
-  },
-  {
-    title: 'Left Hand',
-    actions: handActions('leftHand'),
-  },
-  {
-    title: 'Right Hand',
-    actions: handActions('rightHand'),
-  },
-  {
-    title: 'High-Level Actions',
-    actions: [
       {
         label: 'Teleport to Cube',
         isHighLevel: true,
@@ -63,37 +50,18 @@ const ACTION_GROUPS = [
           const cube = xb.core.scene.getObjectByName(
             'Embodied Control Draggable Cube'
           );
-          return embodied.lookAtTarget(cube, {velocity: 1.0});
-        },
-      },
-      {
-        label: 'Point at Cube',
-        isHighLevel: true,
-        run: () => {
-          const cube = xb.core.scene.getObjectByName(
-            'Embodied Control Draggable Cube'
-          );
-          return embodied.pointTo(1, cube, {durationMs: 500});
-        },
-      },
-      {
-        label: 'Reach to Cube',
-        isHighLevel: true,
-        run: () => {
-          const cube = xb.core.scene.getObjectByName(
-            'Embodied Control Draggable Cube'
-          );
-          return embodied.reachTo(1, cube, {durationMs: 500});
-        },
-      },
-      {
-        label: 'Click',
-        isHighLevel: true,
-        run: () => {
-          return embodied.click(1);
+          return embodied.lookAtTarget(cube, {velocity: 1.5});
         },
       },
     ],
+  },
+  {
+    title: 'Left Hand',
+    actions: handActions('leftHand'),
+  },
+  {
+    title: 'Right Hand',
+    actions: handActions('rightHand'),
   },
 ];
 
@@ -102,6 +70,7 @@ function step(label, control, durationMs = 250) {
 }
 
 function handActions(hand) {
+  const handIndex = hand === 'leftHand' ? 0 : 1;
   return [
     step('Reach Out', {[hand]: {move: [0, 0, -0.12]}}),
     step('Pull Back', {[hand]: {move: [0, 0, 0.12]}}),
@@ -119,6 +88,33 @@ function handActions(hand) {
     step('Pinch End', {[hand]: {selectEnd: true}}),
     step('Point', {[hand]: {rotations: POSES[xb.SimulatorHandPose.POINTING]}}),
     step('Victory', {[hand]: {rotations: POSES[xb.SimulatorHandPose.VICTORY]}}),
+    {
+      label: 'Point to Cube',
+      isHighLevel: true,
+      run: () => {
+        const cube = xb.core.scene.getObjectByName(
+          'Embodied Control Draggable Cube'
+        );
+        return embodied.pointTo(handIndex, cube, {velocity: 1.5});
+      },
+    },
+    {
+      label: 'Reach to Cube',
+      isHighLevel: true,
+      run: () => {
+        const cube = xb.core.scene.getObjectByName(
+          'Embodied Control Draggable Cube'
+        );
+        return embodied.reachTo(handIndex, cube, {velocity: 0.5});
+      },
+    },
+    {
+      label: 'Click',
+      isHighLevel: true,
+      run: () => {
+        return embodied.click(handIndex);
+      },
+    },
   ];
 }
 

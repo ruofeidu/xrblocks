@@ -89,7 +89,7 @@ export class EmbodiedControl extends Script {
   pointTo(
     handIndex: number,
     target: THREE.Object3D | THREE.Vector3 | [number, number, number],
-    options?: {durationMs?: number}
+    options?: {velocity?: number}
   ): Promise<EmbodiedControlStepResult> {
     if (!this.executor) {
       throw new Error('EmbodiedControl is not initialized.');
@@ -100,7 +100,7 @@ export class EmbodiedControl extends Script {
   reachTo(
     handIndex: number,
     target: THREE.Vector3 | [number, number, number] | THREE.Object3D,
-    options?: {durationMs?: number}
+    options?: {velocity?: number}
   ): Promise<EmbodiedControlStepResult> {
     if (!this.executor) {
       throw new Error('EmbodiedControl is not initialized.');
@@ -110,7 +110,7 @@ export class EmbodiedControl extends Script {
 
   click(
     handIndex = 1,
-    options?: {clickDurationMs?: number}
+    options?: {durationMs?: number}
   ): Promise<EmbodiedControlStepResult> {
     if (!this.executor) {
       throw new Error('EmbodiedControl is not initialized.');

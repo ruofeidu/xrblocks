@@ -398,9 +398,8 @@ export class EmbodiedControlExecutor {
       const Q_t = camera.quaternion.clone();
       camera.quaternion.copy(Q_s);
 
-      const theta = Q_s.angleTo(Q_t);
-      const durationSeconds = theta / velocity;
-      const durationMs = durationSeconds * 1000;
+      const angle = Q_s.angleTo(Q_t);
+      const durationMs = (angle / velocity) * 1000;
 
       let elapsedMs = 0;
       const tickMs = this.options.tickMs;
@@ -426,10 +425,10 @@ export class EmbodiedControlExecutor {
   async pointTo(
     handIndex: number,
     target: THREE.Object3D | THREE.Vector3 | [number, number, number],
-    options: {durationMs?: number} = {}
+    options: {velocity?: number} = {}
   ): Promise<EmbodiedControlStepResult> {
     return this.executeAction(async () => {
-      const {durationMs} = options;
+      const {velocity} = options;
       const {camera, simulator, core} = this.dependencies;
       const targetWorldPos = new THREE.Vector3();
       this.getTargetWorldPosition(target, targetWorldPos);
@@ -447,7 +446,7 @@ export class EmbodiedControlExecutor {
       );
       const targetQuat = new THREE.Quaternion().setFromRotationMatrix(matrix);
 
-      if (durationMs === undefined) {
+      if (velocity === undefined) {
         simulator.simulatorControllerState.localControllerOrientations[
           handIndex
         ].copy(targetQuat);
@@ -459,6 +458,10 @@ export class EmbodiedControlExecutor {
         simulator.simulatorControllerState.localControllerOrientations[
           handIndex
         ].clone();
+
+      const angle = startQuat.angleTo(targetQuat);
+      const durationMs = (angle / velocity) * 1000;
+
       let elapsedMs = 0;
       const tickMs = this.options.tickMs;
       const stepCount = Math.max(1, Math.ceil(durationMs / tickMs));
@@ -485,10 +488,10 @@ export class EmbodiedControlExecutor {
   async reachTo(
     handIndex: number,
     target: THREE.Vector3 | [number, number, number] | THREE.Object3D,
-    options: {durationMs?: number} = {}
+    options: {velocity?: number} = {}
   ): Promise<EmbodiedControlStepResult> {
     return this.executeAction(async () => {
-      const {durationMs} = options;
+      const {velocity} = options;
       const {camera, simulator, core} = this.dependencies;
       const targetWorldPos = new THREE.Vector3();
       this.getTargetWorldPosition(target, targetWorldPos);
@@ -497,7 +500,7 @@ export class EmbodiedControlExecutor {
         .clone()
         .applyMatrix4(camera.matrixWorldInverse);
 
-      if (durationMs === undefined) {
+      if (velocity === undefined) {
         simulator.simulatorControllerState.localControllerPositions[
           handIndex
         ].copy(targetCamSpace);
@@ -509,6 +512,10 @@ export class EmbodiedControlExecutor {
         simulator.simulatorControllerState.localControllerPositions[
           handIndex
         ].clone();
+
+      const distance = startPos.distanceTo(targetCamSpace);
+      const durationMs = (distance / velocity) * 1000;
+
       let elapsedMs = 0;
       const tickMs = this.options.tickMs;
       const stepCount = Math.max(1, Math.ceil(durationMs / tickMs));
@@ -534,9 +541,9 @@ export class EmbodiedControlExecutor {
 
   async click(
     handIndex = 1,
-    options: {clickDurationMs?: number} = {}
+    options: {durationMs?: number} = {}
   ): Promise<EmbodiedControlStepResult> {
-    const {clickDurationMs = 200} = options;
+    const {durationMs = 200} = options;
     const {simulator} = this.dependencies;
     // Change the lerp speed to allow the hand to pinch and open all the way.
     const originalLerpSpeed = simulator.hands.lerpSpeed;
@@ -549,7 +556,7 @@ export class EmbodiedControlExecutor {
           : {rightHand: {selectStart: true}};
       const pressResult = await this.step({
         control: pressControl,
-        durationMs: clickDurationMs,
+        durationMs,
       });
 
       const releaseControl: XRCompoundControl =
@@ -558,7 +565,7 @@ export class EmbodiedControlExecutor {
           : {rightHand: {selectEnd: true}};
       const releaseResult = await this.step({
         control: releaseControl,
-        durationMs: clickDurationMs,
+        durationMs,
       });
 
       return {
