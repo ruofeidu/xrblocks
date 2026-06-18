@@ -282,6 +282,11 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     if (!this.audioContext) {
       this.audioContext = new AudioContext({sampleRate: 24000});
     }
+    // Without a resume the context can stay suspended (no audible playback)
+    // when it wasn't created directly inside a user gesture.
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
   }
 
   async playAudioChunk(audioData: string) {
