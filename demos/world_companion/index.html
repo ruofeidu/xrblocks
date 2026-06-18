@@ -302,8 +302,11 @@
         "about what they're pointing at. When you tell the user you are " +
         'about to label, point to, or mark something, you must call ' +
         'placeLabel in the same turn, never promise to do it later or in a ' +
-        'follow-up message. Never read tool or function calls aloud; invoke ' +
-        'the tool silently and just speak naturally to the user.';
+        'follow-up message. Never say tool names, function calls, tool ' +
+        'results, JSON, brackets, or field names like "anchored", "style", ' +
+        '"items", or "text" out loud or in your reply. After a tool runs, ' +
+        'reply with only a short natural sentence based on the outcome, for ' +
+        'example "Done" or "I couldn\'t find the lamp".';
 
       const embedCache = new Map();
       const SIM_THRESHOLD = 0.7;
