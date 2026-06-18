@@ -61,14 +61,37 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
   async startGeminiLive({
     liveParams,
     model,
+    tools,
+    camera,
   }: {
     liveParams?: GoogleGenAITypes.LiveConnectConfig;
     model?: string;
+    /** Tools the model may call. Overrides {@link GeminiManager.tools}. */
+    tools?: xb.Tool[];
+    /** Camera-frame capture config for the live session. */
+    camera?: {
+      /** Frames per second sent to the model. Default `1`. */
+      fps?: number;
+      /** JPEG quality, 0..1. */
+      quality?: number;
+      /** Downscale width in pixels. Omit for full resolution. */
+      width?: number;
+      /** Downscale height in pixels. Omit for full resolution. */
+      height?: number;
+    };
   } = {}) {
     if (this.isAIRunning || !this.ai) {
       console.warn('AI already running or not available');
       return;
     }
+
+    if (tools) this.tools = tools;
+    if (camera?.quality !== undefined) this.cameraQuality = camera.quality;
+    if (camera?.width !== undefined) this.cameraWidth = camera.width;
+    if (camera?.height !== undefined) this.cameraHeight = camera.height;
+    const intervalMs = camera?.fps
+      ? Math.max(1, Math.round(1000 / camera.fps))
+      : 1000;
 
     liveParams = liveParams || {};
     liveParams.tools = liveParams.tools || [];
@@ -78,7 +101,7 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     try {
       await this.setupAudioCapture();
       await this.startLiveAI(liveParams, model);
-      this.startScreenshotCapture();
+      this.startScreenshotCapture(intervalMs);
       this.isAIRunning = true;
     } catch (error) {
       console.error('Failed to start Gemini Live:', error);
