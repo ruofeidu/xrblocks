@@ -595,10 +595,18 @@
               return t ? [t] : [];
             };
             const used = new Set();
-            const findMatch = (text) => {
+            // True when a detection already has a label near it, so a request
+            // to mark "another" one prefers a different, unlabeled object.
+            const LABELED_DIST = 0.4;
+            const isLabeled = (d) =>
+              !!d.position &&
+              labels.children.some(
+                (g) => g.position.distanceTo(d.position) <= LABELED_DIST
+              );
+            const findMatchIn = (text, candidates) => {
               const needles = expand(text);
               if (!needles.length) return null;
-              const free = detected.filter((d) => !used.has(d));
+              const free = candidates.filter((d) => !used.has(d));
               for (const needle of needles) {
                 const exact =
                   free.find((d) => d.label?.toLowerCase().includes(needle)) ||
@@ -629,6 +637,13 @@
               }
               return best;
             };
+            // Prefer an unlabeled object; fall back to any match (e.g. when the
+            // user re-references the one thing already marked).
+            const findMatch = (text) =>
+              findMatchIn(
+                text,
+                detected.filter((d) => !isLabeled(d))
+              ) || findMatchIn(text, detected);
             const MAX_ANCHOR_DIST = 8;
             const camForRange = xb.core.camera;
             const camPosForRange = new THREE.Vector3();
@@ -719,31 +734,21 @@
       }
 
       function placeMarker(position, text, style, batchKey) {
-        // Dedupe: same physical object should only get one label. Match by
-        // text (exact, contains, or contained), then by proximity. Skip
-        // labels added in the same batch, caller asked for multiple
-        // distinct items, so don't merge them with each other.
-        const norm = (s) => (s || '').toLowerCase().trim();
-        const key = norm(text);
+        // Dedupe by world position: the same physical spot only gets one
+        // label (re-labelling moves/updates it), but two different objects of
+        // the same kind keep their own labels. Skip same-batch labels so a
+        // single multi-item request doesn't merge its own items together.
+        const DEDUP_DIST = 0.4;
         const candidates = labels.children.filter(
           (g) => !batchKey || g.userData.batchKey !== batchKey
         );
-        let existing = candidates.find((g) => {
-          const other = norm(g.userData.text);
-          if (other === key) return true;
-          if (key && other && (other.includes(key) || key.includes(other))) {
-            return true;
-          }
-          return false;
-        });
-        if (!existing) {
-          let bestSim = SIM_THRESHOLD;
-          for (const g of candidates) {
-            const s = simSync(text, g.userData.text);
-            if (s > bestSim) {
-              bestSim = s;
-              existing = g;
-            }
+        let existing = null;
+        let bestDist = DEDUP_DIST;
+        for (const g of candidates) {
+          const dist = g.position.distanceTo(position);
+          if (dist <= bestDist) {
+            bestDist = dist;
+            existing = g;
           }
         }
         if (existing) {
