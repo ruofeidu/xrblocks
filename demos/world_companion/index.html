@@ -853,15 +853,14 @@
             });
             labels.remove(c);
           }
-          geminiManager.tools = makeTools();
-          // Downscale the camera frames sent to the model to keep bandwidth
-          // and latency low; the companion only needs a rough view.
-          geminiManager.cameraWidth = 640;
-          geminiManager.cameraHeight = 480;
           await geminiManager.startGeminiLive({
             liveParams: {
               systemInstruction: {parts: [{text: COMPANION_PROMPT}]},
             },
+            tools: makeTools(),
+            // Downscale the camera frames sent to the model to keep bandwidth
+            // and latency low; the companion only needs a rough view.
+            camera: {fps: 1, width: 640, height: 480},
           });
           setStatus('listening');
           stopBtn.disabled = false;
