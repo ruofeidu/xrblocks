@@ -523,19 +523,6 @@
               if (d && d.label) d.label = cleanLabel(d.label);
             });
 
-            const embedTargets = new Set();
-            list.forEach((it) => it?.text && embedTargets.add(it.text));
-            detected.forEach((d) => d?.label && embedTargets.add(d.label));
-            labels.children.forEach(
-              (g) => g.userData.text && embedTargets.add(g.userData.text)
-            );
-            await Promise.all([...embedTargets].map((t) => embed(t)));
-            if (xrStatusText) {
-              const want = list.map((it) => it.text).join(', ');
-              const got = detected.map((d) => d.label).join(', ') || '(none)';
-              xrStatusText.setText(`want: ${want} | got: ${got}`);
-            }
-
             const STOPWORDS = new Set([
               'the',
               'a',
@@ -551,6 +538,16 @@
               'item',
               'thing',
               'object',
+              'another',
+              'other',
+              'that',
+              'this',
+              'these',
+              'those',
+              'same',
+              'left',
+              'right',
+              'middle',
               'small',
               'large',
               'big',
@@ -573,6 +570,26 @@
                 .toLowerCase()
                 .split(/[^a-z0-9]+/)
                 .filter((t) => t && !STOPWORDS.has(t));
+            // Reduce a phrase to its core noun(s) for embedding, so modifiers
+            // ("another chair", "green chair") match the same as "chair".
+            const core = (s) =>
+              tokens(s).join(' ') || (s || '').toLowerCase().trim();
+
+            const embedTargets = new Set();
+            list.forEach((it) => it?.text && embedTargets.add(core(it.text)));
+            detected.forEach(
+              (d) => d?.label && embedTargets.add(core(d.label))
+            );
+            labels.children.forEach(
+              (g) => g.userData.text && embedTargets.add(core(g.userData.text))
+            );
+            await Promise.all([...embedTargets].map((t) => embed(t)));
+            if (xrStatusText) {
+              const want = list.map((it) => it.text).join(', ');
+              const got = detected.map((d) => d.label).join(', ') || '(none)';
+              xrStatusText.setText(`want: ${want} | got: ${got}`);
+            }
+
             const expand = (s) => {
               const t = (s || '').toLowerCase().trim();
               return t ? [t] : [];
@@ -604,7 +621,7 @@
               let best = null;
               let bestSim = SIM_THRESHOLD;
               for (const d of free) {
-                const s = simSync(text, d.label);
+                const s = simSync(core(text), core(d.label));
                 if (s > bestSim) {
                   bestSim = s;
                   best = d;
