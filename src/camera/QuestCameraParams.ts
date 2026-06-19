@@ -53,10 +53,6 @@ export function getQuestCameraPose(
   xrCameras: THREE.WebXRArrayCamera,
   target: THREE.Matrix4
 ) {
-  target.compose(
-    QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA_POSITION,
-    QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA_ROTATION,
-    QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA_SCALE
-  );
+  target.copy(QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA);
   target.premultiply(xrCameras.cameras[1].matrixWorld);
 }
