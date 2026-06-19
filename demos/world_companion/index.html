@@ -318,6 +318,9 @@
       // related furniture words (chair/stool, chair/sofa, light/ceiling lamp)
       // match while unrelated ones (chair/window, lamp/sofa) don't.
       const SIM_THRESHOLD = 0.87;
+      // Discard a label if the matched object is more than this many metres from
+      // the camera (filters far-wall false matches). Tune for room size.
+      const MAX_ANCHOR_DIST = 8;
       function cosine(a, b) {
         if (!a || !b || a.length !== b.length) return 0;
         let dot = 0,
@@ -675,7 +678,6 @@
                 text,
                 detected.filter((d) => !isLabeled(d))
               ) || findMatchIn(text, detected);
-            const MAX_ANCHOR_DIST = 8;
             const camForRange = xb.core.camera;
             const camPosForRange = new THREE.Vector3();
             if (camForRange) camForRange.getWorldPosition(camPosForRange);
@@ -915,14 +917,7 @@
         transcriptEl.innerHTML = '';
         try {
           // Clear any leftover labels from prior session to avoid stacking.
-          while (labels.children.length) {
-            const c = labels.children.pop();
-            c.traverse?.((n) => {
-              n.geometry?.dispose?.();
-              n.material?.dispose?.();
-            });
-            labels.remove(c);
-          }
+          clearLabels();
           await geminiManager.startGeminiLive({
             liveParams: {
               systemInstruction: {parts: [{text: COMPANION_PROMPT}]},
@@ -960,14 +955,16 @@
       }
 
       function clearLabels() {
-        while (labels.children.length) {
-          const c = labels.children.pop();
+        // Dispose each label's geometry/material, then detach them all.
+        // labels.clear() removes every child and resets its parent, so there's
+        // no need to pop() and remove() each one.
+        for (const c of labels.children) {
           c.traverse((n) => {
             n.geometry?.dispose();
             n.material?.dispose();
           });
-          labels.remove(c);
         }
+        labels.clear();
       }
 
       startBtn.addEventListener('click', start);
