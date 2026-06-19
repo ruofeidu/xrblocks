@@ -372,8 +372,8 @@ export class EmbodiedControlExecutor {
       if (faceTarget && target instanceof THREE.Object3D) {
         camera.lookAt(targetWorldPos);
       }
-      core.stepFrame(16.67);
-      return 16.67;
+      core.stepFrame(this.options.tickMs);
+      return this.options.tickMs;
     });
   }
 
@@ -387,10 +387,10 @@ export class EmbodiedControlExecutor {
       const targetWorldPos = new THREE.Vector3();
       this.getTargetWorldPosition(target, targetWorldPos);
 
-      if (velocity === undefined) {
+      if (velocity === undefined || velocity <= 0) {
         camera.lookAt(targetWorldPos);
-        core.stepFrame(16.67);
-        return 16.67;
+        core.stepFrame(this.options.tickMs);
+        return this.options.tickMs;
       }
 
       const Q_s = camera.quaternion.clone();
@@ -446,12 +446,12 @@ export class EmbodiedControlExecutor {
       );
       const targetQuat = new THREE.Quaternion().setFromRotationMatrix(matrix);
 
-      if (velocity === undefined) {
+      if (velocity === undefined || velocity <= 0) {
         simulator.simulatorControllerState.localControllerOrientations[
           handIndex
         ].copy(targetQuat);
-        core.stepFrame(16.67);
-        return 16.67;
+        core.stepFrame(this.options.tickMs);
+        return this.options.tickMs;
       }
 
       const startQuat =
@@ -500,12 +500,12 @@ export class EmbodiedControlExecutor {
         .clone()
         .applyMatrix4(camera.matrixWorldInverse);
 
-      if (velocity === undefined) {
+      if (velocity === undefined || velocity <= 0) {
         simulator.simulatorControllerState.localControllerPositions[
           handIndex
         ].copy(targetCamSpace);
-        core.stepFrame(16.67);
-        return 16.67;
+        core.stepFrame(this.options.tickMs);
+        return this.options.tickMs;
       }
 
       const startPos =
