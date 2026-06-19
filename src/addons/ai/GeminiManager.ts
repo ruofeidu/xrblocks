@@ -1,9 +1,6 @@
 import type * as GoogleGenAITypes from '@google/genai';
 import * as THREE from 'three';
 import * as xb from 'xrblocks';
-import {AUDIO_CAPTURE_PROCESSOR_CODE} from './AudioCaptureProcessorCode';
-
-const DEFAULT_SCHEDULE_AHEAD_TIME = 1.0;
 
 export interface GeminiManagerEventMap extends THREE.Object3DEventMap {
   inputTranscription: {message: string};
@@ -18,19 +15,8 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
   xrDeviceCamera?: xb.XRDeviceCamera;
   ai!: xb.AI;
 
-  // Audio setup
-  audioStream: MediaStream | null = null;
-  audioContext: AudioContext | null = null;
-  sourceNode: MediaStreamAudioSourceNode | null = null;
-  processorNode: AudioWorkletNode | null = null;
-  queuedSourceNodes = new Set<AudioScheduledSourceNode>();
-
   // AI state
   isAIRunning: boolean = false;
-
-  // Audio playback setup
-  audioQueue: AudioBuffer[] = [];
-  nextAudioStartTime = 0;
 
   // Screenshot setInterval identifier
   private screenshotInterval?: ReturnType<typeof setInterval>;
@@ -39,8 +25,6 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
   currentInputText: string = '';
   currentOutputText: string = '';
   tools: xb.Tool[] = [];
-
-  scheduleAheadTime = DEFAULT_SCHEDULE_AHEAD_TIME;
 
   // Type and quality settings for sending the camera feed to Gemini.
   cameraMimeType = 'image/jpeg';
@@ -123,7 +107,7 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
       functionDeclarations: this.tools.map((tool) => tool.toJSON()),
     });
     try {
-      await this.setupAudioCapture();
+      await xb.core.sound.enableAudio();
       await this.startLiveAI(liveParams, model);
       this.startScreenshotCapture(intervalMs);
       this.isAIRunning = true;
@@ -151,44 +135,6 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     } catch (error) {
       console.error('Failed to stop Gemini Live:', error);
     }
-  }
-
-  async setupAudioCapture() {
-    this.audioStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        sampleRate: 16000,
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-      },
-    });
-
-    const audioTracks = this.audioStream.getAudioTracks();
-    if (audioTracks.length === 0) {
-      throw new Error('No audio tracks found.');
-    }
-
-    this.audioContext = new AudioContext({sampleRate: 16000});
-    const blob = new Blob([AUDIO_CAPTURE_PROCESSOR_CODE], {
-      type: 'text/javascript',
-    });
-    const blobUrl = URL.createObjectURL(blob);
-    await this.audioContext.audioWorklet.addModule(blobUrl);
-    this.sourceNode = this.audioContext.createMediaStreamSource(
-      this.audioStream
-    );
-    this.processorNode = new AudioWorkletNode(
-      this.audioContext,
-      'audio-capture-processor'
-    );
-    this.processorNode.port.onmessage = (event) => {
-      if (event.data.type === 'audioData' && this.isAIRunning) {
-        this.sendAudioData(event.data.data);
-      }
-    };
-
-    this.sourceNode.connect(this.processorNode);
-    this.processorNode.connect(this.audioContext.destination);
   }
 
   async startLiveAI(
@@ -272,20 +218,6 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     }
   }
 
-  sendAudioData(audioBuffer: ArrayBuffer) {
-    if (!this.isAIRunning || !this.ai || !this.ai.sendRealtimeInput) {
-      throw new Error('AI not ready to send audio clip.');
-    }
-    try {
-      const base64Audio = this.arrayBufferToBase64(audioBuffer);
-      this.ai.sendRealtimeInput({
-        audio: {data: base64Audio, mimeType: 'audio/pcm;rate=16000'},
-      });
-    } catch (error) {
-      console.error('Failed to send audio:', error);
-    }
-  }
-
   sendVideoFrame(base64Image: string, mimeType: string = this.cameraMimeType) {
     if (!this.isAIRunning || !this.ai || !this.ai.sendRealtimeInput) {
       throw new Error('AI not ready to send video frame');
@@ -300,111 +232,20 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
     }
   }
 
-  async initializeAudioContext() {
-    if (!this.audioContext) {
-      this.audioContext = new AudioContext({sampleRate: 24000});
-    }
-    // Without a resume the context can stay suspended (no audible playback)
-    // when it wasn't created directly inside a user gesture.
-    if (this.audioContext.state === 'suspended') {
-      await this.audioContext.resume();
-    }
-  }
-
-  async playAudioChunk(audioData: string) {
-    try {
-      await this.initializeAudioContext();
-      const arrayBuffer = this.base64ToArrayBuffer(audioData);
-      const audioBuffer = this.audioContext!.createBuffer(
-        1,
-        arrayBuffer.byteLength / 2,
-        24000
-      );
-      const channelData = audioBuffer.getChannelData(0);
-      const int16View = new Int16Array(arrayBuffer);
-
-      for (let i = 0; i < int16View.length; i++) {
-        channelData[i] = int16View[i] / 32768.0;
-      }
-
-      this.audioQueue.push(audioBuffer);
-
-      this.scheduleAudioBuffers();
-    } catch (error) {
-      console.error('Error playing audio chunk:', error);
-    }
-  }
-
-  scheduleAudioBuffers() {
-    while (
-      this.audioQueue.length > 0 &&
-      this.nextAudioStartTime <=
-        this.audioContext!.currentTime + this.scheduleAheadTime
-    ) {
-      const audioBuffer = this.audioQueue.shift()!;
-      const source = this.audioContext!.createBufferSource();
-      source.buffer = audioBuffer!;
-      source.connect(this.audioContext!.destination);
-      source.onended = () => {
-        source.disconnect();
-        this.queuedSourceNodes.delete(source);
-        this.scheduleAudioBuffers();
-      };
-
-      const startTime = Math.max(
-        this.nextAudioStartTime,
-        this.audioContext!.currentTime
-      );
-      source.start(startTime);
-      this.queuedSourceNodes.add(source);
-      this.nextAudioStartTime = startTime + audioBuffer.duration;
-    }
-  }
-
-  stopPlayingAudio() {
-    this.audioQueue = [];
-    this.nextAudioStartTime = 0;
-    for (const source of this.queuedSourceNodes) {
-      source.stop();
-      source.disconnect();
-    }
-    this.queuedSourceNodes.clear();
-  }
-
   cleanup() {
-    // Stop any scheduled playback and reset nextAudioStartTime so a later
-    // session doesn't have its audio delayed by the previous one's clock.
-    this.stopPlayingAudio();
+    // Audio capture + playback are owned by CoreSound; stop both.
+    xb.core.sound.disableAudio();
+    xb.core.sound.stopAIAudio();
 
     if (this.screenshotInterval) {
       clearInterval(this.screenshotInterval);
       this.screenshotInterval = undefined;
     }
-
-    if (this.processorNode) {
-      this.processorNode.disconnect();
-      this.processorNode = null;
-    }
-
-    if (this.sourceNode) {
-      this.sourceNode.disconnect();
-      this.sourceNode = null;
-    }
-
-    if (this.audioContext) {
-      this.audioContext.close();
-      this.audioContext = null;
-    }
-
-    if (this.audioStream) {
-      this.audioStream.getTracks().forEach((track) => track.stop());
-      this.audioStream = null;
-    }
   }
 
   handleAIMessage(message: GoogleGenAITypes.LiveServerMessage) {
     if (message.data) {
-      this.playAudioChunk(message.data);
+      xb.core.sound.playAIAudio(message.data);
     }
 
     for (const functionCall of message.toolCall?.functionCalls ?? []) {
@@ -444,7 +285,7 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
       }
 
       if (message.serverContent.interrupted) {
-        this.stopPlayingAudio();
+        xb.core.sound.stopAIAudio();
         this.dispatchEvent({type: 'interrupted'});
       }
 
@@ -452,25 +293,6 @@ export class GeminiManager extends xb.Script<GeminiManagerEventMap> {
         this.dispatchEvent({type: 'turnComplete'});
       }
     }
-  }
-
-  arrayBufferToBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  }
-
-  base64ToArrayBuffer(base64: string): ArrayBuffer {
-    const binaryString = atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
   }
 
   dispose() {
