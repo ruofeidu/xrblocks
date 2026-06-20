@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import * as xb from 'xrblocks';
 
-import {SegmenterController} from './SegmenterController.js';
-
 // Backdrop modes for the cut-out background.
 //   0 = passthrough: background pixels are discarded so you see straight
 //       through the window to the real world behind it.
@@ -95,7 +93,6 @@ const FRAGMENT_SHADER = /* glsl */ `
 export class MagicWindow extends xb.Script {
   constructor() {
     super();
-    this.segmenter = new SegmenterController();
     this.frameCanvas = document.createElement('canvas');
     this.frameCtx = this.frameCanvas.getContext('2d', {
       willReadFrequently: true,
@@ -144,8 +141,6 @@ export class MagicWindow extends xb.Script {
     this.plane.add(this.windowFrame_);
     this.plane.position.set(0, 1.5, -1.2);
     this.add(this.plane);
-
-    this.segmenter.load();
 
     // Quick keyboard control until the spatial panel lands: B cycles backdrop.
     this.onKeyDown_ = (event) => {
@@ -197,7 +192,7 @@ export class MagicWindow extends xb.Script {
       }
       this.frameCtx.putImageData(image, 0, 0);
       this.updateCameraTexture_();
-      this.updateMask_();
+      await this.updateMask_();
     } catch (error) {
       console.warn('[magic_window] frame grab failed', error);
     } finally {
@@ -249,11 +244,14 @@ export class MagicWindow extends xb.Script {
     );
   }
 
-  updateMask_() {
-    if (!this.segmenter.isReady) {
+  async updateMask_() {
+    // Segmentation runs through the SDK's world/segmentation primitive, which
+    // pulls its own camera frame and returns a per-pixel category mask.
+    const segmentation = xb.core.world?.segmentation;
+    if (!segmentation) {
       return;
     }
-    const mask = this.segmenter.segment(this.frameCanvas);
+    const mask = await segmentation.runSegmentation();
     if (!mask) {
       return;
     }
@@ -283,7 +281,6 @@ export class MagicWindow extends xb.Script {
 
   dispose() {
     window.removeEventListener('keydown', this.onKeyDown_);
-    this.segmenter.dispose();
     this.cameraTexture?.dispose();
     this.maskTexture?.dispose();
     this.plane.geometry.dispose();
