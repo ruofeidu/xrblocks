@@ -79,10 +79,7 @@ export type EmbodiedControlOptions = {
 export type EmbodiedControlExecutorOptions = Required<
   Pick<
     EmbodiedControlOptions,
-    | 'tickMs'
-    | 'includeScreenshot'
-    | 'applyHandRotationConstraints'
-    | 'realTime'
+    'tickMs' | 'includeScreenshot' | 'applyHandRotationConstraints' | 'realTime'
   >
 >;
 
