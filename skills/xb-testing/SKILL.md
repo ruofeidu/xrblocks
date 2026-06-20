@@ -64,7 +64,7 @@ await runner.pointTo(1, targetMesh);
 // Perform a pinch/click with the right hand
 await runner.click(1);
 
-// Step time to allow the select start and select end callbacks to fire
+// Step time in ms to allow the select start and select end callbacks to fire
 await runner.step(250);
 
 expect(targetMesh.clicked).toBe(true);
