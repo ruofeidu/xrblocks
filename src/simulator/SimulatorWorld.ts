@@ -65,7 +65,7 @@ export class SimulatorWorld {
           indices[i] = i;
         }
       }
-      simMeshes.push({vertices, indices});
+      simMeshes.push({vertices, indices, lastChangedTime: 0});
       geometry.dispose();
     });
 

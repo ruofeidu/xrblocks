@@ -17,6 +17,12 @@ export interface SimulatorMesh {
   indices: Uint32Array;
 
   /**
+   * Timestamp of the last geometry change, analogous to `XRMesh.lastChangedTime`.
+   * Simulator meshes are static, so this is typically 0.
+   */
+  lastChangedTime: number;
+
+  /**
    * Optional semantic label (e.g. 'floor', 'ceiling', 'wall'). When it matches
    * one of the detector's debug materials it is colored accordingly; otherwise
    * the fallback debug material is used.
