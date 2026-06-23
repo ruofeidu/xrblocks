@@ -78,7 +78,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     // Until the first mask arrives, treat the whole frame as background so we
     // show the backdrop rather than flashing the raw camera (the room) during
     // model warm-up. Category 0 is background; everything else is a person.
-    bool isPerson = (uHasMask >= 0.5) && (id >= 0.5);
+    bool isPerson = (uHasMask > 0.5) && (id > 0.5);
     if (isPerson) {
       gl_FragColor = vec4(cam, 1.0);
       return;
