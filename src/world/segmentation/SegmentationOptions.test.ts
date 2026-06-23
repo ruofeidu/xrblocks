@@ -37,14 +37,12 @@ describe('SegmentationOptions', () => {
     const opts = new SegmentationOptions({
       backendConfig: {
         mediapipe: {
-          modelAssetPath: 'https://example.com/custom.tflite',
+          modelAssetPath: 'model://custom',
         },
       },
     });
     // Overridden field takes the new value.
-    expect(opts.backendConfig.mediapipe.modelAssetPath).toBe(
-      'https://example.com/custom.tflite'
-    );
+    expect(opts.backendConfig.mediapipe.modelAssetPath).toBe('model://custom');
     // Untouched fields keep their defaults.
     expect(opts.backendConfig.mediapipe.outputCategoryMask).toBe(true);
     expect(opts.backendConfig.activeBackend).toBe('mediapipe');
