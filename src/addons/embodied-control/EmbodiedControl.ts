@@ -19,6 +19,9 @@ export class EmbodiedControl extends Script {
   editorIcon = 'sports_martial_arts';
   executor?: EmbodiedControlExecutor;
   private options: Required<EmbodiedControlOptions>;
+  private core?: Core;
+  private autoPauseScheduled = false;
+  private autoPauseComplete = false;
 
   constructor(options: EmbodiedControlOptions = {}) {
     super();
@@ -29,10 +32,39 @@ export class EmbodiedControl extends Script {
   }
 
   init(dependencies: {core: Core; simulator: Simulator; camera: THREE.Camera}) {
+    this.core = dependencies.core;
     this.executor = new EmbodiedControlExecutor(dependencies, this.options);
-    if (this.options.autoPause) {
-      dependencies.core.pause();
+    if (this.options.autoPause && dependencies.core.simulatorRunning) {
+      this.scheduleAutoPause();
     }
+  }
+
+  override onSimulatorStarted() {
+    if (this.options.autoPause) {
+      this.scheduleAutoPause();
+    }
+  }
+
+  private scheduleAutoPause() {
+    if (this.autoPauseScheduled || this.autoPauseComplete) return;
+    this.autoPauseScheduled = true;
+    this.afterRenderedFrame(() => {
+      if (!this.core) return;
+      this.core.pause();
+      this.core.stepFrame(0);
+      this.autoPauseComplete = true;
+    });
+  }
+
+  private afterRenderedFrame(callback: () => void) {
+    const schedule =
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame
+        : (handler: FrameRequestCallback) => {
+            setTimeout(() => handler(performance.now()), 0);
+            return 0;
+          };
+    schedule(() => schedule(() => callback()));
   }
 
   step(step: EmbodiedControlStep): Promise<void> {
