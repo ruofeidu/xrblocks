@@ -16,7 +16,7 @@ import {
 import {
   createRemoteControlBuiltInTools,
   type RemoteControlTarget,
-} from './RemoteControlBuiltInTools';
+} from './built-in-tools';
 import {
   type RemoteControlCallToolRequest,
   type RemoteControlRequest,
@@ -186,17 +186,13 @@ export class RemoteControl extends Script {
       embodiedControl: this.embodiedControl,
       resolveTarget: (target) => this.resolveTarget(target),
     })) {
-      this.registerBuiltInTool(tool.name, tool.handler, tool.metadata);
+      if (!this.tools.has(tool.name)) {
+        this.tools.set(tool.name, {
+          handler: tool.handler,
+          metadata: tool.metadata,
+        });
+      }
     }
-  }
-
-  private registerBuiltInTool(
-    name: string,
-    handler: RemoteControlToolHandler,
-    metadata?: RemoteControlToolMetadata
-  ) {
-    if (this.tools.has(name)) return;
-    this.tools.set(name, {handler, metadata});
   }
 
   private resolveTarget(

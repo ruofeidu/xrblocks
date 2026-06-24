@@ -7,16 +7,19 @@ import {
   type RemoteControlResponse,
 } from './RemoteControlProtocol';
 import type {EmbodiedControlStep, XRCompoundControl} from '../embodied-control';
-import type {
-  RemoteControlCameraToolArgs,
-  RemoteControlClickToolArgs,
-  RemoteControlLookAtTargetToolArgs,
-  RemoteControlPointToToolArgs,
-  RemoteControlReachToToolArgs,
-  RemoteControlScreenshotToolArgs,
-  RemoteControlTarget,
-  RemoteControlTeleportToToolArgs,
-} from './RemoteControlBuiltInTools';
+import {
+  REMOTE_CONTROL_BUILT_IN_TOOL_NAMES,
+  type RemoteControlCameraToolArgs,
+  type RemoteControlClickToolArgs,
+  type RemoteControlLookAtTargetToolArgs,
+  type RemoteControlPointToToolArgs,
+  type RemoteControlReachToToolArgs,
+  type RemoteControlScreenshotToolArgs,
+  type RemoteControlTarget,
+  type RemoteControlTeleportToToolArgs,
+} from './built-in-tools';
+
+const BUILT_IN_TOOLS = REMOTE_CONTROL_BUILT_IN_TOOL_NAMES;
 
 type PendingRequest = {
   resolve: (response: RemoteControlResponse) => void;
@@ -92,25 +95,25 @@ export class RemoteControlClient {
   }
 
   step(step: EmbodiedControlStep) {
-    return this.callTool('step', step);
+    return this.callTool(BUILT_IN_TOOLS.step, step);
   }
 
   apply(control: XRCompoundControl) {
-    return this.callTool('applyControl', {control});
+    return this.callTool(BUILT_IN_TOOLS.applyControl, {control});
   }
 
   teleportTo(
     target: RemoteControlTarget,
     options?: RemoteControlTeleportToToolArgs['options']
   ) {
-    return this.callTool('teleportTo', {target, options});
+    return this.callTool(BUILT_IN_TOOLS.teleportTo, {target, options});
   }
 
   lookAtTarget(
     target: RemoteControlTarget,
     options?: RemoteControlLookAtTargetToolArgs['options']
   ) {
-    return this.callTool('lookAtTarget', {target, options});
+    return this.callTool(BUILT_IN_TOOLS.lookAtTarget, {target, options});
   }
 
   pointTo(
@@ -118,7 +121,7 @@ export class RemoteControlClient {
     target: RemoteControlTarget,
     options?: RemoteControlPointToToolArgs['options']
   ) {
-    return this.callTool('pointTo', {handIndex, target, options});
+    return this.callTool(BUILT_IN_TOOLS.pointTo, {handIndex, target, options});
   }
 
   reachTo(
@@ -126,30 +129,30 @@ export class RemoteControlClient {
     target: RemoteControlTarget,
     options?: RemoteControlReachToToolArgs['options']
   ) {
-    return this.callTool('reachTo', {handIndex, target, options});
+    return this.callTool(BUILT_IN_TOOLS.reachTo, {handIndex, target, options});
   }
 
   click(
     handIndex?: RemoteControlClickToolArgs['handIndex'],
     options?: RemoteControlClickToolArgs['options']
   ) {
-    return this.callTool('click', {handIndex, options});
+    return this.callTool(BUILT_IN_TOOLS.click, {handIndex, options});
   }
 
   getCamera(args?: RemoteControlCameraToolArgs) {
-    return this.callTool('getCamera', args ?? {});
+    return this.callTool(BUILT_IN_TOOLS.getCamera, args ?? {});
   }
 
   getHands() {
-    return this.callTool('getHands', {});
+    return this.callTool(BUILT_IN_TOOLS.getHands, {});
   }
 
   getScreenshot(args?: RemoteControlScreenshotToolArgs) {
-    return this.callTool('getScreenshot', args ?? {});
+    return this.callTool(BUILT_IN_TOOLS.getScreenshot, args ?? {});
   }
 
   getSimulatorState() {
-    return this.callTool('getSimulatorState', {});
+    return this.callTool(BUILT_IN_TOOLS.getSimulatorState, {});
   }
 
   callTool(name: string, args?: unknown) {

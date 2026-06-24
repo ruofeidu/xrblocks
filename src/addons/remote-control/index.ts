@@ -5,7 +5,7 @@ export type {RemoteControlClientOptions} from './RemoteControlClient';
 export {
   createRemoteControlBuiltInTools,
   REMOTE_CONTROL_BUILT_IN_TOOL_NAMES,
-} from './RemoteControlBuiltInTools';
+} from './built-in-tools';
 export type {
   RemoteControlApplyControlToolArgs,
   RemoteControlActionToolDependencies,
@@ -26,7 +26,7 @@ export type {
   RemoteControlTarget,
   RemoteControlTargetResolver,
   RemoteControlTeleportToToolArgs,
-} from './RemoteControlBuiltInTools';
+} from './built-in-tools';
 export {
   REMOTE_CONTROL_CLIENT_NAME,
   REMOTE_CONTROL_PROTOCOL_VERSION,

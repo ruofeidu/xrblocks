@@ -46,7 +46,7 @@ cannot send arbitrary JavaScript to evaluate in the page.
 
 ## Built-In Tools
 
-Built-in tools are defined in `RemoteControlBuiltInTools`. `RemoteControl`
+Built-in tools are defined under `built-in-tools/`. `RemoteControl`
 automatically registers them before the page is exposed:
 
 - `step({durationMs?: number, control?: XRCompoundControl})`
