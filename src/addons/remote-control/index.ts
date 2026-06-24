@@ -1,18 +1,52 @@
 export {RemoteControl} from './RemoteControl';
 export type {RemoteControlOptions} from './RemoteControl';
+export {RemoteControlClient} from './RemoteControlClient';
+export type {RemoteControlClientOptions} from './RemoteControlClient';
 export {
+  createRemoteControlBuiltInTools,
+  REMOTE_CONTROL_BUILT_IN_TOOL_NAMES,
+} from './RemoteControlBuiltInTools';
+export type {
+  RemoteControlApplyControlToolArgs,
+  RemoteControlBuiltInTool,
+  RemoteControlCameraToolArgs,
+  RemoteControlCameraToolResult,
+  RemoteControlClickToolArgs,
+  RemoteControlHandObservation,
+  RemoteControlHandsToolResult,
+  RemoteControlLookAtTargetToolArgs,
+  RemoteControlPointToToolArgs,
+  RemoteControlPoseObservation,
+  RemoteControlReachToToolArgs,
+  RemoteControlScreenshotToolArgs,
+  RemoteControlSimulatorStateToolResult,
+  RemoteControlTarget,
+  RemoteControlTargetResolver,
+  RemoteControlTeleportToToolArgs,
+} from './RemoteControlBuiltInTools';
+export {RemoteControlObserver} from './RemoteControlObserver';
+export type {RemoteControlObserverDependencies} from './RemoteControlObserver';
+export {
+  REMOTE_CONTROL_CLIENT_NAME,
   REMOTE_CONTROL_PROTOCOL_VERSION,
-  createHandshake,
-  isCommandMessage,
+  createHello,
+  isRemoteControlRequest,
+  isRemoteControlResponse,
   parseRemoteControlMessage,
 } from './RemoteControlProtocol';
 export type {
-  RemoteControlActionRejectedMessage,
-  RemoteControlErrorMessage,
-  RemoteControlHandshakeMessage,
+  RemoteControlCallToolRequest,
+  RemoteControlHelloMessage,
+  RemoteControlIncomingMessage,
   RemoteControlOutgoingMessage,
-  RemoteControlStepCompletedMessage,
-  RemoteControlMessage,
+  RemoteControlPingRequest,
+  RemoteControlRequest,
+  RemoteControlResponse,
+  RemoteControlRole,
+  RemoteControlSimulatorReadyMessage,
+  RemoteControlToolContext,
+  RemoteControlToolHandler,
+  RemoteControlToolMetadata,
 } from './RemoteControlProtocol';
 export {WebSocketRemoteControlTransport} from './WebSocketRemoteControlTransport';
 export type {
