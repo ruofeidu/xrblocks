@@ -17,6 +17,11 @@ export const AGENT_HAND_PROFILE_PATH =
 const WRIST_BONE_INDEX = 0;
 const INDEX_TIP_BONE_INDEX = 10;
 
+// How far the hand reaches toward a target it points at: a fraction of the
+// distance, capped so it stays a believable arm's reach from its rest spot.
+const REACH_FRACTION = 0.45;
+const MAX_REACH = 0.35;
+
 const scratchPosition = new THREE.Vector3();
 const scratchQuaternion = new THREE.Quaternion();
 const scratchQuaternionB = new THREE.Quaternion();
@@ -67,6 +72,12 @@ export class AgentHand {
   private pose: SimulatorHandPose = SimulatorHandPose.RELAXED;
   /** Orientation the root smoothly slerps toward (identity = resting). */
   private readonly targetQuaternion = new THREE.Quaternion();
+  /** Resting position (group-local), captured the first time the hand reaches. */
+  private readonly homePosition = new THREE.Vector3();
+  private homeCaptured = false;
+  /** Position the root smoothly lerps toward (defaults to home). */
+  private readonly reachPosition = new THREE.Vector3();
+  private reaching = false;
 
   constructor(readonly handedness: Handedness) {}
 
@@ -107,33 +118,54 @@ export class AgentHand {
     );
     lerpBonesToJoints(this.bones, joints, lerp);
     this.root.quaternion.slerp(this.targetQuaternion, lerp);
+    if (this.homeCaptured) {
+      const goal = this.reaching ? this.reachPosition : this.homePosition;
+      this.root.position.lerp(goal, lerp);
+    }
   }
 
   /**
-   * Orients the hand so its index finger points at a world-space position, and
-   * switches to the pointing pose. The hand smoothly turns toward the target on
-   * subsequent {@link animate} calls.
+   * Orients the hand so its index finger points at a world-space position,
+   * reaches partway toward it, and switches to the pointing pose. The hand
+   * smoothly turns and extends toward the target on subsequent
+   * {@link animate} calls.
    * @param targetWorld - The world-space point to aim the index finger at.
    */
   aimAt(targetWorld: THREE.Vector3) {
     const parent = this.root.parent;
     if (!this.loaded || !parent) return;
     this.setPose(SimulatorHandPose.POINTING);
+    this.captureHome_();
 
-    // Direction the posed index finger points, expressed in the parent frame
-    // with the root un-rotated (so it is independent of the current aim).
-    const localDir = this.measurePointDirection_();
-
-    // Desired direction from the hand toward the target, in the parent frame.
+    // Target in the parent frame, and the capped reach position toward it.
     parent.worldToLocal(scratchTarget.copy(targetWorld));
-    scratchDir.copy(scratchTarget).sub(this.root.position).normalize();
+    scratchDir.copy(scratchTarget).sub(this.homePosition);
+    const distance = scratchDir.length();
+    if (distance > 1e-4) {
+      scratchDir.multiplyScalar(Math.min(REACH_FRACTION, MAX_REACH / distance));
+    }
+    this.reachPosition.copy(this.homePosition).add(scratchDir);
+    this.reaching = true;
 
+    // Direction the posed index finger points, with the root un-rotated.
+    const localDir = this.measurePointDirection_();
+    // Aim from where the hand will end up toward the target.
+    scratchDir.copy(scratchTarget).sub(this.reachPosition).normalize();
     this.targetQuaternion.setFromUnitVectors(localDir, scratchDir);
   }
 
-  /** Returns the hand to its resting orientation. */
+  /** Returns the hand to its resting position and orientation. */
   clearAim() {
     this.targetQuaternion.identity();
+    this.reaching = false;
+  }
+
+  // Captures the current root position as "home" the first time it is needed.
+  private captureHome_() {
+    if (this.homeCaptured) return;
+    this.homePosition.copy(this.root.position);
+    this.reachPosition.copy(this.homePosition);
+    this.homeCaptured = true;
   }
 
   // Snaps the bones to the pointing pose (with the root un-rotated) and returns
