@@ -63,8 +63,16 @@ export class ObjectDetector extends Script {
     string,
     Promise<BaseDetectorBackend<unknown>>
   >();
+  private activeClients = new Set<object>();
+  private currentDetectionPromise: Promise<DetectedObject<unknown>[]> | null =
+    null;
 
   private _debugVisualsGroup?: THREE.Group;
+
+  /**
+   * The latest detected objects.
+   */
+  public detectedObjects: DetectedObject<unknown>[] = [];
 
   // Injected dependencies
   private options!: WorldOptions;
@@ -129,11 +137,80 @@ export class ObjectDetector extends Script {
   }
 
   /**
-   * Runs the object detection process based on the configured backend.
+   * Starts continuous object detection for the given client.
+   * If this is the first client, starts the background detection loop.
+   * @param client - The client object requesting object detection.
+   */
+  start(client: object): void {
+    if (this.activeClients.has(client)) {
+      return;
+    }
+    this.activeClients.add(client);
+    if (this.activeClients.size === 1) {
+      this.runContinuousDetection();
+    }
+  }
+
+  /**
+   * Stops continuous object detection for the given client.
+   * If this was the last client, stops the background detection loop.
+   * @param client - The client object that no longer needs object detection.
+   */
+  stop(client: object): void {
+    this.activeClients.delete(client);
+  }
+
+  /**
+   * Called per frame by the engine. If there are active clients,
+   * ensures the continuous object detection is running.
+   */
+  override update() {
+    if (this.activeClients.size > 0 && !this.currentDetectionPromise) {
+      this.runContinuousDetection();
+    }
+  }
+
+  private runContinuousDetection() {
+    if (this.currentDetectionPromise) {
+      return;
+    }
+    this.currentDetectionPromise = this.runDetectionInternal()
+      .then((results) => {
+        this.detectedObjects = results;
+        return results;
+      })
+      .finally(() => {
+        this.currentDetectionPromise = null;
+      });
+  }
+
+  /**
+   * Runs object detection or returns the ongoing detection promise.
+   *
+   * - If continuous detection is started (has active clients), returns the
+   *   promise for the next detection result.
+   * - If continuous detection is not started, performs a one-off detection and
+   *   returns the result. If a one-off detection is already in progress, returns
+   *   the promise for that ongoing detection.
+   *
    * @returns A promise that resolves with an
    * array of detected `DetectedObject` instances.
    */
-  async runDetection<T = null>(): Promise<DetectedObject<T>[]> {
+  runDetection<T = null>(): Promise<DetectedObject<T>[]> {
+    if (this.currentDetectionPromise) {
+      return this.currentDetectionPromise as Promise<DetectedObject<T>[]>;
+    }
+    if (this.activeClients.size > 0) {
+      this.runContinuousDetection();
+      return this.currentDetectionPromise! as Promise<DetectedObject<T>[]>;
+    }
+    this.currentDetectionPromise = this.runDetectionInternal().finally(() => {
+      this.currentDetectionPromise = null;
+    });
+    return this.currentDetectionPromise as Promise<DetectedObject<T>[]>;
+  }
+
+  private async runDetectionInternal<T = null>(): Promise<DetectedObject<T>[]> {
     this.clear(); // Clear previous results before starting a new detection.
 
     const depthMeshSnapshot = this.getDepthMeshSnapshot();
@@ -173,6 +250,7 @@ export class ObjectDetector extends Script {
       this._detectedObjects.set(obj.uuid, obj);
       this.add(obj);
     }
+    // this.detectedObjects = detectedObjects as DetectedObject<unknown>[];
     return detectedObjects;
   }
 
@@ -264,6 +342,7 @@ export class ObjectDetector extends Script {
       this.remove(obj);
     }
     this._detectedObjects.clear();
+    this.detectedObjects = [];
     if (this._debugVisualsGroup) {
       this._debugVisualsGroup.clear();
     }
