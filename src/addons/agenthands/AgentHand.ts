@@ -13,8 +13,18 @@ import {
 export const AGENT_HAND_PROFILE_PATH =
   'https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/';
 
+// Indices into HAND_JOINT_NAMES used for index-finger aiming.
+const WRIST_BONE_INDEX = 0;
+const INDEX_TIP_BONE_INDEX = 10;
+
 const scratchPosition = new THREE.Vector3();
 const scratchQuaternion = new THREE.Quaternion();
+const scratchQuaternionB = new THREE.Quaternion();
+const scratchTarget = new THREE.Vector3();
+const scratchDir = new THREE.Vector3();
+const scratchDirB = new THREE.Vector3();
+const scratchWrist = new THREE.Vector3();
+const scratchTip = new THREE.Vector3();
 
 /**
  * Smoothly moves a hand's bones toward a target set of joint transforms.
@@ -55,6 +65,8 @@ export class AgentHand {
 
   private readonly bones: Array<THREE.Object3D | undefined> = [];
   private pose: SimulatorHandPose = SimulatorHandPose.RELAXED;
+  /** Orientation the root smoothly slerps toward (identity = resting). */
+  private readonly targetQuaternion = new THREE.Quaternion();
 
   constructor(readonly handedness: Handedness) {}
 
@@ -94,5 +106,58 @@ export class AgentHand {
       SIMULATOR_HAND_POSE_ROTATIONS[this.pose]
     );
     lerpBonesToJoints(this.bones, joints, lerp);
+    this.root.quaternion.slerp(this.targetQuaternion, lerp);
+  }
+
+  /**
+   * Orients the hand so its index finger points at a world-space position, and
+   * switches to the pointing pose. The hand smoothly turns toward the target on
+   * subsequent {@link animate} calls.
+   * @param targetWorld - The world-space point to aim the index finger at.
+   */
+  aimAt(targetWorld: THREE.Vector3) {
+    const parent = this.root.parent;
+    if (!this.loaded || !parent) return;
+    this.setPose(SimulatorHandPose.POINTING);
+
+    // Direction the posed index finger points, expressed in the parent frame
+    // with the root un-rotated (so it is independent of the current aim).
+    const localDir = this.measurePointDirection_();
+
+    // Desired direction from the hand toward the target, in the parent frame.
+    parent.worldToLocal(scratchTarget.copy(targetWorld));
+    scratchDir.copy(scratchTarget).sub(this.root.position).normalize();
+
+    this.targetQuaternion.setFromUnitVectors(localDir, scratchDir);
+  }
+
+  /** Returns the hand to its resting orientation. */
+  clearAim() {
+    this.targetQuaternion.identity();
+  }
+
+  // Snaps the bones to the pointing pose (with the root un-rotated) and returns
+  // the wrist-to-index-tip direction in the parent frame.
+  private measurePointDirection_(): THREE.Vector3 {
+    const parent = this.root.parent!;
+    const savedQuaternion = scratchQuaternionB.copy(this.root.quaternion);
+    this.root.quaternion.identity();
+    const pointingJoints = resolveSimulatorHandPoseRotations(
+      this.handedness,
+      SIMULATOR_HAND_POSE_ROTATIONS[SimulatorHandPose.POINTING]
+    );
+    lerpBonesToJoints(this.bones, pointingJoints, 1);
+    this.root.updateWorldMatrix(true, true);
+
+    const wrist = this.bones[WRIST_BONE_INDEX];
+    const tip = this.bones[INDEX_TIP_BONE_INDEX];
+    this.root.quaternion.copy(savedQuaternion);
+    if (!wrist || !tip) return scratchDirB.set(0, 0, -1);
+
+    wrist.getWorldPosition(scratchWrist);
+    tip.getWorldPosition(scratchTip);
+    parent.worldToLocal(scratchWrist);
+    parent.worldToLocal(scratchTip);
+    return scratchDirB.copy(scratchTip).sub(scratchWrist).normalize();
   }
 }
