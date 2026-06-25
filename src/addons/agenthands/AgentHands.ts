@@ -64,8 +64,10 @@ export class AgentHands extends Script {
   pointAt(targetWorld: THREE.Vector3, hand: AgentHandSelector = 'both') {
     let selected = hand;
     if (selected === 'both') {
-      this.getWorldPosition(scratchHandsOrigin);
-      selected = targetWorld.x >= scratchHandsOrigin.x ? 'right' : 'left';
+      // Decide the side in the hands' own local frame, so the choice is
+      // correct even when the pair is rotated or anchored to the head.
+      this.worldToLocal(scratchHandsOrigin.copy(targetWorld));
+      selected = scratchHandsOrigin.x >= 0 ? 'right' : 'left';
     }
     if (selected === 'left') this.left.aimAt(targetWorld);
     else this.right.aimAt(targetWorld);

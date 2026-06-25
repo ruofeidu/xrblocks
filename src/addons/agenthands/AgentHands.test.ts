@@ -61,4 +61,17 @@ describe('AgentHands', () => {
     hands.pointAt(new THREE.Vector3(-2, 1, -1), 'both');
     expect(left).toHaveBeenCalledOnce();
   });
+
+  it('pointAt("both") chooses the side in the hands local frame', () => {
+    // Rotate the pair 180 degrees so world +x maps to local -x. A world target
+    // on the +x side should then be the LEFT hand.
+    const hands = new AgentHands();
+    hands.rotation.y = Math.PI;
+    hands.updateMatrixWorld(true);
+    const left = vi.spyOn(hands.left, 'aimAt').mockImplementation(() => {});
+    const right = vi.spyOn(hands.right, 'aimAt').mockImplementation(() => {});
+    hands.pointAt(new THREE.Vector3(2, 1, 0), 'both');
+    expect(left).toHaveBeenCalledOnce();
+    expect(right).not.toHaveBeenCalled();
+  });
 });
