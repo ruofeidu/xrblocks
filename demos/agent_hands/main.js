@@ -2,6 +2,14 @@ import 'xrblocks/addons/simulator/SimulatorAddons.js';
 
 import * as THREE from 'three';
 import {
+  HeadLeashBehavior,
+  ManipulationBehavior,
+  UICore,
+  UIIcon,
+  UIPanel,
+  UIText,
+} from 'uiblocks';
+import {
   AgentHands,
   parseAgentGestures,
 } from 'xrblocks/addons/agenthands/index.js';
@@ -30,6 +38,7 @@ class AgentHandsDemo extends xb.Script {
     this.queue = [];
     this.timer = 0;
     this.busy = false;
+    this.interactive = false;
   }
 
   async init() {
@@ -46,12 +55,145 @@ class AgentHandsDemo extends xb.Script {
     this.hands.right.root.position.set(0.16, 0, 0);
     xb.core.scene.add(this.hands);
 
-    if (xb.core.ai?.model?.options?.apiKey) {
+    this.buildSpatialPanel_();
+
+    this.interactive = !!xb.core.ai?.model?.options?.apiKey;
+    if (this.interactive) {
       this.startInteractive_();
     } else {
       this.setStatus_('no key, playing a scripted demo. add ?key= to talk.');
       this.playLine_(0);
     }
+  }
+
+  // ---- spatial control panel (works in XR + simulator) ----
+
+  buildSpatialPanel_() {
+    this.uiCore = new UICore(this);
+    const card = this.uiCore.createCard({
+      name: 'AgentHandsControlCard',
+      position: new THREE.Vector3(0, 0.7, -0.8),
+      sizeX: 0.62,
+      sizeY: 0.22,
+    });
+    const panel = new UIPanel({
+      width: '100%',
+      height: '100%',
+      fillColor: 'rgba(16, 14, 26, 0.94)',
+      strokeWidth: 2,
+      strokeColor: 'rgba(145, 119, 199, 0.55)',
+      cornerRadius: 18,
+      padding: 14,
+      flexDirection: 'column',
+      gap: 8,
+      alignItems: 'stretch',
+      justifyContent: 'center',
+    });
+    panel.add(
+      new UIText('AGENT HANDS', {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#c4b5ff',
+        textAlign: 'center',
+        width: '100%',
+      })
+    );
+    this.xrStatusText = new UIText('idle', {
+      fontSize: 12,
+      color: '#8b97a7',
+      textAlign: 'center',
+      width: '100%',
+    });
+    panel.add(this.xrStatusText);
+    panel.add(
+      new UIPanel({
+        width: '100%',
+        height: 1,
+        fillColor: 'rgba(255, 255, 255, 0.10)',
+      })
+    );
+    const row = new UIPanel({
+      width: '100%',
+      flexDirection: 'row',
+      gap: 10,
+      justifyContent: 'center',
+      alignItems: 'center',
+    });
+    row.add(this.makeXrButton_('mic', 'talk', () => this.onTalk_()));
+    row.add(this.makeXrButton_('replay', 'replay', () => this.replay_()));
+    panel.add(row);
+    card.add(panel);
+    card.addBehavior(
+      new ManipulationBehavior({draggable: true, faceCamera: false})
+    );
+    // Gently follow the user so the controls stay in reach as they move.
+    card.addBehavior(
+      new HeadLeashBehavior({
+        offset: new THREE.Vector3(0, -0.55, -0.85),
+        posLerp: 0.08,
+        rotLerp: 0.1,
+      })
+    );
+  }
+
+  // Icon + caption button mirroring a DOM control (matches world_companion).
+  makeXrButton_(iconName, label, onClick) {
+    const idle = '#2a2a2a';
+    const hover = '#3a3a3a';
+    const btn = new UIPanel({
+      paddingTop: 8,
+      paddingBottom: 8,
+      paddingLeft: 16,
+      paddingRight: 16,
+      cornerRadius: 12,
+      fillColor: idle,
+      strokeWidth: 1,
+      strokeColor: '#444444',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      renderOrder: 10,
+      onHoverEnter: () => btn.setFillColor(hover),
+      onHoverExit: () => btn.setFillColor(idle),
+      onClick: () => {
+        btn.setFillColor('#9177c7');
+        setTimeout(() => btn.setFillColor(idle), 180);
+        onClick();
+      },
+    });
+    btn.add(
+      new UIIcon(iconName, {
+        color: 'white',
+        width: 22,
+        height: 22,
+        renderOrder: 12,
+      })
+    );
+    btn.add(
+      new UIText(label, {
+        fontSize: 14,
+        color: '#ffffff',
+        fontWeight: 'bold',
+        depthTest: false,
+        renderOrder: 100,
+      })
+    );
+    return btn;
+  }
+
+  // Triggered by either the DOM Talk button or the spatial mic button.
+  onTalk_() {
+    if (this.interactive) {
+      xb.core.sound?.speechRecognizer?.start();
+    } else {
+      this.replay_();
+    }
+  }
+
+  replay_() {
+    if (this.interactive) return;
+    this.playLine_(0);
   }
 
   // ---- interactive (Gemini) mode ----
@@ -68,7 +210,7 @@ class AgentHandsDemo extends xb.Script {
         this.respond_(event.transcript.trim());
       }
     });
-    this.setStatus_('press 🎙️ Talk and say something to the agent.');
+    this.setStatus_('press talk and say something to the agent.');
   }
 
   async respond_(userText) {
@@ -132,14 +274,20 @@ class AgentHandsDemo extends xb.Script {
   }
 
   setStatus_(text) {
+    console.log('[agent_hands]', text);
     const el = document.getElementById('status');
     if (el) el.textContent = text;
+    // The spatial font lacks some glyphs (e.g. the ellipsis), so normalize.
+    if (this.xrStatusText) this.xrStatusText.setText(text.replace(/…/g, '...'));
   }
 }
 
 function start() {
   const options = new xb.Options();
   options.enableAI();
+  // Spatial UI (the control panel) + reticle for pointing at it.
+  options.enableUI();
+  options.reticles.enabled = true;
   options.sound.speechSynthesizer.enabled = true;
   options.sound.speechRecognizer.enabled = true;
   options.setAppTitle('Agent Hands');
