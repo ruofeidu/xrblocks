@@ -347,15 +347,15 @@ class AgentHandsDemo extends xb.Script {
     }
 
     try {
-      const objects = await detector.runDetection();
-      if (objects?.length) {
-        const mesh = xb.core.depth?.depthMesh;
-        for (const obj of objects) {
-          obj._point = this.groundPoint_(obj, cam, snapAspect, mesh);
-        }
-        this.detectedObjects = objects;
-        this.lastDetectAt = performance.now();
+      const objects = (await detector.runDetection()) ?? [];
+      const mesh = xb.core.depth?.depthMesh;
+      for (const obj of objects) {
+        obj._point = this.groundPoint_(obj, cam, snapAspect, mesh);
       }
+      // Replace the cache (even when empty) so the agent never points at
+      // objects from an old view after a scan that found nothing.
+      this.detectedObjects = objects;
+      this.lastDetectAt = performance.now();
     } catch (error) {
       console.warn('[agent_hands] object detection failed', error);
     }
@@ -397,7 +397,9 @@ class AgentHandsDemo extends xb.Script {
   // Speaks `text` and schedules each gesture at its relative point in the line.
   speakWithGestures_(text, gestures) {
     this.setStatus_(`agent: "${text}"`);
-    xb.core.sound?.speechSynthesizer?.speak(text);
+    // speak() rejects if it has to interrupt; swallow it so a quick follow-up
+    // utterance doesn't surface as an unhandled rejection.
+    xb.core.sound?.speechSynthesizer?.speak(text)?.catch(() => {});
     const duration = Math.max(1.2, text.length * 0.06);
     this.queue = [];
     for (const gesture of gestures) {
@@ -465,6 +467,7 @@ function start() {
   options.enableUI();
   options.reticles.enabled = true;
   options.sound.speechSynthesizer.enabled = true;
+  options.sound.speechSynthesizer.allowInterruptions = true;
   options.sound.speechRecognizer.enabled = true;
   // Object detection so the hands can point at real things in the room.
   options.deviceCamera.enabled = true;
