@@ -13,6 +13,7 @@ import {
   AgentHands,
   parseAgentGestures,
 } from 'xrblocks/addons/agenthands/index.js';
+import {Object3DDetector} from 'xrblocks/addons/objects3d/index.js';
 import * as xb from 'xrblocks';
 
 // AgentHands demo: a free-standing pair of agent hands that gesture as the
@@ -44,6 +45,7 @@ class AgentHandsDemo extends xb.Script {
     this.timer = 0;
     this.busy = false;
     this.interactive = false;
+    this.detector = null;
     this.detectedObjects = [];
     this.lastDetectAt = 0;
   }
@@ -245,11 +247,11 @@ class AgentHandsDemo extends xb.Script {
     }
   }
 
-  // Runs object detection if the cache is empty or stale. Detected objects are
-  // THREE.Object3D with a `.label` and a back-projected world `.position`.
+  // Runs 3D object detection if the cache is empty or stale. Detected objects
+  // are Detected3DObject with a `.label` and an oriented bounding box (`.obb`),
+  // so we can point at the box surface nearest the agent's hand.
   async ensureDetection_() {
-    const detector = xb.core.world?.objects;
-    if (!detector?.runDetection) return;
+    if (!this.detector) return;
     if (
       this.detectedObjects.length &&
       performance.now() - this.lastDetectAt < DETECTION_TTL_MS
@@ -257,7 +259,7 @@ class AgentHandsDemo extends xb.Script {
       return;
     }
     try {
-      const objects = await detector.runDetection();
+      const objects = await this.detector.detect();
       if (objects?.length) {
         this.detectedObjects = objects;
         this.lastDetectAt = performance.now();
@@ -289,10 +291,14 @@ class AgentHandsDemo extends xb.Script {
     for (const gesture of gestures) {
       const at = (gesture.index / Math.max(1, text.length)) * duration;
       const step = {at, pose: gesture.pose};
-      // A point gesture with a resolvable target aims at that object.
+      // A point gesture with a resolvable target aims at the object: pick the
+      // box surface point nearest the agent's hands so it reaches the near face.
       if (gesture.target) {
         const obj = this.findObject_(gesture.target);
-        if (obj) step.point = obj.getWorldPosition(new THREE.Vector3());
+        if (obj) {
+          const from = this.hands.getWorldPosition(new THREE.Vector3());
+          step.point = obj.nearestSurfacePointTo(from, new THREE.Vector3());
+        }
       }
       this.queue.push(step);
     }
@@ -350,22 +356,43 @@ function start() {
   options.reticles.enabled = true;
   options.sound.speechSynthesizer.enabled = true;
   options.sound.speechRecognizer.enabled = true;
-  // Object detection so the hands can point at real things in the room.
+  // 3D object detection so the hands can point at real things in the room.
   options.deviceCamera.enabled = true;
   options.permissions.camera = true;
   options.world.enableObjectDetection();
   options.world.objects.backendConfig.activeBackend = 'gemini';
   options.world.objects.showDebugVisualizations = false;
+  // Ask Gemini for an exhaustive object list so there is more to point at.
+  options.world.objects.backendConfig.gemini.systemInstruction =
+    'List every distinct object visible in the image, including small items ' +
+    '(cups, books, remotes), wall-mounted things (pictures, switches, TVs), ' +
+    'and ceiling fixtures (lamps, lights). For each, return ymin, xmin, ymax, ' +
+    'xmax as integers from 0 to 1000 (top-left origin) and a short lowercase ' +
+    'objectName. List up to 20 objects. Skip walls, floor, ceiling, and any ' +
+    'human body parts or UI elements attached to them.';
+  // Full-resolution depth mesh gives the OBB fitter denser samples.
   options.depth.enabled = true;
   options.depth.depthMesh.enabled = true;
+  options.depth.depthMesh.updateFullResolutionGeometry = true;
+  options.depth.depthTexture.enabled = false;
+  options.depth.matchDepthView = false;
   options.setAppTitle('Agent Hands');
   options.setAppDescription(
     'A pair of agent hands that gesture as the agent speaks. Add ?key=... to ' +
       'talk to it.'
   );
   options.xrButton.showEnterSimulatorButton = true;
+
+  const detector = new Object3DDetector({
+    detectBackend: 'gemini',
+    maskBackend: 'slimsam',
+    fuseAcrossViews: true,
+    showDebugBoxes: false,
+  });
   const demo = new AgentHandsDemo();
+  demo.detector = detector;
   window.agentHandsDemo = demo;
+  xb.add(detector);
   xb.add(demo);
   xb.init(options);
 }
