@@ -1,7 +1,10 @@
+import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {Handedness, Script, SimulatorHandPose} from 'xrblocks';
 
 import {AgentHand} from './AgentHand';
+
+const scratchHandsOrigin = new THREE.Vector3();
 
 /** Which hand(s) a gesture applies to. */
 export type AgentHandSelector = 'left' | 'right' | 'both';
@@ -46,6 +49,26 @@ export class AgentHands extends Script {
   /** Relaxes both hands to a neutral resting pose. */
   rest() {
     this.gesture(SimulatorHandPose.RELAXED);
+    this.left.clearAim();
+    this.right.clearAim();
+  }
+
+  /**
+   * Points a hand at a world-space position (e.g. a detected object). The hand
+   * switches to the pointing pose and turns to aim its index finger at the
+   * target.
+   * @param targetWorld - The world-space point to point at.
+   * @param hand - Which hand to point with. 'both' uses the hand on the same
+   *     side as the target. Defaults to 'both'.
+   */
+  pointAt(targetWorld: THREE.Vector3, hand: AgentHandSelector = 'both') {
+    let selected = hand;
+    if (selected === 'both') {
+      this.getWorldPosition(scratchHandsOrigin);
+      selected = targetWorld.x >= scratchHandsOrigin.x ? 'right' : 'left';
+    }
+    if (selected === 'left') this.left.aimAt(targetWorld);
+    else this.right.aimAt(targetWorld);
   }
 
   override update() {

@@ -6,6 +6,7 @@ vi.hoisted(() => {
   });
 });
 
+import * as THREE from 'three';
 import {SimulatorHandPose} from 'xrblocks';
 
 import {AgentHands} from './AgentHands';
@@ -38,5 +39,26 @@ describe('AgentHands', () => {
     hands.rest();
     expect(hands.left.currentPose).toBe(SimulatorHandPose.RELAXED);
     expect(hands.right.currentPose).toBe(SimulatorHandPose.RELAXED);
+  });
+
+  it('pointAt() routes to the named hand', () => {
+    const hands = new AgentHands();
+    const left = vi.spyOn(hands.left, 'aimAt').mockImplementation(() => {});
+    const right = vi.spyOn(hands.right, 'aimAt').mockImplementation(() => {});
+    const target = new THREE.Vector3(0, 1, -1);
+    hands.pointAt(target, 'left');
+    expect(left).toHaveBeenCalledWith(target);
+    expect(right).not.toHaveBeenCalled();
+  });
+
+  it('pointAt("both") picks the hand on the target side', () => {
+    const hands = new AgentHands();
+    const left = vi.spyOn(hands.left, 'aimAt').mockImplementation(() => {});
+    const right = vi.spyOn(hands.right, 'aimAt').mockImplementation(() => {});
+    hands.pointAt(new THREE.Vector3(2, 1, -1), 'both');
+    expect(right).toHaveBeenCalledOnce();
+    expect(left).not.toHaveBeenCalled();
+    hands.pointAt(new THREE.Vector3(-2, 1, -1), 'both');
+    expect(left).toHaveBeenCalledOnce();
   });
 });
