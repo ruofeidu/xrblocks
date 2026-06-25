@@ -30,14 +30,20 @@ npm run serve
 Start the relay in another terminal:
 
 ```bash
-npm i ws
-node src/addons/remote-control/server/relay.js
+npx xrblocks-remote-control
 ```
 
 Open the sample:
 
 ```text
 http://127.0.0.1:8080/samples/remote_control/
+```
+
+To run multiple pages on one relay, give each page a session:
+
+```text
+http://127.0.0.1:8080/samples/remote_control/?remoteControlSession=run-1
+http://127.0.0.1:8080/samples/remote_control/?remoteControlSession=run-2
 ```
 
 Then send commands from a third terminal:
@@ -53,6 +59,12 @@ node samples/remote_control/send.mjs reset-cube
 ```
 
 Each command prints the raw JSON response.
+
+Target a non-default session with `REMOTE_CONTROL_SESSION`:
+
+```bash
+REMOTE_CONTROL_SESSION=run-1 node samples/remote_control/send.mjs get-state
+```
 
 ## Screenshots
 
@@ -83,7 +95,7 @@ node samples/remote_control/send.mjs tool nudgeCube '{"dx":0.25}'
 ## Custom Relay URL
 
 If the relay is not on the default `ws://127.0.0.1:8791`, pass the URL to both
-the page and CLI:
+the page and CLI. You can combine this with `remoteControlSession`.
 
 ```text
 http://127.0.0.1:8080/samples/remote_control/?remoteControlUrl=ws://127.0.0.1:9000

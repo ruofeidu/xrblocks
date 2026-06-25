@@ -5,6 +5,9 @@
   "main": "build/xrblocks.js",
   "types": "build/xrblocks.d.ts",
   "type": "module",
+  "bin": {
+    "xrblocks-remote-control": "./src/addons/remote-control/server/relay.js"
+  },
   "scripts": {
     "dev": "concurrently \"npm:build:watch\" \"npm:serve\"",
     "start": "npm run dev",
@@ -79,6 +82,9 @@
   },
   "peerDependencies": {
     "three": "^0.184.0"
+  },
+  "optionalDependencies": {
+    "ws": "^8.18.3"
   },
   "overrides": {
     "rollup-plugin-dts": {
