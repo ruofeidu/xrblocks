@@ -46,6 +46,12 @@ class AgentHandsDemo extends xb.Script {
     this.scanning_ = false;
     this._ndc = new THREE.Vector2();
     this._raycaster = new THREE.Raycaster();
+    // Auto-rescan bookkeeping: re-detect in the background when the view moves.
+    this._camPos = new THREE.Vector3();
+    this._camQuat = new THREE.Quaternion();
+    this._scanCamPos = new THREE.Vector3();
+    this._scanCamQuat = new THREE.Quaternion();
+    this._lastScanAt = 0;
   }
 
   async init() {
@@ -253,15 +259,16 @@ class AgentHandsDemo extends xb.Script {
 
   // Scans the room for objects in the background. Detection is a Gemini vision
   // call, so it runs off the conversation's critical path: the agent points at
-  // whatever the most recent scan found.
-  scan_() {
+  // whatever the most recent scan found. `silent` auto-scans don't touch the
+  // status text so they don't interrupt the agent mid-reply.
+  scan_(silent = false) {
     if (this.scanning_ || !xb.core.world?.objects?.runDetection) return;
     this.scanning_ = true;
     const wasInteractive = this.interactive;
-    this.setStatus_('scanning the room for objects...');
+    if (!silent) this.setStatus_('scanning the room for objects...');
     this.ensureDetection_().finally(() => {
       this.scanning_ = false;
-      if (!wasInteractive) return;
+      if (silent || !wasInteractive) return;
       const n = this.detectedObjects.length;
       this.setStatus_(
         n
@@ -271,6 +278,23 @@ class AgentHandsDemo extends xb.Script {
     });
   }
 
+  // Re-scans in the background once the user has moved or turned far enough
+  // since the last scan (with a cooldown), so the object cache stays fresh as
+  // they walk around without ever blocking a reply.
+  maybeAutoScan_() {
+    if (!this.interactive || this.scanning_) return;
+    if (performance.now() - this._lastScanAt < 5000) return;
+    const cam = xb.core.camera;
+    if (!cam) return;
+    cam.getWorldPosition(this._camPos);
+    cam.getWorldQuaternion(this._camQuat);
+    const moved = this._camPos.distanceTo(this._scanCamPos);
+    const turned = this._camQuat.angleTo(this._scanCamQuat);
+    if (moved > 0.5 || turned > 0.6) {
+      this.scan_(true);
+    }
+  }
+
   // Runs lightweight 2D object detection (one Gemini call), then grounds each
   // object to a 3D point by raycasting its bbox centre against the depth mesh.
   // The camera is frozen at scan time so the rays match the detected pixels.
@@ -278,9 +302,15 @@ class AgentHandsDemo extends xb.Script {
     const detector = xb.core.world?.objects;
     if (!detector?.runDetection) return;
 
+    // Record this scan's viewpoint + time so auto-rescan measures movement
+    // from here and respects the cooldown even if the scan finds nothing.
+    this._lastScanAt = performance.now();
+    const live = xb.core.camera;
+    live.getWorldPosition(this._scanCamPos);
+    live.getWorldQuaternion(this._scanCamQuat);
+
     // Freeze the camera + snapshot aspect so re-grounding lines up with the
     // pixels Gemini saw, even if the user moves during the (slow) call.
-    const live = xb.core.camera;
     const cam = live.clone();
     cam.matrixAutoUpdate = false;
     live.updateMatrixWorld();
@@ -398,6 +428,7 @@ class AgentHandsDemo extends xb.Script {
       if (step.next !== undefined) this.playLine_(step.next);
     }
     this.hands.update();
+    this.maybeAutoScan_();
   }
 
   setStatus_(text) {
