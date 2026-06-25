@@ -22,7 +22,9 @@ import * as xb from 'xrblocks';
 // to talk to the agent: it replies with [gesture:...] markup, which is parsed
 // into hand gestures played in sync with spoken (TTS) text.
 
-const META_INSTRUCTION = `You are a friendly assistant with a visible pair of hands you gesture with. Reply in one or two short sentences. Embed gesture markup inline using [gesture:NAME] right before the word it emphasizes, where NAME is one of: point, thumbs_up, thumbs_down, fist, victory, rock, open. Use a gesture or two per reply. Do not mention the markup.`;
+const META_INSTRUCTION = `You are a friendly assistant with a visible pair of hands you gesture with. Reply in one or two short sentences. Embed gesture markup inline using [gesture:NAME] right before the word it emphasizes, where NAME is one of: point, thumbs_up, thumbs_down, fist, victory, rock, open. Use a gesture or two per reply.
+
+You can physically point at real things in the room. When the user asks where something is, or you refer to a real object, point at it with [point:LABEL] where LABEL is one of the visible objects listed below. Only point at objects from that list. Do not mention the markup.`;
 
 const SCRIPT = [
   'Hi there! [gesture:thumbs_up] great to see you.',
@@ -30,6 +32,9 @@ const SCRIPT = [
   'Two options [gesture:victory] to choose from.',
   'Got it [gesture:fist], let me handle that.',
 ];
+
+// Re-run object detection at most this often (ms); detection is a Gemini call.
+const DETECTION_TTL_MS = 12000;
 
 class AgentHandsDemo extends xb.Script {
   constructor() {
@@ -39,6 +44,8 @@ class AgentHandsDemo extends xb.Script {
     this.timer = 0;
     this.busy = false;
     this.interactive = false;
+    this.detectedObjects = [];
+    this.lastDetectAt = 0;
   }
 
   async init() {
@@ -216,10 +223,16 @@ class AgentHandsDemo extends xb.Script {
   async respond_(userText) {
     if (this.busy) return;
     this.busy = true;
-    this.setStatus_(`you: "${userText}"  ·  thinking...`);
+    this.setStatus_(`you: "${userText}"  ·  looking around...`);
     try {
+      await this.ensureDetection_();
+      const labels = this.detectedObjects.map((o) => o.label);
+      const seen = labels.length
+        ? `Visible objects you can point at: ${labels.join(', ')}.`
+        : 'You cannot identify any specific objects right now.';
+      this.setStatus_(`you: "${userText}"  ·  thinking...`);
       const result = await xb.core.ai.query({
-        prompt: `${META_INSTRUCTION}\n\nUser: ${userText}\nAssistant:`,
+        prompt: `${META_INSTRUCTION}\n\n${seen}\n\nUser: ${userText}\nAssistant:`,
       });
       const reply = typeof result === 'string' ? result : (result?.text ?? '');
       const {text, gestures} = parseAgentGestures(reply);
@@ -232,6 +245,41 @@ class AgentHandsDemo extends xb.Script {
     }
   }
 
+  // Runs object detection if the cache is empty or stale. Detected objects are
+  // THREE.Object3D with a `.label` and a back-projected world `.position`.
+  async ensureDetection_() {
+    const detector = xb.core.world?.objects;
+    if (!detector?.runDetection) return;
+    if (
+      this.detectedObjects.length &&
+      performance.now() - this.lastDetectAt < DETECTION_TTL_MS
+    ) {
+      return;
+    }
+    try {
+      const objects = await detector.runDetection();
+      if (objects?.length) {
+        this.detectedObjects = objects;
+        this.lastDetectAt = performance.now();
+      }
+    } catch (error) {
+      console.warn('[agent_hands] object detection failed', error);
+    }
+  }
+
+  // Finds a detected object whose label best matches a point target.
+  findObject_(label) {
+    if (!label) return null;
+    const needle = label.toLowerCase().replace(/^the\s+/, '');
+    let best = null;
+    for (const obj of this.detectedObjects) {
+      const hay = obj.label.toLowerCase();
+      if (hay === needle) return obj;
+      if (!best && (hay.includes(needle) || needle.includes(hay))) best = obj;
+    }
+    return best;
+  }
+
   // Speaks `text` and schedules each gesture at its relative point in the line.
   speakWithGestures_(text, gestures) {
     this.setStatus_(`agent: "${text}"`);
@@ -240,9 +288,15 @@ class AgentHandsDemo extends xb.Script {
     this.queue = [];
     for (const gesture of gestures) {
       const at = (gesture.index / Math.max(1, text.length)) * duration;
-      this.queue.push({at, pose: gesture.pose});
+      const step = {at, pose: gesture.pose};
+      // A point gesture with a resolvable target aims at that object.
+      if (gesture.target) {
+        const obj = this.findObject_(gesture.target);
+        if (obj) step.point = obj.getWorldPosition(new THREE.Vector3());
+      }
+      this.queue.push(step);
     }
-    this.queue.push({at: duration + 0.6, pose: xb.SimulatorHandPose.RELAXED});
+    this.queue.push({at: duration + 0.8, rest: true});
     this.timer = 0;
   }
 
@@ -267,7 +321,13 @@ class AgentHandsDemo extends xb.Script {
     this.timer += dt;
     while (this.queue.length && this.timer >= this.queue[0].at) {
       const step = this.queue.shift();
-      if (step.pose) this.hands.gesture(step.pose);
+      if (step.point) {
+        this.hands.pointAt(step.point);
+      } else if (step.rest) {
+        this.hands.rest();
+      } else if (step.pose) {
+        this.hands.gesture(step.pose);
+      }
       if (step.next !== undefined) this.playLine_(step.next);
     }
     this.hands.update();
@@ -290,13 +350,23 @@ function start() {
   options.reticles.enabled = true;
   options.sound.speechSynthesizer.enabled = true;
   options.sound.speechRecognizer.enabled = true;
+  // Object detection so the hands can point at real things in the room.
+  options.deviceCamera.enabled = true;
+  options.permissions.camera = true;
+  options.world.enableObjectDetection();
+  options.world.objects.backendConfig.activeBackend = 'gemini';
+  options.world.objects.showDebugVisualizations = false;
+  options.depth.enabled = true;
+  options.depth.depthMesh.enabled = true;
   options.setAppTitle('Agent Hands');
   options.setAppDescription(
     'A pair of agent hands that gesture as the agent speaks. Add ?key=... to ' +
       'talk to it.'
   );
   options.xrButton.showEnterSimulatorButton = true;
-  xb.add(new AgentHandsDemo());
+  const demo = new AgentHandsDemo();
+  window.agentHandsDemo = demo;
+  xb.add(demo);
   xb.init(options);
 }
 
