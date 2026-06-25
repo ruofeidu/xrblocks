@@ -44,6 +44,7 @@ class AgentHandsDemo extends xb.Script {
     this.detectedObjects = [];
     this.lastDetectAt = 0;
     this.scanning_ = false;
+    this._scanPromise = null;
     this._ndc = new THREE.Vector2();
     this._raycaster = new THREE.Raycaster();
     // Auto-rescan bookkeeping: re-detect in the background when the view moves.
@@ -236,8 +237,15 @@ class AgentHandsDemo extends xb.Script {
   async respond_(userText) {
     if (this.busy) return;
     this.busy = true;
-    this.setStatus_(`you: "${userText}"  ·  thinking...`);
     try {
+      // Detection swaps the shared Gemini config to a JSON schema while it
+      // runs, so a scan and a chat turn must not overlap or the reply comes
+      // back as detection JSON. Wait for any in-flight scan to finish first.
+      if (this.scanning_ && this._scanPromise) {
+        this.setStatus_('one sec...');
+        await this._scanPromise.catch(() => {});
+      }
+      this.setStatus_(`you: "${userText}"  ·  thinking...`);
       // Use whatever the last scan found; never block the reply on detection.
       const labels = this.detectedObjects.map((o) => o.label);
       const seen = labels.length
@@ -247,8 +255,14 @@ class AgentHandsDemo extends xb.Script {
         prompt: `${META_INSTRUCTION}\n\n${seen}\n\nUser: ${userText}\nAssistant:`,
       });
       const reply = typeof result === 'string' ? result : (result?.text ?? '');
-      const {text, gestures} = parseAgentGestures(reply);
-      this.speakWithGestures_(text || "I'm not sure what to say.", gestures);
+      // Safety net: if a detection JSON reply still slips through, don't read
+      // it aloud.
+      const clean = /^\s*[[{]/.test(reply.trim()) ? '' : reply;
+      const {text, gestures} = parseAgentGestures(clean);
+      this.speakWithGestures_(
+        text || 'Sorry, could you say that again?',
+        gestures
+      );
     } catch (error) {
       console.error('[agent_hands]', error);
       this.setStatus_('error talking to Gemini (see console).');
@@ -262,12 +276,16 @@ class AgentHandsDemo extends xb.Script {
   // whatever the most recent scan found. `silent` auto-scans don't touch the
   // status text so they don't interrupt the agent mid-reply.
   scan_(silent = false) {
-    if (this.scanning_ || !xb.core.world?.objects?.runDetection) return;
+    // Never scan during a chat turn: detection mutates the shared Gemini
+    // config, which would corrupt an in-flight reply.
+    if (this.busy || this.scanning_) return;
+    if (!xb.core.world?.objects?.runDetection) return;
     this.scanning_ = true;
     const wasInteractive = this.interactive;
     if (!silent) this.setStatus_('scanning the room for objects...');
-    this.ensureDetection_().finally(() => {
+    this._scanPromise = this.ensureDetection_().finally(() => {
       this.scanning_ = false;
+      this._scanPromise = null;
       if (silent || !wasInteractive) return;
       const n = this.detectedObjects.length;
       this.setStatus_(
@@ -282,7 +300,7 @@ class AgentHandsDemo extends xb.Script {
   // since the last scan (with a cooldown), so the object cache stays fresh as
   // they walk around without ever blocking a reply.
   maybeAutoScan_() {
-    if (!this.interactive || this.scanning_) return;
+    if (!this.interactive || this.scanning_ || this.busy) return;
     if (performance.now() - this._lastScanAt < 5000) return;
     const cam = xb.core.camera;
     if (!cam) return;
