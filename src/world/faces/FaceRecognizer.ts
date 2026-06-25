@@ -39,6 +39,13 @@ export class FaceRecognizer extends Script {
   };
 
   private _detectorBackends = new Map<string, Promise<BaseFaceBackend>>();
+  private activeClients = new Set<object>();
+  private currentDetectionPromise: Promise<DetectedFace[]> | null = null;
+
+  /**
+   * The latest detected faces from continuous detection.
+   */
+  public detectedFaces: DetectedFace[] = [];
 
   // Injected dependencies
   private options!: WorldOptions;
@@ -70,10 +77,77 @@ export class FaceRecognizer extends Script {
   }
 
   /**
-   * Runs the face landmark detection process based on the configured
-   * backend.
+   * Starts continuous face detection for the given client.
+   * If this is the first client, starts the background detection loop.
+   * @param client - The client object requesting face detection.
    */
-  async runDetection(): Promise<DetectedFace[]> {
+  start(client: object): void {
+    if (this.activeClients.has(client)) {
+      return;
+    }
+    this.activeClients.add(client);
+    if (this.activeClients.size === 1) {
+      this.runContinuousDetection();
+    }
+  }
+
+  /**
+   * Stops continuous face detection for the given client.
+   * If this was the last client, stops the background detection loop.
+   * @param client - The client object that no longer needs face detection.
+   */
+  stop(client: object): void {
+    this.activeClients.delete(client);
+  }
+
+  /**
+   * Called per frame by the engine. If there are active clients,
+   * ensures the continuous face detection is running.
+   */
+  override update() {
+    if (this.activeClients.size > 0 && !this.currentDetectionPromise) {
+      this.runContinuousDetection();
+    }
+  }
+
+  private runContinuousDetection() {
+    if (this.currentDetectionPromise) {
+      return;
+    }
+    this.currentDetectionPromise = this.runDetectionInternal()
+      .then((results) => {
+        this.detectedFaces = results;
+        return results;
+      })
+      .finally(() => {
+        this.currentDetectionPromise = null;
+      });
+  }
+
+  /**
+   * Runs face landmark detection or returns the ongoing detection promise.
+   *
+   * - If continuous detection is started (has active clients), returns the
+   *   promise for the next detection result.
+   * - If continuous detection is not started, performs a one-off detection and
+   *   returns the result. If a one-off detection is already in progress, returns
+   *   the promise for that ongoing detection.
+   */
+  runDetection(): Promise<DetectedFace[]> {
+    if (this.currentDetectionPromise) {
+      return this.currentDetectionPromise;
+    }
+    if (this.activeClients.size > 0) {
+      this.runContinuousDetection();
+      return this.currentDetectionPromise!;
+    }
+    this.currentDetectionPromise = this.runDetectionInternal().finally(() => {
+      this.currentDetectionPromise = null;
+    });
+    return this.currentDetectionPromise;
+  }
+
+  private async runDetectionInternal(): Promise<DetectedFace[]> {
     this.clear();
 
     if (!this.depth || !this.depth.depthMesh) {
