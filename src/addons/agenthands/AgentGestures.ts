@@ -83,7 +83,9 @@ export function parseAgentGestures(input: string): ParsedAgentSpeech {
       gestures.push({
         pose,
         name: match[1].trim().toLowerCase(),
-        index: text.length,
+        // Index into the final normalized text so timing aligns with what the
+        // caller schedules against `text` (which is whitespace-collapsed).
+        index: text.replace(/\s+/g, ' ').replace(/^\s/, '').length,
         ...(target ? {target} : {}),
       });
     }

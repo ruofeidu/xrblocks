@@ -83,4 +83,16 @@ describe('parseAgentGestures', () => {
     const {gestures} = parseAgentGestures('Nice [gesture:thumbs_up]!');
     expect(gestures[0].target).toBeUndefined();
   });
+
+  it('anchors gesture index to the normalized (collapsed) text', () => {
+    // Leading/!double spaces around the markup must not shift the index past
+    // the end of the collapsed text the caller schedules against.
+    const {text, gestures} = parseAgentGestures(
+      '  Look   over [gesture:point] there  '
+    );
+    expect(text).toBe('Look over there');
+    expect(gestures[0].index).toBeLessThanOrEqual(text.length);
+    // "Look over " -> index 10 in the normalized string.
+    expect(text.slice(0, gestures[0].index)).toBe('Look over ');
+  });
 });
