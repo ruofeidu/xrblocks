@@ -13,7 +13,6 @@ import {
   AgentHands,
   parseAgentGestures,
 } from 'xrblocks/addons/agenthands/index.js';
-import {Object3DDetector} from 'xrblocks/addons/objects3d/index.js';
 import * as xb from 'xrblocks';
 
 // AgentHands demo: a free-standing pair of agent hands that gesture as the
@@ -42,10 +41,11 @@ class AgentHandsDemo extends xb.Script {
     this.timer = 0;
     this.busy = false;
     this.interactive = false;
-    this.detector = null;
     this.detectedObjects = [];
     this.lastDetectAt = 0;
     this.scanning_ = false;
+    this._ndc = new THREE.Vector2();
+    this._raycaster = new THREE.Raycaster();
   }
 
   async init() {
@@ -251,11 +251,11 @@ class AgentHandsDemo extends xb.Script {
     }
   }
 
-  // Scans the room for objects in the background. Detection (Gemini + SAM +
-  // depth fitting) is slow, so it runs off the conversation's critical path:
-  // the agent points at whatever the most recent scan found.
+  // Scans the room for objects in the background. Detection is a Gemini vision
+  // call, so it runs off the conversation's critical path: the agent points at
+  // whatever the most recent scan found.
   scan_() {
-    if (!this.detector || this.scanning_) return;
+    if (this.scanning_ || !xb.core.world?.objects?.runDetection) return;
     this.scanning_ = true;
     const wasInteractive = this.interactive;
     this.setStatus_('scanning the room for objects...');
@@ -271,20 +271,66 @@ class AgentHandsDemo extends xb.Script {
     });
   }
 
-  // Runs 3D object detection. Detected objects are Detected3DObject with a
-  // `.label` and an oriented bounding box (`.obb`), so we can point at the box
-  // surface nearest the agent's hand.
+  // Runs lightweight 2D object detection (one Gemini call), then grounds each
+  // object to a 3D point by raycasting its bbox centre against the depth mesh.
+  // The camera is frozen at scan time so the rays match the detected pixels.
   async ensureDetection_() {
-    if (!this.detector) return;
+    const detector = xb.core.world?.objects;
+    if (!detector?.runDetection) return;
+
+    // Freeze the camera + snapshot aspect so re-grounding lines up with the
+    // pixels Gemini saw, even if the user moves during the (slow) call.
+    const live = xb.core.camera;
+    const cam = live.clone();
+    cam.matrixAutoUpdate = false;
+    live.updateMatrixWorld();
+    cam.matrixWorld.copy(live.matrixWorld);
+    cam.matrixWorldInverse.copy(live.matrixWorld).invert();
+    cam.projectionMatrix.copy(live.projectionMatrix);
+    cam.projectionMatrixInverse.copy(live.projectionMatrixInverse);
+    let snapAspect = live.aspect;
     try {
-      const objects = await this.detector.detect();
+      const probe = await xb.core.deviceCamera?.getSnapshot({
+        outputFormat: 'imageData',
+      });
+      if (probe?.width) snapAspect = probe.width / probe.height;
+    } catch {
+      // fall back to camera aspect
+    }
+
+    try {
+      const objects = await detector.runDetection();
       if (objects?.length) {
+        const mesh = xb.core.depth?.depthMesh;
+        for (const obj of objects) {
+          obj._point = this.groundPoint_(obj, cam, snapAspect, mesh);
+        }
         this.detectedObjects = objects;
         this.lastDetectAt = performance.now();
       }
     } catch (error) {
       console.warn('[agent_hands] object detection failed', error);
     }
+  }
+
+  // Raycasts an object's 2D bbox centre against the depth mesh to get a world
+  // point. Applies the snapshot-vs-camera aspect correction (uvToNdc) so the
+  // ray is not pulled wide on the mismatched axis (the desktop simulator
+  // snapshot is square while the camera is 16:9).
+  groundPoint_(obj, cam, snapAspect, mesh) {
+    const fallback = obj.position?.clone ? obj.position.clone() : null;
+    const box = obj.detection2DBoundingBox;
+    if (!mesh || !box) return fallback;
+    const u = (box.min.x + box.max.x) * 0.5;
+    const v = (box.min.y + box.max.y) * 0.5;
+    let sx = 1;
+    let sy = 1;
+    if (snapAspect < cam.aspect) sx = snapAspect / cam.aspect;
+    else if (snapAspect > cam.aspect) sy = cam.aspect / snapAspect;
+    this._ndc.set((u * 2 - 1) * sx, (1 - v) * 2 * sy - sy);
+    this._raycaster.setFromCamera(this._ndc, cam);
+    const hits = this._raycaster.intersectObject(mesh, true);
+    return hits.length ? hits[0].point.clone() : fallback;
   }
 
   // Finds a detected object whose label best matches a point target.
@@ -309,14 +355,11 @@ class AgentHandsDemo extends xb.Script {
     for (const gesture of gestures) {
       const at = (gesture.index / Math.max(1, text.length)) * duration;
       const step = {at, pose: gesture.pose};
-      // A point gesture with a resolvable target aims at the object: pick the
-      // box surface point nearest the agent's hands so it reaches the near face.
+      // A point gesture with a resolvable target aims at that object's
+      // grounded 3D point.
       if (gesture.target) {
         const obj = this.findObject_(gesture.target);
-        if (obj) {
-          const from = this.hands.getWorldPosition(new THREE.Vector3());
-          step.point = obj.nearestSurfacePointTo(from, new THREE.Vector3());
-        }
+        if (obj?._point) step.point = obj._point.clone();
       }
       this.queue.push(step);
     }
@@ -374,7 +417,7 @@ function start() {
   options.reticles.enabled = true;
   options.sound.speechSynthesizer.enabled = true;
   options.sound.speechRecognizer.enabled = true;
-  // 3D object detection so the hands can point at real things in the room.
+  // Object detection so the hands can point at real things in the room.
   options.deviceCamera.enabled = true;
   options.permissions.camera = true;
   options.world.enableObjectDetection();
@@ -388,12 +431,9 @@ function start() {
     'xmax as integers from 0 to 1000 (top-left origin) and a short lowercase ' +
     'objectName. List up to 20 objects. Skip walls, floor, ceiling, and any ' +
     'human body parts or UI elements attached to them.';
-  // Full-resolution depth mesh gives the OBB fitter denser samples.
+  // Depth mesh: grounds each detected object to a 3D point via raycast.
   options.depth.enabled = true;
   options.depth.depthMesh.enabled = true;
-  options.depth.depthMesh.updateFullResolutionGeometry = true;
-  options.depth.depthTexture.enabled = false;
-  options.depth.matchDepthView = false;
   options.setAppTitle('Agent Hands');
   options.setAppDescription(
     'A pair of agent hands that gesture as the agent speaks. Add ?key=... to ' +
@@ -401,16 +441,8 @@ function start() {
   );
   options.xrButton.showEnterSimulatorButton = true;
 
-  const detector = new Object3DDetector({
-    detectBackend: 'gemini',
-    maskBackend: 'slimsam',
-    fuseAcrossViews: true,
-    showDebugBoxes: false,
-  });
   const demo = new AgentHandsDemo();
-  demo.detector = detector;
   window.agentHandsDemo = demo;
-  xb.add(detector);
   xb.add(demo);
   xb.init(options);
 }
