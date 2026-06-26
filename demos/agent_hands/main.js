@@ -147,6 +147,9 @@ class AgentHandsDemo extends xb.Script {
       })
     );
     group.add(line, ring);
+    // Decorative only; never let the pointer ray/ring intercept the reticle.
+    line.raycast = () => {};
+    ring.raycast = () => {};
     this.pointerViz = {group, line, ring};
     xb.core.scene.add(group);
   }
