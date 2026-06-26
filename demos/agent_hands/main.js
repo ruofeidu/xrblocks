@@ -26,6 +26,12 @@ import * as xb from 'xrblocks';
 // Scratch vector reused when updating the pointer-ray visualization.
 const scratchTip_ = new THREE.Vector3();
 
+// Resting orientation of the hand pair: palms open toward the ceiling, fingers
+// forward, a relaxed offering pose. X tilts the
+// open palms up to face the ceiling; no roll is needed.
+const REST_TILT_X = Math.PI / 2;
+const REST_ROLL_Z = 0;
+
 const META_INSTRUCTION = `You are a friendly assistant with a visible pair of hands you gesture with. Reply in one or two short sentences. Embed gesture markup inline right before the word it emphasizes. Use a few gestures per reply.
 
 Static gestures: [gesture:NAME] where NAME is thumbs_up, thumbs_down, fist, victory, rock, or open.
@@ -84,9 +90,10 @@ class AgentHandsDemo extends xb.Script {
     xb.core.scene.add(key);
 
     await this.hands.load();
-    // Raised in front of the user, palms toward them, fingers up.
+    // Resting in front of the user, palms open toward the ceiling and fingers
+    // forward (a relaxed offering pose); the head-anchor keeps this each frame.
     this.hands.position.set(0, 1.25, -0.7);
-    this.hands.rotation.set(Math.PI / 2, 0, Math.PI);
+    this.hands.rotation.set(REST_TILT_X, 0, REST_ROLL_Z);
     this.hands.left.root.position.set(-0.16, 0, 0);
     this.hands.right.root.position.set(0.16, 0, 0);
     xb.core.scene.add(this.hands);
@@ -192,9 +199,9 @@ class AgentHandsDemo extends xb.Script {
       leanX = THREE.MathUtils.clamp(-this._forward.y * 0.25, -0.25, 0.25);
     }
     const sway = Math.sin(this._clock * 0.8) * 0.02;
-    // Z = PI flips the rig so palms face the user (a welcoming rest) rather
-    // than showing the backs of the hands.
-    this._euler.set(Math.PI / 2 + leanX, yaw + lean + sway, Math.PI, 'YXZ');
+    // Rest is palms-up toward the ceiling (REST_TILT_X / REST_ROLL_Z); lean adds
+    // a gentle tilt toward the pointing target and an idle sway.
+    this._euler.set(REST_TILT_X + leanX, yaw + lean + sway, REST_ROLL_Z, 'YXZ');
     this._anchorQuat.setFromEuler(this._euler);
     this.hands.quaternion.slerp(this._anchorQuat, 0.08);
   }
