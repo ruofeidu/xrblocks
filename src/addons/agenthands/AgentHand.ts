@@ -30,6 +30,8 @@ const scratchDir = new THREE.Vector3();
 const scratchDirB = new THREE.Vector3();
 const scratchWrist = new THREE.Vector3();
 const scratchTip = new THREE.Vector3();
+const scratchGoal = new THREE.Vector3();
+const scratchGoalQuat = new THREE.Quaternion();
 
 /**
  * Smoothly moves a hand's bones toward a target set of joint transforms.
@@ -79,6 +81,17 @@ export class AgentHand {
   private readonly reachPosition = new THREE.Vector3();
   private reaching = false;
 
+  /**
+   * Additive, parent-frame motion offset layered on top of the rest/reach
+   * position (e.g. a beat bob or a size spread). Set externally each frame.
+   */
+  readonly motionOffset = new THREE.Vector3();
+  /**
+   * Additive, parent-frame motion rotation layered on top of the rest/aim
+   * orientation (e.g. a wave oscillation). Set externally each frame.
+   */
+  readonly motionQuaternion = new THREE.Quaternion();
+
   constructor(readonly handedness: Handedness) {}
 
   /**
@@ -117,11 +130,22 @@ export class AgentHand {
       SIMULATOR_HAND_POSE_ROTATIONS[this.pose]
     );
     lerpBonesToJoints(this.bones, joints, lerp);
-    this.root.quaternion.slerp(this.targetQuaternion, lerp);
-    if (this.homeCaptured) {
-      const goal = this.reaching ? this.reachPosition : this.homePosition;
-      this.root.position.lerp(goal, lerp);
+
+    // Capture the rest position on the first animated frame (after the app has
+    // placed the hand), so motions and reach measure from a stable home.
+    if (!this.homeCaptured) {
+      this.homePosition.copy(this.root.position);
+      this.reachPosition.copy(this.homePosition);
+      this.homeCaptured = true;
     }
+
+    // Lerp toward (rest-or-reach + motion offset) and (aim * motion rotation),
+    // so beat/wave/size layer cleanly on top of the pose and pointing.
+    const base = this.reaching ? this.reachPosition : this.homePosition;
+    scratchGoal.copy(base).add(this.motionOffset);
+    this.root.position.lerp(scratchGoal, lerp);
+    scratchGoalQuat.copy(this.targetQuaternion).multiply(this.motionQuaternion);
+    this.root.quaternion.slerp(scratchGoalQuat, lerp);
   }
 
   /**
