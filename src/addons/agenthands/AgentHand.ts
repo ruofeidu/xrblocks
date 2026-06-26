@@ -25,6 +25,12 @@ const REACH_FRACTION = 0.45;
 const MAX_REACH = 0.35;
 const MIN_STANDOFF = 0.55;
 
+// Below this wrist-to-target distance (metres) the aim direction is too
+// ill-conditioned to be stable: the wrist sits ~0.1 m off the root, so a target
+// this close makes small wrist movements swing the aim wildly. Re-aiming is
+// skipped in that regime to avoid a thrash loop.
+const MIN_AIM_DISTANCE = 0.15;
+
 const scratchPosition = new THREE.Vector3();
 const scratchQuaternion = new THREE.Quaternion();
 const scratchQuaternionB = new THREE.Quaternion();
@@ -234,8 +240,13 @@ export class AgentHand {
 
     // Direction the posed index finger points, with the root un-rotated.
     const localDir = this.measurePointDirection_();
-    // Aim the finger from the wrist toward the target.
-    scratchDir.copy(scratchTarget).sub(scratchPivot).normalize();
+    // Aim the finger from the wrist toward the target. If the target is almost
+    // on top of the wrist the direction is ill-conditioned (normalizing a
+    // near-zero vector), which makes the per-frame re-aim thrash, so keep the
+    // current orientation instead of aiming at a degenerate direction.
+    scratchDir.copy(scratchTarget).sub(scratchPivot);
+    if (scratchDir.lengthSq() < MIN_AIM_DISTANCE * MIN_AIM_DISTANCE) return;
+    scratchDir.normalize();
     this.targetQuaternion.setFromUnitVectors(localDir, scratchDir);
   }
 
