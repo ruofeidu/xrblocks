@@ -37,6 +37,39 @@ const scratchGoal = new THREE.Vector3();
 const scratchGoalQuat = new THREE.Quaternion();
 const scratchPivot = new THREE.Vector3();
 
+// The agent's hands are rendered as semi-transparent blue meshes: the
+// AgentHands paper's minimalist, neutral "presence" (deliberately not photoreal
+// skin, so the embodiment reads as "hands" while staying neutral on age,
+// gender, and ethnicity). The orb carries the drifting-particle aesthetic.
+const HAND_COLOR = 0x6aa0ff;
+const HAND_EMISSIVE = 0x2b6cff;
+const HAND_OPACITY = 0.55;
+
+/**
+ * Re-skins every mesh under `root` with the semi-transparent blue agent-hand
+ * material. Extracted so it is testable without a GPU or a loaded GLB.
+ * @param root - The loaded hand scene to recolor in place.
+ */
+export function applyAgentHandAppearance(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.material = new THREE.MeshStandardMaterial({
+      color: HAND_COLOR,
+      emissive: HAND_EMISSIVE,
+      emissiveIntensity: 0.4,
+      transparent: true,
+      opacity: HAND_OPACITY,
+      roughness: 0.35,
+      metalness: 0,
+      depthWrite: false,
+    });
+    // The agent hands are presentational, never interactive targets, so they
+    // must not intercept the UI selection beam reaching panels behind them.
+    mesh.raycast = () => {};
+  });
+}
+
 /**
  * Smoothly moves a hand's bones toward a target set of joint transforms.
  * Extracted as a pure function so the animation step is testable without a GPU
@@ -110,6 +143,9 @@ export class AgentHand {
     for (const name of HAND_JOINT_NAMES) {
       this.bones.push(gltf.scene.getObjectByName(name));
     }
+    // The semi-transparent blue look, per the paper's minimalist hand
+    // embodiment.
+    applyAgentHandAppearance(gltf.scene);
     this.loaded = true;
   }
 

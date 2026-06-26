@@ -16,7 +16,11 @@ import {
   type SimulatorHandPoseJoints,
 } from 'xrblocks';
 
-import {AgentHand, lerpBonesToJoints} from './AgentHand';
+import {
+  AgentHand,
+  applyAgentHandAppearance,
+  lerpBonesToJoints,
+} from './AgentHand';
 
 describe('lerpBonesToJoints', () => {
   it('moves a bone fully to the target when lerp is 1', () => {
@@ -68,5 +72,32 @@ describe('AgentHand', () => {
   it('animate is a no-op until loaded', () => {
     const hand = new AgentHand(Handedness.RIGHT);
     expect(() => hand.animate()).not.toThrow();
+  });
+});
+
+describe('applyAgentHandAppearance', () => {
+  it('makes every mesh a semi-transparent blue material', () => {
+    const root = new THREE.Group();
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({color: 0xffffff})
+    );
+    root.add(mesh);
+    applyAgentHandAppearance(root);
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    expect(mat.transparent).toBe(true);
+    expect(mat.opacity).toBeLessThan(1);
+    expect(mat.color.b).toBeGreaterThan(mat.color.r);
+    // The hands must not block the UI selection beam behind them.
+    const hits: THREE.Intersection[] = [];
+    mesh.raycast(new THREE.Raycaster(), hits);
+    expect(hits).toHaveLength(0);
+  });
+
+  it('leaves non-mesh objects untouched', () => {
+    const root = new THREE.Group();
+    const group = new THREE.Group();
+    root.add(group);
+    expect(() => applyAgentHandAppearance(root)).not.toThrow();
   });
 });
