@@ -22,6 +22,9 @@ import * as xb from 'xrblocks';
 // to talk to the agent: it replies with [gesture:...] markup, which is parsed
 // into hand gestures played in sync with spoken (TTS) text.
 
+// Scratch vector reused when updating the pointer-ray visualization.
+const scratchTip_ = new THREE.Vector3();
+
 const META_INSTRUCTION = `You are a friendly assistant with a visible pair of hands you gesture with. Reply in one or two short sentences. Embed gesture markup inline using [gesture:NAME] right before the word it emphasizes, where NAME is one of: point, thumbs_up, thumbs_down, fist, victory, rock, open. Use a gesture or two per reply.
 
 You can physically point at real things in the room. When the user asks where something is, or you refer to a real object, point at it with [point:LABEL] where LABEL is one of the visible objects listed below. Only point at objects from that list. Do not mention the markup.`;
@@ -60,6 +63,10 @@ class AgentHandsDemo extends xb.Script {
     this._euler = new THREE.Euler(0, 0, 0, 'YXZ');
     this._forward = new THREE.Vector3();
     this._clock = 0;
+    this._leanTarget = null;
+    this._pointing = false;
+    this._activeHand = null;
+    this.pointerViz = null;
   }
 
   async init() {
@@ -76,6 +83,8 @@ class AgentHandsDemo extends xb.Script {
     this.hands.right.root.position.set(0.16, 0, 0);
     xb.core.scene.add(this.hands);
 
+    this.buildPointerViz_();
+
     this.interactive = !!xb.core.ai?.model?.options?.apiKey;
     this.buildSpatialPanel_();
 
@@ -90,7 +99,38 @@ class AgentHandsDemo extends xb.Script {
     }
   }
 
-  // ---- embodiment: head-anchor + idle life ----
+  // ---- embodiment: head-anchor, idle life, pointer viz ----
+
+  // A faint pointer ray (fingertip -> target) plus a pulsing ring at the
+  // target, shown only while the agent is pointing.
+  buildPointerViz_() {
+    const group = new THREE.Group();
+    group.visible = false;
+    const lineGeom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+    ]);
+    const line = new THREE.Line(
+      lineGeom,
+      new THREE.LineBasicMaterial({
+        color: 0x9177c7,
+        transparent: true,
+        opacity: 0.5,
+      })
+    );
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.05, 0.07, 28),
+      new THREE.MeshBasicMaterial({
+        color: 0x9177c7,
+        transparent: true,
+        opacity: 0.8,
+        side: THREE.DoubleSide,
+      })
+    );
+    group.add(line, ring);
+    this.pointerViz = {group, line, ring};
+    xb.core.scene.add(group);
+  }
 
   // Keeps the hands floating in front of the user (position + yaw) so they stay
   // in view as the user walks/turns, with a gentle idle bob and sway.
@@ -123,6 +163,30 @@ class AgentHandsDemo extends xb.Script {
     this._euler.set(Math.PI / 2, yaw + sway, 0, 'YXZ');
     this._anchorQuat.setFromEuler(this._euler);
     this.hands.quaternion.slerp(this._anchorQuat, 0.08);
+  }
+
+  // Updates the pointer ray + ring while pointing; hides it otherwise.
+  updatePointerViz_() {
+    const viz = this.pointerViz;
+    if (!viz) return;
+    const show = this._pointing && this._leanTarget && this._activeHand;
+    viz.group.visible = !!show;
+    if (!show) return;
+    const tip = this._activeHand.getIndexTipWorld(scratchTip_);
+    const positions = viz.line.geometry.attributes.position;
+    positions.setXYZ(0, tip.x, tip.y, tip.z);
+    positions.setXYZ(
+      1,
+      this._leanTarget.x,
+      this._leanTarget.y,
+      this._leanTarget.z
+    );
+    positions.needsUpdate = true;
+    viz.ring.position.copy(this._leanTarget);
+    const cam = xb.core.camera;
+    if (cam) viz.ring.lookAt(cam.position);
+    const pulse = 1 + Math.sin(this._clock * 4) * 0.15;
+    viz.ring.scale.setScalar(pulse);
   }
 
   // ---- spatial control panel (works in XR + simulator) ----
@@ -482,17 +546,41 @@ class AgentHandsDemo extends xb.Script {
     while (this.queue.length && this.timer >= this.queue[0].at) {
       const step = this.queue.shift();
       if (step.point) {
-        this.hands.pointAt(step.point);
+        this.pointAtTarget_(step.point);
       } else if (step.rest) {
-        this.hands.rest();
+        this.restHands_();
       } else if (step.pose) {
         this.hands.gesture(step.pose);
       }
       if (step.next !== undefined) this.playLine_(step.next);
     }
     this.anchorToHead_();
+    // Re-aim every frame while pointing so the finger stays locked on the
+    // world target even as the head-anchored rig follows and sways.
+    if (this._pointing && this._activeHand && this._leanTarget) {
+      this._activeHand.aimAt(this._leanTarget);
+    }
     this.hands.update();
+    this.updatePointerViz_();
     this.maybeAutoScan_();
+  }
+
+  // Points a hand at a world point and lights up the pointer viz.
+  pointAtTarget_(point) {
+    this.hands.pointAt(point);
+    this._pointing = true;
+    this._leanTarget = point;
+    // pointAt picks a hand by local x; mirror that choice for the viz.
+    this.hands.worldToLocal(scratchTip_.copy(point));
+    this._activeHand = scratchTip_.x >= 0 ? this.hands.right : this.hands.left;
+  }
+
+  // Relaxes both hands and clears the pointing state + viz.
+  restHands_() {
+    this.hands.rest();
+    this._pointing = false;
+    this._leanTarget = null;
+    this._activeHand = null;
   }
 
   setStatus_(text) {
