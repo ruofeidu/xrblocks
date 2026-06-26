@@ -159,8 +159,21 @@ class AgentHandsDemo extends xb.Script {
 
     // Orientation: face the user (yaw) + the fingers-up tilt, plus a gentle
     // idle sway.
+    // Orientation: face the user (yaw) + the fingers-up tilt, plus a small
+    // lean toward the pointing target and a gentle idle sway.
+    let lean = 0;
+    let leanX = 0;
+    if (this._pointing && this._leanTarget) {
+      this._forward.copy(this._leanTarget).sub(this.hands.position);
+      lean = THREE.MathUtils.clamp(
+        Math.atan2(this._forward.x, -this._forward.z) - yaw,
+        -0.5,
+        0.5
+      );
+      leanX = THREE.MathUtils.clamp(-this._forward.y * 0.25, -0.25, 0.25);
+    }
     const sway = Math.sin(this._clock * 0.8) * 0.02;
-    this._euler.set(Math.PI / 2, yaw + sway, 0, 'YXZ');
+    this._euler.set(Math.PI / 2 + leanX, yaw + lean + sway, 0, 'YXZ');
     this._anchorQuat.setFromEuler(this._euler);
     this.hands.quaternion.slerp(this._anchorQuat, 0.08);
   }
