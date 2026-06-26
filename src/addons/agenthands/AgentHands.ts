@@ -131,8 +131,15 @@ export class AgentHands extends Script {
       this.worldToLocal(scratchHandsOrigin.copy(targetWorld));
       selected = scratchHandsOrigin.x >= 0 ? 'right' : 'left';
     }
-    if (selected === 'left') this.left.aimAt(targetWorld);
-    else this.right.aimAt(targetWorld);
+    if (selected === 'left') {
+      this.left.aimAt(targetWorld);
+      this.right.clearAim();
+      this.right.setPose(SimulatorHandPose.RELAXED);
+    } else {
+      this.right.aimAt(targetWorld);
+      this.left.clearAim();
+      this.left.setPose(SimulatorHandPose.RELAXED);
+    }
   }
 
   // Recomputes each hand's transient motion offset/rotation for this frame.

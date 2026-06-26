@@ -51,6 +51,18 @@ describe('AgentHands', () => {
     expect(right).not.toHaveBeenCalled();
   });
 
+  it('pointAt() relaxes the hand that is not pointing', () => {
+    const hands = new AgentHands();
+    vi.spyOn(hands.left, 'aimAt').mockImplementation(() => {});
+    vi.spyOn(hands.right, 'aimAt').mockImplementation(() => {});
+    // Point with the right hand, then with the left: the previously raised
+    // right hand must drop back to rest so only one hand ever points.
+    hands.pointAt(new THREE.Vector3(2, 1, -1), 'right');
+    hands.right.setPose(SimulatorHandPose.POINTING);
+    hands.pointAt(new THREE.Vector3(-2, 1, -1), 'left');
+    expect(hands.right.currentPose).toBe(SimulatorHandPose.RELAXED);
+  });
+
   it('pointAt("both") picks the hand on the target side', () => {
     const hands = new AgentHands();
     const left = vi.spyOn(hands.left, 'aimAt').mockImplementation(() => {});
