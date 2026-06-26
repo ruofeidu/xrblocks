@@ -76,9 +76,9 @@ class AgentHandsDemo extends xb.Script {
     xb.core.scene.add(key);
 
     await this.hands.load();
-    // Raised in front of the user, fingers up, palms toward them.
+    // Raised in front of the user, palms toward them, fingers up.
     this.hands.position.set(0, 1.25, -0.7);
-    this.hands.rotation.set(Math.PI / 2, 0, 0);
+    this.hands.rotation.set(Math.PI / 2, 0, Math.PI);
     this.hands.left.root.position.set(-0.16, 0, 0);
     this.hands.right.root.position.set(0.16, 0, 0);
     xb.core.scene.add(this.hands);
@@ -172,7 +172,9 @@ class AgentHandsDemo extends xb.Script {
       leanX = THREE.MathUtils.clamp(-this._forward.y * 0.25, -0.25, 0.25);
     }
     const sway = Math.sin(this._clock * 0.8) * 0.02;
-    this._euler.set(Math.PI / 2 + leanX, yaw + lean + sway, 0, 'YXZ');
+    // Z = PI flips the rig so palms face the user (a welcoming rest) rather
+    // than showing the backs of the hands.
+    this._euler.set(Math.PI / 2 + leanX, yaw + lean + sway, Math.PI, 'YXZ');
     this._anchorQuat.setFromEuler(this._euler);
     this.hands.quaternion.slerp(this._anchorQuat, 0.08);
   }
