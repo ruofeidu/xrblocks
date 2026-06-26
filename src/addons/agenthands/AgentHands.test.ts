@@ -41,6 +41,37 @@ describe('AgentHands', () => {
     expect(hands.right.currentPose).toBe(SimulatorHandPose.RELAXED);
   });
 
+  it('orient() applies a presentation orientation to both hands', () => {
+    const hands = new AgentHands();
+    const left = vi.spyOn(hands.left, 'orient');
+    const right = vi.spyOn(hands.right, 'orient');
+    const q = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      -Math.PI / 2
+    );
+    hands.orient(q);
+    expect(left).toHaveBeenCalledWith(q);
+    expect(right).toHaveBeenCalledWith(q);
+  });
+
+  it('orient() can target a single hand', () => {
+    const hands = new AgentHands();
+    const left = vi.spyOn(hands.left, 'orient');
+    const right = vi.spyOn(hands.right, 'orient');
+    hands.orient(new THREE.Quaternion(), 'right');
+    expect(right).toHaveBeenCalledOnce();
+    expect(left).not.toHaveBeenCalled();
+  });
+
+  it('clearOrientation() clears the aim on both hands', () => {
+    const hands = new AgentHands();
+    const left = vi.spyOn(hands.left, 'clearAim');
+    const right = vi.spyOn(hands.right, 'clearAim');
+    hands.clearOrientation();
+    expect(left).toHaveBeenCalledOnce();
+    expect(right).toHaveBeenCalledOnce();
+  });
+
   it('pointAt() routes to the named hand', () => {
     const hands = new AgentHands();
     const left = vi.spyOn(hands.left, 'aimAt').mockImplementation(() => {});

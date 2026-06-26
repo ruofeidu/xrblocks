@@ -64,6 +64,23 @@ export class AgentHands extends Script {
     if (hand !== 'left') this.right.setPose(pose);
   }
 
+  /**
+   * Sets an explicit presentation orientation on one or both hands (parent
+   * frame), e.g. to show an emblematic gesture upright. Cleared by {@link rest}.
+   * @param parentQuaternion - Target orientation in each hand-root's parent.
+   * @param hand - Which hand(s) to orient. Defaults to both.
+   */
+  orient(parentQuaternion: THREE.Quaternion, hand: AgentHandSelector = 'both') {
+    if (hand !== 'right') this.left.orient(parentQuaternion);
+    if (hand !== 'left') this.right.orient(parentQuaternion);
+  }
+
+  /** Clears any aim/orientation override, returning hands to the parent tilt. */
+  clearOrientation(hand: AgentHandSelector = 'both') {
+    if (hand !== 'right') this.left.clearAim();
+    if (hand !== 'left') this.right.clearAim();
+  }
+
   /** Relaxes both hands to a neutral resting pose. */
   rest() {
     this.gesture(SimulatorHandPose.RELAXED);

@@ -257,6 +257,18 @@ export class AgentHand {
   }
 
   /**
+   * Orients the hand toward an explicit parent-frame quaternion and stops
+   * reaching, e.g. to present an emblematic gesture (thumbs up, victory)
+   * upright by cancelling a resting tilt baked into the parent container.
+   * Persists until {@link clearAim} or a subsequent {@link aimAt}/orient call.
+   * @param parentQuaternion - Target orientation in the root's parent frame.
+   */
+  orient(parentQuaternion: THREE.Quaternion) {
+    this.targetQuaternion.copy(parentQuaternion);
+    this.reaching = false;
+  }
+
+  /**
    * Writes the world-space position of the index fingertip into `out` (falls
    * back to the hand root if the bone is missing). Useful for drawing a pointer
    * ray from the fingertip.
