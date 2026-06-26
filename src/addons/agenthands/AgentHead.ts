@@ -87,6 +87,13 @@ export class AgentHead {
       })
     );
     this.gaze.add(this.points);
+
+    // The orb is purely decorative presence; it must never intercept the
+    // reticle, or its dense point shell steals hover/select from the UI behind
+    // it (the points sit a few centimetres apart and win the raycast).
+    this.core.raycast = () => {};
+    this.halo.raycast = () => {};
+    this.points.raycast = () => {};
   }
 
   /**

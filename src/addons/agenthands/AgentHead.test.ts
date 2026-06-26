@@ -54,4 +54,23 @@ describe('AgentHead', () => {
       0.98
     );
   });
+
+  it('never lets the decorative orb intercept the reticle raycast', () => {
+    const head = new AgentHead();
+    const raycaster = new THREE.Raycaster();
+    head.root.updateMatrixWorld(true);
+    // Every visual under the orb (core, halo, point shell) must no-op its
+    // raycast so it can't steal hover/select from UI behind it.
+    head.root.traverse((object) => {
+      const castable = object as THREE.Mesh | THREE.Points;
+      if (
+        (castable as THREE.Mesh).isMesh ||
+        (castable as THREE.Points).isPoints
+      ) {
+        const hits: THREE.Intersection[] = [];
+        castable.raycast(raycaster, hits);
+        expect(hits).toHaveLength(0);
+      }
+    });
+  });
 });
