@@ -122,7 +122,7 @@ export class AgentHands extends Script {
    * pose library supports one and two cleanly; larger counts show an open hand.
    * @param n - How many to indicate.
    */
-  count(n: number) {
+  showCount(n: number) {
     const pose =
       n <= 1
         ? SimulatorHandPose.POINTING

@@ -118,13 +118,13 @@ describe('AgentHands', () => {
     expect(right).not.toHaveBeenCalled();
   });
 
-  it('count() holds up the matching pose', () => {
+  it('showCount() holds up the matching pose', () => {
     const hands = new AgentHands();
-    hands.count(1);
+    hands.showCount(1);
     expect(hands.right.currentPose).toBe(SimulatorHandPose.POINTING);
-    hands.count(2);
+    hands.showCount(2);
     expect(hands.right.currentPose).toBe(SimulatorHandPose.VICTORY);
-    hands.count(5);
+    hands.showCount(5);
     expect(hands.right.currentPose).toBe(SimulatorHandPose.RELAXED);
   });
 

@@ -624,7 +624,7 @@ class AgentHandsDemo extends xb.Script {
     if (motion === 'beat') this.hands.beat();
     else if (motion === 'wave') this.hands.wave();
     else if (motion === 'size') this.hands.showSize(this.sizeWidth_(param));
-    else if (motion === 'count') this.hands.count(parseInt(param, 10) || 1);
+    else if (motion === 'count') this.hands.showCount(parseInt(param, 10) || 1);
   }
 
   // Maps a size word/number to a separation in metres.
