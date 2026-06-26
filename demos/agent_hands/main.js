@@ -27,7 +27,7 @@ const scratchTip_ = new THREE.Vector3();
 
 const META_INSTRUCTION = `You are a friendly assistant with a visible pair of hands you gesture with. Reply in one or two short sentences. Embed gesture markup inline using [gesture:NAME] right before the word it emphasizes, where NAME is one of: point, thumbs_up, thumbs_down, fist, victory, rock, open. Use a gesture or two per reply.
 
-You can physically point at real things in the room. When the user asks where something is, or you refer to a real object, point at it with [point:LABEL] where LABEL is one of the visible objects listed below. Only point at objects from that list. Do not mention the markup.`;
+You can physically point at real things in the room. When the user asks where something is, or you refer to a real object, point at it with [point:LABEL] where LABEL is one of the visible objects listed below. Only point at objects from that list. If the user asks about something that is not in the list, say you cannot see it from here and do not point. Do not mention the markup.`;
 
 const SCRIPT = [
   'Hi there! [gesture:thumbs_up] great to see you.',
@@ -56,16 +56,16 @@ class AgentHandsDemo extends xb.Script {
     this._scanCamPos = new THREE.Vector3();
     this._scanCamQuat = new THREE.Quaternion();
     this._lastScanAt = 0;
-    // Head-anchor + idle-life state.
+    // Head-anchor + idle-life + pointer-viz state.
     this._anchored = false;
     this._anchorQuat = new THREE.Quaternion();
     this._anchorPos = new THREE.Vector3();
     this._euler = new THREE.Euler(0, 0, 0, 'YXZ');
     this._forward = new THREE.Vector3();
-    this._clock = 0;
     this._leanTarget = null;
     this._pointing = false;
     this._activeHand = null;
+    this._clock = 0;
     this.pointerViz = null;
   }
 
@@ -133,7 +133,8 @@ class AgentHandsDemo extends xb.Script {
   }
 
   // Keeps the hands floating in front of the user (position + yaw) so they stay
-  // in view as the user walks/turns, with a gentle idle bob and sway.
+  // in view as the user walks/turns. Adds a gentle idle bob, and a subtle lean
+  // toward whatever the agent is pointing at.
   anchorToHead_() {
     const cam = xb.core.camera;
     if (!cam) return;
@@ -157,8 +158,6 @@ class AgentHandsDemo extends xb.Script {
       this.hands.position.lerp(this._anchorPos, 0.08);
     }
 
-    // Orientation: face the user (yaw) + the fingers-up tilt, plus a gentle
-    // idle sway.
     // Orientation: face the user (yaw) + the fingers-up tilt, plus a small
     // lean toward the pointing target and a gentle idle sway.
     let lean = 0;
@@ -513,7 +512,6 @@ class AgentHandsDemo extends xb.Script {
     return best;
   }
 
-  // Speaks `text` and schedules each gesture at its relative point in the line.
   // Resolves each gesture to a queued step (with a grounded point target where
   // available).
   buildGestureSteps_(text, gestures, duration) {
@@ -617,7 +615,7 @@ class AgentHandsDemo extends xb.Script {
     this.maybeAutoScan_();
   }
 
-  // Points a hand at a world point and lights up the pointer viz.
+  // Points a hand at a world point and lights up the pointer viz + lean.
   pointAtTarget_(point) {
     this.hands.pointAt(point);
     this._pointing = true;
