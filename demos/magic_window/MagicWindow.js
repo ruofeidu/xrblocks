@@ -193,7 +193,7 @@ export class MagicWindow extends xb.Script {
       }
       this.frameCtx.putImageData(image, 0, 0);
       this.updateCameraTexture_();
-      await this.updateMask_();
+      this.updateMask_();
     } catch (error) {
       console.warn('[magic_window] frame grab failed', error);
     } finally {
@@ -245,14 +245,15 @@ export class MagicWindow extends xb.Script {
     );
   }
 
-  async updateMask_() {
-    // Segmentation runs through the SDK's world/segmentation primitive, which
-    // pulls its own camera frame and returns a per-pixel category mask.
+  updateMask_() {
+    // The Segmenter's own update() loop keeps latestMask fresh at its
+    // configured cadence. Reading it here is a synchronous poll — no
+    // MediaPipe inference is triggered by this call.
     const segmentation = xb.core.world?.segmentation;
     if (!segmentation) {
       return;
     }
-    const mask = await segmentation.runSegmentation();
+    const mask = segmentation.latestMask;
     if (!mask) {
       return;
     }

@@ -33,6 +33,11 @@ describe('SegmentationOptions', () => {
     expect(returned).toBe(opts);
   });
 
+  it('defaults intervalMs to 66 (~15 fps)', () => {
+    const opts = new SegmentationOptions();
+    expect(opts.intervalMs).toBe(66);
+  });
+
   it('deep-merges constructor overrides while keeping unspecified defaults', () => {
     const opts = new SegmentationOptions({
       backendConfig: {
@@ -46,5 +51,13 @@ describe('SegmentationOptions', () => {
     // Untouched fields keep their defaults.
     expect(opts.backendConfig.mediapipe.outputCategoryMask).toBe(true);
     expect(opts.backendConfig.activeBackend).toBe('mediapipe');
+  });
+
+  it('allows overriding intervalMs via constructor', () => {
+    const opts = new SegmentationOptions({intervalMs: 100});
+    expect(opts.intervalMs).toBe(100);
+    // Other defaults are untouched.
+    expect(opts.backendConfig.activeBackend).toBe('mediapipe');
+    expect(opts.enabled).toBe(false);
   });
 });

@@ -9,6 +9,14 @@ export class SegmentationOptions {
   enabled = false;
 
   /**
+   * Minimum time between successive inference passes in milliseconds.
+   * The continuous loop started by `Segmenter.update()` will not dispatch a
+   * new inference until at least this many milliseconds have elapsed since the
+   * previous one was kicked off.  Default ~15 fps.
+   */
+  intervalMs = 66;
+
+  /**
    * Configuration options for the active segmentation backend.
    */
   backendConfig = {
