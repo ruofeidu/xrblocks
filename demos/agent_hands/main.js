@@ -11,6 +11,7 @@ import {
 } from 'uiblocks';
 import {
   AgentHands,
+  AgentHead,
   parseAgentGestures,
 } from 'xrblocks/addons/agenthands/index.js';
 import * as xb from 'xrblocks';
@@ -40,6 +41,7 @@ class AgentHandsDemo extends xb.Script {
   constructor() {
     super();
     this.hands = new AgentHands();
+    this.head = new AgentHead();
     this.queue = [];
     this.timer = 0;
     this.busy = false;
@@ -60,11 +62,13 @@ class AgentHandsDemo extends xb.Script {
     this._anchored = false;
     this._anchorQuat = new THREE.Quaternion();
     this._anchorPos = new THREE.Vector3();
+    this._headPos = new THREE.Vector3();
     this._euler = new THREE.Euler(0, 0, 0, 'YXZ');
     this._forward = new THREE.Vector3();
     this._leanTarget = null;
     this._pointing = false;
     this._activeHand = null;
+    this._speaking = false;
     this._clock = 0;
     this.pointerViz = null;
   }
@@ -82,6 +86,10 @@ class AgentHandsDemo extends xb.Script {
     this.hands.left.root.position.set(-0.16, 0, 0);
     this.hands.right.root.position.set(0.16, 0, 0);
     xb.core.scene.add(this.hands);
+
+    // The agent's abstract "presence": a glowing orb that floats above and
+    // between the hands, breathing while idle and pulsing while it speaks.
+    xb.core.scene.add(this.head.root);
 
     this.buildPointerViz_();
 
@@ -157,6 +165,14 @@ class AgentHandsDemo extends xb.Script {
     } else {
       this.hands.position.lerp(this._anchorPos, 0.08);
     }
+
+    // The orb sits above and between the hands, near eye level.
+    this._forward.set(Math.sin(yaw), 0, Math.cos(yaw));
+    this._headPos
+      .copy(this._camPos)
+      .addScaledVector(this._forward, -0.75)
+      .add(new THREE.Vector3(0, 0.02 + bob, 0));
+    this.head.root.position.lerp(this._headPos, 0.08);
 
     // Orientation: face the user (yaw) + the fingers-up tilt, plus a small
     // lean toward the pointing target and a gentle idle sway.
@@ -544,6 +560,7 @@ class AgentHandsDemo extends xb.Script {
     // Timed queue: fires each gesture/point at its estimated time, then rests.
     this.queue = [...steps, {at: duration + 0.8, rest: true}];
     this.timer = 0;
+    this._speaking = true;
 
     const synth = xb.core.sound?.speechSynthesizer;
     if (synth?.speak) {
@@ -605,6 +622,11 @@ class AgentHandsDemo extends xb.Script {
       this._activeHand.aimAt(this._leanTarget);
     }
     this.hands.update();
+    // Drive the orb: it gazes at the pointing target (or forward), pulses while
+    // the agent is speaking, and breathes when idle.
+    this.head.lookAt(this._pointing ? this._leanTarget : null);
+    this.head.setSpeaking(this._speaking ? 1 : 0);
+    this.head.update(dt);
     this.updatePointerViz_();
     this.maybeAutoScan_();
   }
@@ -625,6 +647,7 @@ class AgentHandsDemo extends xb.Script {
     this._pointing = false;
     this._leanTarget = null;
     this._activeHand = null;
+    this._speaking = false;
   }
 
   setStatus_(text) {
