@@ -514,25 +514,64 @@ class AgentHandsDemo extends xb.Script {
   }
 
   // Speaks `text` and schedules each gesture at its relative point in the line.
-  speakWithGestures_(text, gestures) {
-    this.setStatus_(`agent: "${text}"`);
-    // speak() rejects if it has to interrupt; swallow it so a quick follow-up
-    // utterance doesn't surface as an unhandled rejection.
-    xb.core.sound?.speechSynthesizer?.speak(text)?.catch(() => {});
-    const duration = Math.max(1.2, text.length * 0.06);
-    this.queue = [];
+  // Resolves each gesture to a queued step (with a grounded point target where
+  // available).
+  buildGestureSteps_(text, gestures, duration) {
+    const steps = [];
     for (const gesture of gestures) {
       const at = (gesture.index / Math.max(1, text.length)) * duration;
-      const step = {at, pose: gesture.pose};
+      const step = {at, charIndex: gesture.index, pose: gesture.pose};
       // A point gesture with a resolvable target aims at that object's
       // grounded 3D point.
       if (gesture.target) {
         const obj = this.findObject_(gesture.target);
         if (obj?._point) step.point = obj._point.clone();
       }
-      this.queue.push(step);
+      steps.push(step);
     }
-    this.queue.push({at: duration + 0.8, rest: true});
+    return steps;
+  }
+
+  // Speaks `text` and plays its gestures. Uses the SDK speech synthesizer (so
+  // the voice is the nicely-selected one) and fires gestures on its reported
+  // word boundaries; falls back to a time-based queue if speech is unavailable.
+  speakWithGestures_(text, gestures) {
+    this.setStatus_(`agent: "${text}"`);
+    const duration = Math.max(1.2, text.length * 0.06);
+    const steps = this.buildGestureSteps_(text, gestures, duration);
+    const synth = xb.core.sound?.speechSynthesizer;
+
+    const fire = (step) => {
+      if (step.point) this.pointAtTarget_(step.point);
+      else if (step.pose) this.hands.gesture(step.pose);
+    };
+
+    if (synth?.speak) {
+      // Drive gestures from the synthesizer's word boundaries for tight sync.
+      const pending = [...steps];
+      synth.onBoundaryCallback = (charIndex) => {
+        while (pending.length && pending[0].charIndex <= charIndex) {
+          fire(pending.shift());
+        }
+      };
+      // No timed gesture steps; just schedule the closing rest as a safety net.
+      this.queue = [{at: duration + 1.5, rest: true}];
+      this.timer = 0;
+      synth
+        .speak(text)
+        .then(() => {
+          while (pending.length) fire(pending.shift());
+          this.restHands_();
+        })
+        .catch(() => {})
+        .finally(() => {
+          synth.onBoundaryCallback = undefined;
+        });
+      return;
+    }
+
+    // Fallback: time-based queue (no speech engine available).
+    this.queue = [...steps, {at: duration + 0.8, rest: true}];
     this.timer = 0;
   }
 
