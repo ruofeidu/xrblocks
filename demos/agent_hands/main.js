@@ -335,8 +335,10 @@ class AgentHandsDemo extends xb.Script {
 
   // Icon + caption button mirroring a DOM control (matches world_companion).
   makeXrButton_(iconName, label, onClick) {
-    const idle = '#2a2a2a';
-    const hover = '#3a3a3a';
+    // Idle is a dark chip; hover is a clear purple so the highlight is
+    // unmistakable (the old near-black hover was invisible against idle).
+    const idle = '#3a3550';
+    const hover = '#7a5fc7';
     const btn = new UIPanel({
       paddingTop: 8,
       paddingBottom: 8,
@@ -345,7 +347,7 @@ class AgentHandsDemo extends xb.Script {
       cornerRadius: 12,
       fillColor: idle,
       strokeWidth: 1,
-      strokeColor: '#444444',
+      strokeColor: '#6b5fa0',
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
@@ -354,7 +356,7 @@ class AgentHandsDemo extends xb.Script {
       onHoverEnter: () => btn.setFillColor(hover),
       onHoverExit: () => btn.setFillColor(idle),
       onClick: () => {
-        btn.setFillColor('#9177c7');
+        btn.setFillColor('#b49aff');
         setTimeout(() => btn.setFillColor(idle), 180);
         onClick();
       },
