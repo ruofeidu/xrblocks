@@ -32,32 +32,6 @@ const scratchTip_ = new THREE.Vector3();
 const REST_TILT_X = 0;
 const REST_ROLL_Z = 0;
 
-// Emblematic gestures read as upside-down if they inherit the palms-up rest
-// tilt (a thumbs-up thumb would point at the user, not the ceiling). This
-// quaternion cancels the container's rest tilt in the hand-root's parent frame,
-// so those poses present upright and facing the user. Derived from the rest
-// euler used in anchorToHead_ (order YXZ -> R = Ry * Rx * Rz; cancelling the
-// local Rx * Rz leaves just the user-facing yaw).
-const REST_CANCEL_QUAT = new THREE.Quaternion()
-  .setFromAxisAngle(new THREE.Vector3(1, 0, 0), REST_TILT_X)
-  .multiply(
-    new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 0, 1),
-      REST_ROLL_Z
-    )
-  )
-  .invert();
-
-// Static poses whose meaning depends on the hand being upright; these get the
-// rest-tilt cancellation above. Open/relaxed deliberately keeps the rest tilt.
-const UPRIGHT_POSES = new Set([
-  xb.SimulatorHandPose.THUMBS_UP,
-  xb.SimulatorHandPose.THUMBS_DOWN,
-  xb.SimulatorHandPose.VICTORY,
-  xb.SimulatorHandPose.ROCK,
-  xb.SimulatorHandPose.FIST,
-]);
-
 const META_INSTRUCTION = `You are a friendly assistant with a visible pair of hands you gesture with. Reply in one or two short sentences. Embed gesture markup inline right before the word it emphasizes. Use a few gestures per reply.
 
 Static gestures: [gesture:NAME] where NAME is thumbs_up, thumbs_down, fist, victory, rock, or open.
@@ -626,12 +600,7 @@ class AgentHandsDemo extends xb.Script {
       this.playMotion_(step.motion, step.param);
     } else if (step.pose) {
       this.hands.gesture(step.pose);
-      // Emblematic poses present upright; everything else keeps the rest tilt.
-      if (UPRIGHT_POSES.has(step.pose)) {
-        this.hands.orient(REST_CANCEL_QUAT);
-      } else {
-        this.hands.clearOrientation();
-      }
+      this.hands.clearOrientation();
     }
   }
 
