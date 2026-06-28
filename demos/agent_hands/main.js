@@ -98,6 +98,10 @@ class AgentHandsDemo extends xb.Script {
     this.hands.rotation.set(REST_TILT_X, Math.PI, REST_ROLL_Z);
     this.hands.left.root.position.set(-0.16, 0, 0);
     this.hands.right.root.position.set(0.16, 0, 0);
+    // We drive this.hands.update() manually from our own update() (after
+    // anchoring, and before reading the animated fingertip for the pointer viz),
+    // so opt it out of the framework's Script update to avoid animating twice.
+    this.hands.isXRScript = false;
     xb.core.scene.add(this.hands);
 
     // The agent's abstract "presence": a glowing orb that floats above and
