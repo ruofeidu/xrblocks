@@ -541,13 +541,7 @@ class AgentHandsDemo extends xb.Script {
     else if (snapAspect > cam.aspect) sy = cam.aspect / snapAspect;
     this._ndc.set((u * 2 - 1) * sx, (1 - v) * 2 * sy - sy);
     this._raycaster.setFromCamera(this._ndc, cam);
-    // We no-op the depth mesh's raycast so the reticle ignores the walls (see
-    // ensureDepthMeshNonInteractive_). Restore the real raycast just for this
-    // grounding query so pointing at detected objects still hits the geometry.
-    const nooped = mesh.raycast;
-    if (mesh.__origRaycast) mesh.raycast = mesh.__origRaycast;
     const hits = this._raycaster.intersectObject(mesh, true);
-    mesh.raycast = nooped;
     return hits.length ? hits[0].point.clone() : fallback;
   }
 
@@ -725,21 +719,16 @@ class AgentHandsDemo extends xb.Script {
     this.head.update(dt);
     this.updatePointerViz_();
     this.maybeAutoScan_();
-    this.ensureDepthMeshNonInteractive_();
+    this.markDepthMeshNonInteractive_();
   }
 
-  // The depth mesh (scanned walls/floor) is added to the scene for occlusion,
-  // so the reticle's whole-scene raycast hits it. When you stand within ~1m of
-  // a wall it becomes the closest hit and steals hover from the control panel,
-  // making the buttons feel dead. We no-op its raycast so the reticle skips it.
-  // The agent's own grounding raycaster restores the real raycast briefly in
-  // groundPoint_, so pointing at detected objects still lands on the geometry.
-  ensureDepthMeshNonInteractive_() {
+  // Keep the depth mesh (scanned walls/floor) out of the reticle's hover/select
+  // raycast so that standing close to a wall doesn't let it steal hover from the
+  // control panel. ignoreReticleRaycast leaves the mesh's own .raycast intact,
+  // so groundPoint_ can still ground detected objects on it.
+  markDepthMeshNonInteractive_() {
     const mesh = xb.core.depth?.depthMesh;
-    if (!mesh || mesh.__reticleNooped) return;
-    mesh.__origRaycast = mesh.raycast;
-    mesh.raycast = () => {};
-    mesh.__reticleNooped = true;
+    if (mesh) mesh.ignoreReticleRaycast = true;
   }
 
   // Points a hand at a world point and lights up the pointer viz + lean.
