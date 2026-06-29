@@ -379,6 +379,7 @@ class AgentHandsDemo extends xb.Script {
   // Triggered by either the DOM Talk button or the spatial mic button.
   onTalk_() {
     if (this.interactive) {
+      this._listening = true;
       xb.core.sound?.speechRecognizer?.start();
     } else {
       this.replay_();
