@@ -818,10 +818,9 @@ function start() {
   options.sound.speechSynthesizer.enabled = true;
   options.sound.speechSynthesizer.allowInterruptions = true;
   options.sound.speechRecognizer.enabled = true;
-  // Keep listening through pauses and emit interim results, so the demo can wait
-  // for a real silence (see startInteractive_) instead of ending the turn on the
-  // first short pause.
-  options.sound.speechRecognizer.continuous = true;
+  // Push-to-talk: a talk press starts one recognition; don't keep the mic
+  // continuously open (it auto-restarts and chimes when we aren't listening).
+  options.sound.speechRecognizer.continuous = false;
   options.sound.speechRecognizer.interimResults = true;
   // Object detection so the hands can point at real things in the room.
   options.deviceCamera.enabled = true;
