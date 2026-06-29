@@ -398,6 +398,13 @@ class AgentHandsDemo extends xb.Script {
       button.addEventListener('click', () => recognizer?.start());
     }
     recognizer?.addEventListener('result', (event) => {
+      // Ignore the mic while the agent is talking/replying, otherwise it hears
+      // its own TTS (continuous mode) and answers itself.
+      if (this.busy || this._speaking) {
+        this._speech = '';
+        clearTimeout(this._speechTimer);
+        return;
+      }
       const text = event.transcript.trim();
       if (!text) return;
       // Accumulate finalized speech and wait for a real silence before replying,
