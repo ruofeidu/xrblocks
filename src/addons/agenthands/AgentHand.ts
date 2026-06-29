@@ -29,7 +29,7 @@ const MIN_STANDOFF = 0.55;
 // ill-conditioned to be stable: the wrist sits ~0.1 m off the root, so a target
 // this close makes small wrist movements swing the aim wildly. Re-aiming is
 // skipped in that regime to avoid a thrash loop.
-const MIN_AIM_DISTANCE = 0.35;
+const MIN_AIM_DISTANCE = 0.2;
 
 const scratchPosition = new THREE.Vector3();
 const scratchQuaternion = new THREE.Quaternion();
