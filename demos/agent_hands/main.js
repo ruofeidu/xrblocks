@@ -56,6 +56,9 @@ class AgentHandsDemo extends xb.Script {
     this.timer = 0;
     this.busy = false;
     this.interactive = false;
+    // Accumulated speech + silence timer so a pause doesn't cut the user off.
+    this._speech = '';
+    this._speechTimer = null;
     this.detectedObjects = [];
     this.lastDetectAt = 0;
     this.scanning_ = false;
@@ -391,9 +394,21 @@ class AgentHandsDemo extends xb.Script {
       button.addEventListener('click', () => recognizer?.start());
     }
     recognizer?.addEventListener('result', (event) => {
-      if (event.isFinal && event.transcript.trim()) {
-        this.respond_(event.transcript.trim());
+      const text = event.transcript.trim();
+      if (!text) return;
+      // Accumulate finalized speech and wait for a real silence before replying,
+      // so a pause mid-sentence doesn't cut you off. Any result (interim or
+      // final) restarts the timer, so it only fires once you actually stop.
+      if (event.isFinal) {
+        this._speech = `${this._speech} ${text}`.trim();
       }
+      clearTimeout(this._speechTimer);
+      this._speechTimer = setTimeout(() => {
+        const said = (this._speech || text).trim();
+        this._speech = '';
+        recognizer.stop?.();
+        if (said) this.respond_(said);
+      }, 1800);
     });
     this.setStatus_('press talk and say something to the agent.');
   }
@@ -784,6 +799,11 @@ function start() {
   options.sound.speechSynthesizer.enabled = true;
   options.sound.speechSynthesizer.allowInterruptions = true;
   options.sound.speechRecognizer.enabled = true;
+  // Keep listening through pauses and emit interim results, so the demo can wait
+  // for a real silence (see startInteractive_) instead of ending the turn on the
+  // first short pause.
+  options.sound.speechRecognizer.continuous = true;
+  options.sound.speechRecognizer.interimResults = true;
   // Object detection so the hands can point at real things in the room.
   options.deviceCamera.enabled = true;
   options.permissions.camera = true;
