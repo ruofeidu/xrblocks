@@ -768,8 +768,10 @@ class AgentHandsDemo extends xb.Script {
     console.log('[agent_hands]', text);
     const el = document.getElementById('status');
     if (el) el.textContent = text;
-    // The spatial font lacks some glyphs (e.g. the ellipsis), so normalize.
-    if (this.xrStatusText) this.xrStatusText.setText(text.replace(/…/g, '...'));
+    // The spatial font lacks some glyphs (ellipsis, middle dot), so normalize.
+    if (this.xrStatusText) {
+      this.xrStatusText.setText(text.replace(/…/g, '...').replace(/·/g, '-'));
+    }
   }
 }
 
