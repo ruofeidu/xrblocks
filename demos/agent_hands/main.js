@@ -32,6 +32,10 @@ const scratchTip_ = new THREE.Vector3();
 const REST_TILT_X = 0;
 const REST_ROLL_Z = 0;
 
+// Silence (ms) after the user stops talking before we send their speech, so a
+// pause mid-sentence doesn't cut them off.
+const SPEECH_SILENCE_MS = 1800;
+
 const META_INSTRUCTION = `You are a friendly assistant with a visible pair of hands you gesture with. Reply in one or two short sentences. Embed gesture markup inline right before the word it emphasizes. Use a few gestures per reply.
 
 Static gestures: [gesture:NAME] where NAME is thumbs_up, thumbs_down, fist, victory, rock, or open.
@@ -408,7 +412,7 @@ class AgentHandsDemo extends xb.Script {
         this._speech = '';
         recognizer.stop?.();
         if (said) this.respond_(said);
-      }, 1800);
+      }, SPEECH_SILENCE_MS);
     });
     this.setStatus_('press talk and say something to the agent.');
   }
