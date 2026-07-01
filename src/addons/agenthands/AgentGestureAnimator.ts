@@ -7,6 +7,15 @@ import type {AgentMotionKind, GestureStep} from './AgentGestures';
 
 const scratch = new THREE.Vector3();
 
+// Iconic-size gesture widths, in metres: the hand separation used to depict a
+// "small" versus a "big" thing, the fallback when no size word is given, and
+// the clamp range for an explicit numeric size.
+const SIZE_SMALL_M = 0.18;
+const SIZE_BIG_M = 0.55;
+const SIZE_DEFAULT_M = 0.35;
+const SIZE_MIN_M = 0.1;
+const SIZE_MAX_M = 0.8;
+
 /**
  * Drives an {@link AgentHands} pair from timed {@link GestureStep}s: plays
  * poses, motions, and points, and tracks which hand is currently pointing (and
@@ -71,10 +80,12 @@ export class AgentGestureAnimator {
    * @returns The separation width in metres.
    */
   sizeWidth(param?: string): number {
-    if (param === 'small') return 0.18;
-    if (param === 'big' || param === 'large') return 0.55;
+    if (param === 'small') return SIZE_SMALL_M;
+    if (param === 'big' || param === 'large') return SIZE_BIG_M;
     const n = parseFloat(param ?? '');
-    return Number.isFinite(n) ? Math.max(0.1, Math.min(0.8, n)) : 0.35;
+    return Number.isFinite(n)
+      ? THREE.MathUtils.clamp(n, SIZE_MIN_M, SIZE_MAX_M)
+      : SIZE_DEFAULT_M;
   }
 
   /**
