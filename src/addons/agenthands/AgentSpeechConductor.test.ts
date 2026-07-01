@@ -8,7 +8,10 @@ vi.hoisted(() => {
 
 import {SimulatorHandPose} from 'xrblocks';
 
-import {AgentSpeechConductor} from './AgentSpeechConductor';
+import {
+  AgentSpeechConductor,
+  estimateSpeechDuration,
+} from './AgentSpeechConductor';
 import type {GestureStep} from './AgentGestures';
 
 function harness(synthesizer?: {
@@ -31,6 +34,15 @@ const steps: GestureStep[] = [
   {at: 1, charIndex: 5, pose: SimulatorHandPose.VICTORY},
   {at: 2, charIndex: 10, motion: 'beat'},
 ];
+
+describe('estimateSpeechDuration', () => {
+  it('scales with length but never drops below the floor', () => {
+    expect(estimateSpeechDuration('')).toBeCloseTo(1.2);
+    expect(estimateSpeechDuration('hi')).toBeCloseTo(1.2); // floor
+    // 100 chars * 0.06 = 6s, above the floor.
+    expect(estimateSpeechDuration('x'.repeat(100))).toBeCloseTo(6);
+  });
+});
 
 describe('AgentSpeechConductor', () => {
   it('marks itself speaking and fires steps then rests as time passes', () => {
