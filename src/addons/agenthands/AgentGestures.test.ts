@@ -8,7 +8,10 @@ vi.hoisted(() => {
 
 import {SimulatorHandPose} from 'xrblocks';
 
+import * as THREE from 'three';
+
 import {
+  buildGestureSteps,
   gestureNameToMotion,
   gestureNameToPose,
   parseAgentGestures,
@@ -122,5 +125,51 @@ describe('parseAgentGestures', () => {
     expect(gestureNameToMotion('emphasize')).toBe('beat');
     expect(gestureNameToMotion('this big')).toBe('size');
     expect(gestureNameToMotion('thumbs_up')).toBeUndefined();
+  });
+});
+
+describe('buildGestureSteps', () => {
+  it('places each gesture on the timeline by its character offset', () => {
+    const {text, gestures} = parseAgentGestures(
+      'Hi there [wave] and welcome [beat] friend.'
+    );
+    const duration = 4;
+    const steps = buildGestureSteps(text, gestures, duration);
+    expect(steps).toHaveLength(2);
+    expect(steps[0].motion).toBe('wave');
+    expect(steps[1].motion).toBe('beat');
+    // Timeline is monotonic and bounded by the duration.
+    expect(steps[0].at).toBeLessThan(steps[1].at);
+    expect(steps[1].at).toBeLessThanOrEqual(duration);
+    expect(steps[0].charIndex).toBe(gestures[0].index);
+  });
+
+  it('carries pose, motion, and param through to the step', () => {
+    const {text, gestures} = parseAgentGestures(
+      'about [size:big] this and [gesture:victory] that'
+    );
+    const steps = buildGestureSteps(text, gestures, 2);
+    expect(steps[0].motion).toBe('size');
+    expect(steps[0].param).toBe('big');
+    expect(steps[1].pose).toBe(gestures[1].pose);
+    expect(steps[1].param).toBeUndefined();
+  });
+
+  it('grounds a point gesture to the resolved world position (cloned)', () => {
+    const {text, gestures} = parseAgentGestures('over [point:the lamp] there');
+    const lamp = new THREE.Vector3(1, 2, -3);
+    const steps = buildGestureSteps(text, gestures, 2, (target) =>
+      target === 'the lamp' ? lamp : null
+    );
+    expect(steps[0].point).toBeInstanceOf(THREE.Vector3);
+    expect(steps[0].point!.equals(lamp)).toBe(true);
+    // Cloned, so the caller can mutate without affecting the source.
+    expect(steps[0].point).not.toBe(lamp);
+  });
+
+  it('leaves a point gesture without a point when it does not resolve', () => {
+    const {text, gestures} = parseAgentGestures('over [point:the moon] there');
+    const steps = buildGestureSteps(text, gestures, 2, () => null);
+    expect(steps[0].point).toBeUndefined();
   });
 });
