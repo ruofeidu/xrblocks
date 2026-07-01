@@ -100,6 +100,47 @@ describe('AgentSpeechConductor', () => {
     expect(nexts).toEqual([2]);
   });
 
+  it('does not double-fire a step already fired on a word boundary', () => {
+    let boundary: ((charIndex: number) => void) | undefined;
+    const synth = {
+      speak: () => Promise.resolve(),
+      get onBoundaryCallback() {
+        return boundary;
+      },
+      set onBoundaryCallback(cb) {
+        boundary = cb;
+      },
+    };
+    const {conductor, fired, state} = harness(synth);
+    conductor.speak('some words here', steps, 2);
+
+    boundary!(20); // fire both steps early via boundaries
+    expect(fired).toEqual([steps[0], steps[1]]);
+
+    // The timed queue reaches the same steps but must not replay them.
+    conductor.tick(3);
+    expect(fired).toEqual([steps[0], steps[1]]);
+    expect(state.rests).toBe(1);
+  });
+
+  it('clears the boundary callback when speak() throws synchronously', () => {
+    let boundary: ((charIndex: number) => void) | undefined = () => {};
+    const synth = {
+      speak: () => {
+        throw new Error('speak failed');
+      },
+      get onBoundaryCallback() {
+        return boundary;
+      },
+      set onBoundaryCallback(cb) {
+        boundary = cb;
+      },
+    };
+    const {conductor} = harness(synth);
+    expect(() => conductor.speak('some words here', steps, 2)).not.toThrow();
+    expect(boundary).toBeUndefined();
+  });
+
   it('does nothing when ticked with an empty timeline', () => {
     const {conductor, fired, state} = harness();
     expect(() => conductor.tick(5)).not.toThrow();
