@@ -37,8 +37,9 @@ export interface AgentSpeechConductorCallbacks {
  * Synchronizes gesture playback with spoken text: the "TTS timestamp matcher".
  * A timed queue is the guaranteed driver (it works regardless of the voice),
  * and when the synthesizer emits word boundaries the conductor additionally
- * fires pending steps a touch early for tighter sync. Firing is idempotent with
- * the timed queue, so a step is never missed even if it plays twice.
+ * fires pending steps a touch early for tighter sync. Each step plays at most
+ * once per utterance, so a step fired early on a boundary is not replayed when
+ * the timed queue reaches it (which matters for animated motions).
  */
 export class AgentSpeechConductor {
   /** Whether the agent is currently speaking. */
@@ -46,6 +47,9 @@ export class AgentSpeechConductor {
 
   private queue: TimelineEntry[] = [];
   private timer = 0;
+  // Steps already played this utterance, so a step fired early on a word
+  // boundary is not played again when the timed queue reaches it.
+  private readonly fired = new Set<GestureStep>();
   private readonly synth?: SpeechSynthesizerLike | null;
   private readonly callbacks: AgentSpeechConductorCallbacks;
 
@@ -76,6 +80,7 @@ export class AgentSpeechConductor {
       {at: duration + 0.8, rest: true},
     ];
     this.timer = 0;
+    this.fired.clear();
     this.speaking = true;
 
     const synth = this.synth;
@@ -83,14 +88,20 @@ export class AgentSpeechConductor {
       const pending = [...steps];
       synth.onBoundaryCallback = (charIndex: number) => {
         while (pending.length && pending[0].charIndex <= charIndex) {
-          this.callbacks.onStep(pending.shift()!);
+          this.fireStep_(pending.shift()!);
         }
       };
-      Promise.resolve(synth.speak(text))
-        .catch(() => {})
-        .finally(() => {
-          synth.onBoundaryCallback = undefined;
-        });
+      // Clear the callback whether speak() throws synchronously or the returned
+      // promise rejects, so a failure never leaves a stale boundary handler.
+      try {
+        Promise.resolve(synth.speak(text))
+          .catch(() => {})
+          .finally(() => {
+            synth.onBoundaryCallback = undefined;
+          });
+      } catch {
+        synth.onBoundaryCallback = undefined;
+      }
     }
   }
 
@@ -101,6 +112,7 @@ export class AgentSpeechConductor {
   playTimeline(entries: TimelineEntry[]) {
     this.queue = [...entries];
     this.timer = 0;
+    this.fired.clear();
   }
 
   /**
@@ -115,9 +127,17 @@ export class AgentSpeechConductor {
         this.speaking = false;
         this.callbacks.onRest();
       } else if (entry.step) {
-        this.callbacks.onStep(entry.step);
+        this.fireStep_(entry.step);
       }
       if (entry.next !== undefined) this.callbacks.onNext?.(entry.next);
     }
+  }
+
+  // Plays a step at most once per utterance (boundary firing and the timed
+  // queue both route through here, so a step never plays twice).
+  private fireStep_(step: GestureStep) {
+    if (this.fired.has(step)) return;
+    this.fired.add(step);
+    this.callbacks.onStep(step);
   }
 }
