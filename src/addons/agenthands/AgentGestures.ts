@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import {SimulatorHandPose} from 'xrblocks';
 
 /** Maps gesture names the agent can emit to concrete hand poses. */
@@ -133,4 +134,69 @@ export function parseAgentGestures(input: string): ParsedAgentSpeech {
   }
   text += input.slice(lastIndex);
   return {text: text.replace(/\s+/g, ' ').trim(), gestures};
+}
+
+/**
+ * One entry in the "executable dictionary" the animator plays: a gesture placed
+ * on the speech timeline, with its point target already resolved to a world
+ * position where applicable.
+ */
+export interface GestureStep {
+  /** Seconds from the start of speech at which to play this step. */
+  at: number;
+  /** Character index in the spoken text, for word-boundary synchronization. */
+  charIndex: number;
+  /** The static hand pose to play, if any. */
+  pose?: SimulatorHandPose;
+  /** The animated motion to play, if any. */
+  motion?: AgentMotionKind;
+  /** Optional parameter for a motion gesture (e.g. `big`, `2`). */
+  param?: string;
+  /** Resolved world-space point to aim at, for a `[point:...]` gesture. */
+  point?: THREE.Vector3;
+}
+
+/**
+ * Resolves a point gesture's target label to a world position. Returns the
+ * point to aim at, or null/undefined if the target is unknown.
+ */
+export type PointResolver = (
+  target: string
+) => THREE.Vector3 | null | undefined;
+
+/**
+ * Turns parsed gestures into an ordered, timed list of {@link GestureStep}s
+ * (the "executable dictionary"): each gesture is placed on the speech timeline
+ * by its character offset, and a `[point:LABEL]` gesture is grounded to a world
+ * position via `resolvePoint`.
+ * @param text - The cleaned speech text the gestures were parsed from.
+ * @param gestures - The gestures, in order of appearance.
+ * @param duration - Estimated spoken duration of `text`, in seconds.
+ * @param resolvePoint - Optional lookup from a point target label to a world
+ *     position. Point gestures whose target does not resolve carry no point.
+ * @returns The timed gesture steps.
+ */
+export function buildGestureSteps(
+  text: string,
+  gestures: AgentGestureEvent[],
+  duration: number,
+  resolvePoint?: PointResolver
+): GestureStep[] {
+  const steps: GestureStep[] = [];
+  for (const gesture of gestures) {
+    const at = (gesture.index / Math.max(1, text.length)) * duration;
+    const step: GestureStep = {
+      at,
+      charIndex: gesture.index,
+      ...(gesture.pose !== undefined ? {pose: gesture.pose} : {}),
+      ...(gesture.motion ? {motion: gesture.motion} : {}),
+      ...(gesture.param ? {param: gesture.param} : {}),
+    };
+    if (gesture.target && resolvePoint) {
+      const point = resolvePoint(gesture.target);
+      if (point) step.point = point.clone();
+    }
+    steps.push(step);
+  }
+  return steps;
 }
