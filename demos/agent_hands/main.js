@@ -466,8 +466,12 @@ class AgentHandsDemo extends xb.Script {
         await this.world.scanPromise.catch(() => {});
       }
       this.setStatus_(`you: "${userText}"  ·  thinking...`);
-      // Use whatever the last scan found; never block the reply on detection.
-      const labels = this.world.objects.map((o) => o.label);
+      // Only offer objects from a scan completed this session; a cache restored
+      // from local storage may be from another room, so we do not point at it
+      // until a fresh scan confirms what is actually here.
+      const labels = this.world.scanned
+        ? this.world.objects.map((o) => o.label)
+        : [];
       const seen = labels.length
         ? `Visible objects you can point at: ${labels.join(', ')}.`
         : 'You have not scanned the room yet, so avoid pointing.';
