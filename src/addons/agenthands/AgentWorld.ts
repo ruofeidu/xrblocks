@@ -56,6 +56,12 @@ interface PersistedObject {
   point: number[] | null;
 }
 
+// Auto-rescan defaults: how far the camera must move or turn since the last
+// scan to trigger a background re-scan, and the minimum time between them.
+const DEFAULT_MOVE_THRESHOLD_M = 0.5;
+const DEFAULT_TURN_THRESHOLD_RAD = 0.6;
+const DEFAULT_RESCAN_COOLDOWN_MS = 5000;
+
 /**
  * World understanding for the agent: runs object detection, grounds each
  * detection to a 3D point by raycasting its bounding-box centre against the
@@ -92,9 +98,9 @@ export class AgentWorld {
   /** @param options - How to reach the detector, camera, and depth mesh. */
   constructor(options: AgentWorldOptions) {
     this.opts = {
-      moveThreshold: 0.5,
-      turnThreshold: 0.6,
-      rescanCooldownMs: 5000,
+      moveThreshold: DEFAULT_MOVE_THRESHOLD_M,
+      turnThreshold: DEFAULT_TURN_THRESHOLD_RAD,
+      rescanCooldownMs: DEFAULT_RESCAN_COOLDOWN_MS,
       ...options,
     };
     this.loadPersisted();
