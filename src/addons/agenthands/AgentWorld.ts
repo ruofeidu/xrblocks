@@ -68,6 +68,12 @@ export class AgentWorld {
   objects: GroundedObject[] = [];
   /** Whether a scan is currently running. */
   scanning = false;
+  /**
+   * Whether at least one scan has completed this session. Objects loaded from
+   * local storage do not set this, so callers can avoid treating a persisted
+   * cache as a confirmed, current view of the room.
+   */
+  scanned = false;
   /** The in-flight scan, or null. Await it to serialize against a scan. */
   scanPromise: Promise<void> | null = null;
 
@@ -212,6 +218,7 @@ export class AgentWorld {
         label: obj.label,
         point: this.groundPoint_(obj, cam, snapAspect, mesh),
       }));
+      this.scanned = true;
       this.persist_();
     } catch (error) {
       console.warn('[AgentWorld] object detection failed', error);
