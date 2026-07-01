@@ -10,8 +10,12 @@ import {
   UIText,
 } from 'uiblocks';
 import {
+  AgentGestureAnimator,
   AgentHands,
   AgentHead,
+  AgentSpeechConductor,
+  AgentWorld,
+  buildGestureSteps,
   parseAgentGestures,
 } from 'xrblocks/addons/agenthands/index.js';
 import * as xb from 'xrblocks';
@@ -36,6 +40,11 @@ const REST_ROLL_Z = 0;
 // pause mid-sentence doesn't cut them off.
 const SPEECH_SILENCE_MS = 1000;
 
+// localStorage key the World Understanding module persists grounded objects to,
+// so the agent has something to point at immediately on reload (a fresh scan
+// replaces it).
+const STORAGE_KEY = 'agent_hands.objects';
+
 const META_INSTRUCTION = `You are a friendly assistant with a visible pair of hands you gesture with. Reply in one or two short sentences. Embed gesture markup inline right before the word it emphasizes. Use a few gestures per reply.
 
 Static gestures: [gesture:NAME] where NAME is thumbs_up, thumbs_down, fist, victory, rock, or open.
@@ -56,8 +65,11 @@ class AgentHandsDemo extends xb.Script {
     super();
     this.hands = new AgentHands();
     this.head = new AgentHead();
-    this.queue = [];
-    this.timer = 0;
+    // Modules (World Understanding / Gesture Animator / TTS conductor) are wired
+    // in init() once core subsystems exist.
+    this.world = null;
+    this.animator = null;
+    this.conductor = null;
     this.busy = false;
     this.interactive = false;
     // Accumulated speech + silence timer so a pause doesn't cut the user off.
@@ -65,29 +77,15 @@ class AgentHandsDemo extends xb.Script {
     this._speechTimer = null;
     // Push-to-talk: only accept mic input between a talk press and the reply.
     this._listening = false;
-    this.detectedObjects = [];
-    this.lastDetectAt = 0;
-    this.scanning_ = false;
-    this._scanPromise = null;
-    this._ndc = new THREE.Vector2();
-    this._raycaster = new THREE.Raycaster();
-    // Auto-rescan bookkeeping: re-detect in the background when the view moves.
+    // Head-anchor + idle-life + pointer-viz state.
     this._camPos = new THREE.Vector3();
     this._camQuat = new THREE.Quaternion();
-    this._scanCamPos = new THREE.Vector3();
-    this._scanCamQuat = new THREE.Quaternion();
-    this._lastScanAt = 0;
-    // Head-anchor + idle-life + pointer-viz state.
     this._anchored = false;
     this._anchorQuat = new THREE.Quaternion();
     this._anchorPos = new THREE.Vector3();
     this._headPos = new THREE.Vector3();
     this._euler = new THREE.Euler(0, 0, 0, 'YXZ');
     this._forward = new THREE.Vector3();
-    this._leanTarget = null;
-    this._pointing = false;
-    this._activeHand = null;
-    this._speaking = false;
     this._clock = 0;
     this.pointerViz = null;
   }
@@ -118,6 +116,33 @@ class AgentHandsDemo extends xb.Script {
     xb.core.scene.add(this.head.root);
 
     this.buildPointerViz_();
+
+    // Gesture Animator: turns timed gesture steps into hand movement, and
+    // tracks which hand is pointing (and at what) for the pointer viz + gaze.
+    this.animator = new AgentGestureAnimator(this.hands);
+
+    // World Understanding: detects objects, grounds them to 3D points against
+    // the depth mesh, caches + persists them, and re-scans as the user moves.
+    this.world = new AgentWorld({
+      getDetector: () => xb.core.world?.objects,
+      getCamera: () => xb.core.camera,
+      getDepthMesh: () => xb.core.depth?.depthMesh,
+      getSnapshotAspect: async () => {
+        const probe = await xb.core.deviceCamera?.getSnapshot({
+          outputFormat: 'imageData',
+        });
+        return probe?.width ? probe.width / probe.height : undefined;
+      },
+      storageKey: STORAGE_KEY,
+    });
+
+    // TTS conductor: syncs the gesture timeline with spoken words.
+    this.conductor = new AgentSpeechConductor({
+      synthesizer: xb.core.sound?.speechSynthesizer,
+      onStep: (step) => this.animator.fireStep(step),
+      onRest: () => this.animator.rest(),
+      onNext: (index) => this.playLine_(index),
+    });
 
     this.interactive = !!xb.core.ai?.model?.options?.apiKey;
     this.buildSpatialPanel_();
@@ -207,8 +232,8 @@ class AgentHandsDemo extends xb.Script {
     // lean toward the pointing target and a gentle idle sway.
     let lean = 0;
     let leanX = 0;
-    if (this._pointing && this._leanTarget) {
-      this._forward.copy(this._leanTarget).sub(this.hands.position);
+    if (this.animator.pointing && this.animator.target) {
+      this._forward.copy(this.animator.target).sub(this.hands.position);
       lean = THREE.MathUtils.clamp(
         Math.atan2(this._forward.x, -this._forward.z) - yaw,
         -0.5,
@@ -234,20 +259,17 @@ class AgentHandsDemo extends xb.Script {
   updatePointerViz_() {
     const viz = this.pointerViz;
     if (!viz) return;
-    const show = this._pointing && this._leanTarget && this._activeHand;
+    const target = this.animator.target;
+    const activeHand = this.animator.activeHand;
+    const show = this.animator.pointing && target && activeHand;
     viz.group.visible = !!show;
     if (!show) return;
-    const tip = this._activeHand.getIndexTipWorld(scratchTip_);
+    const tip = activeHand.getIndexTipWorld(scratchTip_);
     const positions = viz.line.geometry.attributes.position;
     positions.setXYZ(0, tip.x, tip.y, tip.z);
-    positions.setXYZ(
-      1,
-      this._leanTarget.x,
-      this._leanTarget.y,
-      this._leanTarget.z
-    );
+    positions.setXYZ(1, target.x, target.y, target.z);
     positions.needsUpdate = true;
-    viz.ring.position.copy(this._leanTarget);
+    viz.ring.position.copy(target);
     const cam = xb.core.camera;
     if (cam) viz.ring.lookAt(cam.position);
     const pulse = 1 + Math.sin(this._clock * 4) * 0.15;
@@ -407,7 +429,7 @@ class AgentHandsDemo extends xb.Script {
       // Push-to-talk: only listen between a talk press and the reply. Continuous
       // mode keeps the mic open, so without this it hears its own TTS / ambient
       // sound and replies to itself.
-      if (!this._listening || this.busy || this._speaking) {
+      if (!this._listening || this.busy || this.conductor.speaking) {
         this._speech = '';
         clearTimeout(this._speechTimer);
         return;
@@ -439,13 +461,13 @@ class AgentHandsDemo extends xb.Script {
       // Detection swaps the shared Gemini config to a JSON schema while it
       // runs, so a scan and a chat turn must not overlap or the reply comes
       // back as detection JSON. Wait for any in-flight scan to finish first.
-      if (this.scanning_ && this._scanPromise) {
+      if (this.world.scanning && this.world.scanPromise) {
         this.setStatus_('one sec...');
-        await this._scanPromise.catch(() => {});
+        await this.world.scanPromise.catch(() => {});
       }
       this.setStatus_(`you: "${userText}"  ·  thinking...`);
       // Use whatever the last scan found; never block the reply on detection.
-      const labels = this.detectedObjects.map((o) => o.label);
+      const labels = this.world.objects.map((o) => o.label);
       const seen = labels.length
         ? `Visible objects you can point at: ${labels.join(', ')}.`
         : 'You have not scanned the room yet, so avoid pointing.';
@@ -457,10 +479,7 @@ class AgentHandsDemo extends xb.Script {
       // "{...}"), but not a normal reply that opens with a gesture tag ("[wave]").
       const clean = /^\s*(\[\s*\{|\{)/.test(reply.trim()) ? '' : reply;
       const {text, gestures} = parseAgentGestures(clean);
-      this.speakWithGestures_(
-        text || 'Sorry, could you say that again?',
-        gestures
-      );
+      this.speak_(text || 'Sorry, could you say that again?', gestures);
     } catch (error) {
       console.error('[agent_hands]', error);
       this.setStatus_('error talking to Gemini (see console).');
@@ -469,23 +488,16 @@ class AgentHandsDemo extends xb.Script {
     }
   }
 
-  // Scans the room for objects in the background. Detection is a Gemini vision
-  // call, so it runs off the conversation's critical path: the agent points at
-  // whatever the most recent scan found. `silent` auto-scans don't touch the
-  // status text so they don't interrupt the agent mid-reply.
-  scan_(silent = false) {
+  // Scans the room for objects (via the World Understanding module), updating
+  // the status so the user knows what happened. Detection is a Gemini vision
+  // call, so it runs off the conversation's critical path.
+  scan_() {
     // Never scan during a chat turn: detection mutates the shared Gemini
     // config, which would corrupt an in-flight reply.
-    if (this.busy || this.scanning_) return;
-    if (!xb.core.world?.objects?.runDetection) return;
-    this.scanning_ = true;
-    const wasInteractive = this.interactive;
-    if (!silent) this.setStatus_('scanning the room for objects...');
-    this._scanPromise = this.ensureDetection_().finally(() => {
-      this.scanning_ = false;
-      this._scanPromise = null;
-      if (silent || !wasInteractive) return;
-      const n = this.detectedObjects.length;
+    if (this.busy || this.world.scanning) return;
+    this.setStatus_('scanning the room for objects...');
+    this.world.scan().then(() => {
+      const n = this.world.objects.length;
       this.setStatus_(
         n
           ? `found ${n} things i can point at. press talk.`
@@ -494,213 +506,16 @@ class AgentHandsDemo extends xb.Script {
     });
   }
 
-  // Re-scans in the background once the user has moved or turned far enough
-  // since the last scan (with a cooldown), so the object cache stays fresh as
-  // they walk around without ever blocking a reply.
-  maybeAutoScan_() {
-    if (!this.interactive || this.scanning_ || this.busy) return;
-    if (performance.now() - this._lastScanAt < 5000) return;
-    const cam = xb.core.camera;
-    if (!cam) return;
-    cam.getWorldPosition(this._camPos);
-    cam.getWorldQuaternion(this._camQuat);
-    const moved = this._camPos.distanceTo(this._scanCamPos);
-    const turned = this._camQuat.angleTo(this._scanCamQuat);
-    if (moved > 0.5 || turned > 0.6) {
-      this.scan_(true);
-    }
-  }
-
-  // Runs lightweight 2D object detection (one Gemini call), then grounds each
-  // object to a 3D point by raycasting its bbox centre against the depth mesh.
-  // The camera is frozen at scan time so the rays match the detected pixels.
-  async ensureDetection_() {
-    const detector = xb.core.world?.objects;
-    if (!detector?.runDetection) return;
-
-    // Record this scan's viewpoint + time so auto-rescan measures movement
-    // from here and respects the cooldown even if the scan finds nothing.
-    this._lastScanAt = performance.now();
-    const live = xb.core.camera;
-    live.getWorldPosition(this._scanCamPos);
-    live.getWorldQuaternion(this._scanCamQuat);
-
-    // Freeze the camera + snapshot aspect so re-grounding lines up with the
-    // pixels Gemini saw, even if the user moves during the (slow) call.
-    const cam = live.clone();
-    cam.matrixAutoUpdate = false;
-    live.updateMatrixWorld();
-    cam.matrixWorld.copy(live.matrixWorld);
-    cam.matrixWorldInverse.copy(live.matrixWorld).invert();
-    cam.projectionMatrix.copy(live.projectionMatrix);
-    cam.projectionMatrixInverse.copy(live.projectionMatrixInverse);
-    let snapAspect = live.aspect;
-    try {
-      const probe = await xb.core.deviceCamera?.getSnapshot({
-        outputFormat: 'imageData',
-      });
-      if (probe?.width) snapAspect = probe.width / probe.height;
-    } catch {
-      // fall back to camera aspect
-    }
-
-    try {
-      const objects = (await detector.runDetection()) ?? [];
-      const mesh = xb.core.depth?.depthMesh;
-      for (const obj of objects) {
-        obj._point = this.groundPoint_(obj, cam, snapAspect, mesh);
-      }
-      // Replace the cache (even when empty) so the agent never points at
-      // objects from an old view after a scan that found nothing.
-      this.detectedObjects = objects;
-      this.lastDetectAt = performance.now();
-    } catch (error) {
-      console.warn('[agent_hands] object detection failed', error);
-    }
-  }
-
-  // Raycasts an object's 2D bbox centre against the depth mesh to get a world
-  // point. Applies the snapshot-vs-camera aspect correction (uvToNdc) so the
-  // ray is not pulled wide on the mismatched axis (the desktop simulator
-  // snapshot is square while the camera is 16:9).
-  groundPoint_(obj, cam, snapAspect, mesh) {
-    const fallback = obj.position?.clone ? obj.position.clone() : null;
-    const box = obj.detection2DBoundingBox;
-    if (!mesh || !box) return fallback;
-    const u = (box.min.x + box.max.x) * 0.5;
-    const v = (box.min.y + box.max.y) * 0.5;
-    let sx = 1;
-    let sy = 1;
-    if (snapAspect < cam.aspect) sx = snapAspect / cam.aspect;
-    else if (snapAspect > cam.aspect) sy = cam.aspect / snapAspect;
-    this._ndc.set((u * 2 - 1) * sx, (1 - v) * 2 * sy - sy);
-    this._raycaster.setFromCamera(this._ndc, cam);
-    // The depth mesh's raycast is no-op'd (see ensureDepthMeshNonInteractive_)
-    // so the wall never steals hover from the panel. Restore it just for this
-    // grounding query, in a finally so a throw can't leave it interactive.
-    const nooped = mesh.raycast;
-    if (mesh.__origRaycast) mesh.raycast = mesh.__origRaycast;
-    let hits;
-    try {
-      hits = this._raycaster.intersectObject(mesh, true);
-    } finally {
-      mesh.raycast = nooped;
-    }
-    return hits.length ? hits[0].point.clone() : fallback;
-  }
-
-  // Finds a detected object whose label best matches a point target.
-  findObject_(label) {
-    if (!label) return null;
-    const needle = label.toLowerCase().replace(/^the\s+/, '');
-    let best = null;
-    for (const obj of this.detectedObjects) {
-      const hay = obj.label.toLowerCase();
-      if (hay === needle) return obj;
-      if (!best && (hay.includes(needle) || needle.includes(hay))) best = obj;
-    }
-    return best;
-  }
-
-  // Resolves each gesture to a queued step (with a grounded point target where
-  // available).
-  buildGestureSteps_(text, gestures, duration) {
-    const steps = [];
-    for (const gesture of gestures) {
-      const at = (gesture.index / Math.max(1, text.length)) * duration;
-      const step = {
-        at,
-        charIndex: gesture.index,
-        pose: gesture.pose,
-        motion: gesture.motion,
-        param: gesture.param,
-      };
-      // A point gesture with a resolvable target aims at that object's
-      // grounded 3D point.
-      if (gesture.target) {
-        const obj = this.findObject_(gesture.target);
-        if (obj?._point) step.point = obj._point.clone();
-      }
-      steps.push(step);
-    }
-    return steps;
-  }
-
-  // Plays one gesture step on the hands (point, motion, or static pose).
-  fireGesture_(step) {
-    if (step.point) {
-      this.pointAtTarget_(step.point);
-      return;
-    }
-    // Any non-point gesture stops pointing so the per-frame re-aim doesn't
-    // fight the new pose and the pointer viz hides.
-    this._pointing = false;
-    this._leanTarget = null;
-    this._activeHand = null;
-    if (step.motion) {
-      this.hands.clearOrientation();
-      this.playMotion_(step.motion, step.param);
-      // A wave reads better with flat, open fingers; the wave's RELAXED pose
-      // curls them slightly.
-      if (step.motion === 'wave') {
-        this.hands.gesture(xb.SimulatorHandPose.NEUTRAL, 'right');
-      }
-    } else if (step.pose) {
-      // Only ground/aim when a real object resolved (step.point). A bare point
-      // pose just shows the gesture; no fake ring floating in mid-air.
-      this.hands.gesture(step.pose);
-      this.hands.clearOrientation();
-    }
-  }
-
-  // Dispatches a motion gesture (beat/wave/size/count) to the hands.
-  playMotion_(motion, param) {
-    if (motion === 'beat') this.hands.beat();
-    else if (motion === 'wave') this.hands.wave();
-    else if (motion === 'size') this.hands.showSize(this.sizeWidth_(param));
-    else if (motion === 'count') this.hands.showCount(parseInt(param, 10) || 1);
-  }
-
-  // Maps a size word/number to a separation in metres.
-  sizeWidth_(param) {
-    if (param === 'small') return 0.18;
-    if (param === 'big' || param === 'large') return 0.55;
-    const n = parseFloat(param);
-    return Number.isFinite(n) ? Math.max(0.1, Math.min(0.8, n)) : 0.35;
-  }
-
-  // Speaks `text` and plays its gestures. The timed queue is the guaranteed
-  // driver of gestures/points/rest (it works regardless of the TTS voice), and
-  // we additionally use the synthesizer's word boundaries to tighten timing
-  // when the chosen voice emits them (many remote voices do not).
-  speakWithGestures_(text, gestures) {
+  // Speaks `text` and plays its gestures. Point gestures are grounded to real
+  // objects via the World Understanding module, then the TTS conductor drives
+  // the timeline and syncs it to the spoken words.
+  speak_(text, gestures) {
     this.setStatus_(`agent: "${text}"`);
     const duration = Math.max(1.2, text.length * 0.06);
-    const steps = this.buildGestureSteps_(text, gestures, duration);
-
-    // Timed queue: fires each gesture/point at its estimated time, then rests.
-    this.queue = [...steps, {at: duration + 0.8, rest: true}];
-    this.timer = 0;
-    this._speaking = true;
-
-    const synth = xb.core.sound?.speechSynthesizer;
-    if (synth?.speak) {
-      // If the voice emits boundaries, fire pending gestures a touch early for
-      // tighter sync. Firing is idempotent with the timed queue (a pose set
-      // twice is harmless), so this never causes a missed or doubled gesture.
-      const pending = [...steps];
-      synth.onBoundaryCallback = (charIndex) => {
-        while (pending.length && pending[0].charIndex <= charIndex) {
-          this.fireGesture_(pending.shift());
-        }
-      };
-      synth
-        .speak(text)
-        .catch(() => {})
-        .finally(() => {
-          synth.onBoundaryCallback = undefined;
-        });
-    }
+    const steps = buildGestureSteps(text, gestures, duration, (label) =>
+      this.world.pointFor(label)
+    );
+    this.conductor.speak(text, steps, duration);
   }
 
   // ---- scripted (no-key) mode ----
@@ -708,44 +523,36 @@ class AgentHandsDemo extends xb.Script {
   playLine_(index) {
     const {text, gestures} = parseAgentGestures(SCRIPT[index % SCRIPT.length]);
     this.setStatus_(`agent: "${text}"`);
-    this.queue = [];
+    const entries = [];
     let t = 0.4;
     for (const gesture of gestures) {
-      this.queue.push({at: t, pose: gesture.pose});
+      entries.push({at: t, step: {at: t, charIndex: 0, pose: gesture.pose}});
       t += 1.2;
     }
-    this.queue.push({at: t + 0.4, pose: xb.SimulatorHandPose.RELAXED});
-    this.queue.push({at: t + 2.2, next: (index + 1) % SCRIPT.length});
-    this.timer = 0;
+    entries.push({
+      at: t + 0.4,
+      step: {at: t + 0.4, charIndex: 0, pose: xb.SimulatorHandPose.RELAXED},
+    });
+    entries.push({at: t + 2.2, next: (index + 1) % SCRIPT.length});
+    this.conductor.playTimeline(entries);
   }
 
   update() {
     const dt = xb.getDeltaTime?.() ?? 0.016;
-    this.timer += dt;
     this._clock += dt;
-    while (this.queue.length && this.timer >= this.queue[0].at) {
-      const step = this.queue.shift();
-      if (step.rest) {
-        this.restHands_();
-      } else {
-        this.fireGesture_(step);
-      }
-      if (step.next !== undefined) this.playLine_(step.next);
-    }
+    this.conductor.tick(dt);
     this.anchorToHead_();
     // Re-aim every frame while pointing so the finger stays locked on the
     // world target even as the head-anchored rig follows and sways.
-    if (this._pointing && this._activeHand && this._leanTarget) {
-      this._activeHand.aimAt(this._leanTarget);
-    }
+    this.animator.reaim();
     this.hands.update();
     // Drive the orb: it gazes at the pointing target (or forward), pulses while
     // the agent is speaking, and breathes when idle.
-    this.head.lookAt(this._pointing ? this._leanTarget : null);
-    this.head.setSpeaking(this._speaking ? 1 : 0);
+    this.head.lookAt(this.animator.pointing ? this.animator.target : null);
+    this.head.setSpeaking(this.conductor.speaking ? 1 : 0);
     this.head.update(dt);
     this.updatePointerViz_();
-    this.maybeAutoScan_();
+    if (this.interactive && !this.busy) this.world.maybeAutoScan();
     this.ensureDepthMeshNonInteractive_();
   }
 
@@ -753,32 +560,13 @@ class AgentHandsDemo extends xb.Script {
   // the SDK reticle and the spatial-UI hover raycast hit it; standing close to a
   // wall it steals hover from the control panel. No-op its raycast so every
   // raycaster skips it (ignoreReticleRaycast only covers the reticle, not the UI
-  // hover). groundPoint_ restores it briefly for object grounding.
+  // hover). AgentWorld restores it briefly for object grounding.
   ensureDepthMeshNonInteractive_() {
     const mesh = xb.core.depth?.depthMesh;
     if (!mesh || mesh.__reticleNooped) return;
     mesh.__origRaycast = mesh.raycast;
     mesh.raycast = () => {};
     mesh.__reticleNooped = true;
-  }
-
-  // Points a hand at a world point and lights up the pointer viz + lean.
-  pointAtTarget_(point) {
-    this.hands.pointAt(point);
-    this._pointing = true;
-    this._leanTarget = point;
-    // pointAt picks a hand by local x; mirror that choice for the viz.
-    this.hands.worldToLocal(scratchTip_.copy(point));
-    this._activeHand = scratchTip_.x >= 0 ? this.hands.right : this.hands.left;
-  }
-
-  // Relaxes both hands and clears the pointing state + viz.
-  restHands_() {
-    this.hands.rest();
-    this._pointing = false;
-    this._leanTarget = null;
-    this._activeHand = null;
-    this._speaking = false;
   }
 
   setStatus_(text) {
