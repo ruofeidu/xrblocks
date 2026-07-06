@@ -11,9 +11,12 @@ import {SimulatorOptions} from '../SimulatorOptions';
 
 const {A_CODE, D_CODE, E_CODE, Q_CODE, S_CODE, W_CODE} = Keycodes;
 const vector3 = new THREE.Vector3();
+const originVec = new THREE.Vector3();
 const forwardVec = new THREE.Vector3(0, 0, -1);
 const offsetVec = new THREE.Vector3();
 const axisVec = new THREE.Vector3();
+const currentOffsetVec = new THREE.Vector3();
+const newOffsetVec = new THREE.Vector3();
 const euler = new THREE.Euler();
 const HAND_POSES = Object.values(SimulatorHandPose);
 
@@ -192,43 +195,83 @@ export class SimulatorControlMode {
     }
   }
 
+  private getHandOrigin(idx: number, target: THREE.Vector3): boolean {
+    const distOpt = this.simulatorOptions?.reachDistance;
+    const angleOpt = this.simulatorOptions?.reachAngle;
+    if (!distOpt?.enabled && !angleOpt?.enabled) return false;
+    const originObj =
+      idx === 0 ? distOpt!.leftHandOrigin : distOpt!.rightHandOrigin;
+    target.set(originObj.x, originObj.y, originObj.z);
+    return true;
+  }
+
+  limitMovementAtReachEdge(
+    idx: number,
+    localPos: THREE.Vector3,
+    delta: THREE.Vector3
+  ) {
+    if (!this.getHandOrigin(idx, originVec)) return;
+    const distOpt = this.simulatorOptions!.reachDistance;
+    const angleOpt = this.simulatorOptions!.reachAngle;
+    currentOffsetVec.copy(localPos).sub(originVec);
+    newOffsetVec.copy(currentOffsetVec).add(delta);
+
+    if (distOpt.enabled) {
+      const curDistSq = currentOffsetVec.lengthSq();
+      const radSq = distOpt.radius * distOpt.radius;
+      if (curDistSq >= radSq && newOffsetVec.lengthSq() >= curDistSq) {
+        delta.set(0, 0, 0);
+        return;
+      }
+    }
+    if (angleOpt.enabled) {
+      const maxAngle = THREE.MathUtils.degToRad(angleOpt.angle * 0.5);
+      const curAngle = currentOffsetVec.angleTo(forwardVec);
+      if (curAngle >= maxAngle && newOffsetVec.angleTo(forwardVec) >= curAngle) {
+        delta.set(0, 0, 0);
+      }
+    }
+  }
+
   updateControllerPositions() {
-    const distanceEnabled = !!this.simulatorOptions?.reachDistance.enabled;
-    const angleEnabled = !!this.simulatorOptions?.reachAngle.enabled;
-    if (distanceEnabled || angleEnabled) {
-      const {radius, leftHandOrigin, rightHandOrigin} =
-        this.simulatorOptions!.reachDistance;
-      const angle = this.simulatorOptions!.reachAngle.angle;
-      const maxAngleRad = THREE.MathUtils.degToRad(angle / 2);
+    const distOpt = this.simulatorOptions?.reachDistance;
+    const angleOpt = this.simulatorOptions?.reachAngle;
+    const distEnabled = !!distOpt?.enabled;
+    const angleEnabled = !!angleOpt?.enabled;
+
+    if (distEnabled || angleEnabled) {
+      const radius = distOpt!.radius;
+      const maxAngle = THREE.MathUtils.degToRad(angleOpt!.angle * 0.5);
+
       for (let i = 0; i < 2; i++) {
-        const originObj = i === 0 ? leftHandOrigin : rightHandOrigin;
-        vector3.set(originObj.x, originObj.y, originObj.z);
+        this.getHandOrigin(i, originVec);
         const localPos =
           this.simulatorControllerState.localControllerPositions[i];
-        offsetVec.copy(localPos).sub(vector3);
+        offsetVec.copy(localPos).sub(originVec);
+
         const dist = offsetVec.length();
-        const angleToForward = offsetVec.angleTo(forwardVec);
-        const atAngleLimit = angleEnabled && angleToForward >= maxAngleRad;
-        const atRadiusLimit = distanceEnabled && dist >= radius;
-        const atMax = atRadiusLimit || atAngleLimit;
+        const angle = offsetVec.angleTo(forwardVec);
+        const atMax =
+          (distEnabled && dist >= radius) || (angleEnabled && angle >= maxAngle);
         if (i === 0) {
           this.hands.leftHandAtMaxRange = atMax;
         } else {
           this.hands.rightHandAtMaxRange = atMax;
         }
-        if (angleEnabled && angleToForward > maxAngleRad) {
+
+        if (angleEnabled && angle > maxAngle) {
           axisVec.copy(offsetVec).cross(forwardVec);
           if (axisVec.lengthSq() < 1e-6) {
             axisVec.set(0, 1, 0);
           } else {
             axisVec.normalize();
           }
-          offsetVec.applyAxisAngle(axisVec, angleToForward - maxAngleRad);
+          offsetVec.applyAxisAngle(axisVec, angle - maxAngle);
         }
-        if (distanceEnabled && offsetVec.length() > radius) {
+        if (distEnabled && offsetVec.lengthSq() > radius * radius) {
           offsetVec.clampLength(0, radius);
         }
-        localPos.copy(vector3).add(offsetVec);
+        localPos.copy(originVec).add(offsetVec);
       }
     } else {
       this.hands.leftHandAtMaxRange = false;

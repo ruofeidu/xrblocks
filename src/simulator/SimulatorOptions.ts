@@ -94,7 +94,7 @@ export class SimulatorOptions {
   };
   reachAngle = {
     enabled: false,
-    angle: 180,
+    angle: 180, // Degrees around camera vector direction.
   };
 
   constructor(options?: DeepReadonly<DeepPartial<SimulatorOptions>>) {
