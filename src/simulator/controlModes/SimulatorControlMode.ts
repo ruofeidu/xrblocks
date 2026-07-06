@@ -227,7 +227,10 @@ export class SimulatorControlMode {
     if (angleOpt.enabled) {
       const maxAngle = THREE.MathUtils.degToRad(angleOpt.angle * 0.5);
       const curAngle = currentOffsetVec.angleTo(forwardVec);
-      if (curAngle >= maxAngle && newOffsetVec.angleTo(forwardVec) >= curAngle) {
+      if (
+        curAngle >= maxAngle &&
+        newOffsetVec.angleTo(forwardVec) >= curAngle
+      ) {
         delta.set(0, 0, 0);
       }
     }
@@ -252,7 +255,8 @@ export class SimulatorControlMode {
         const dist = offsetVec.length();
         const angle = offsetVec.angleTo(forwardVec);
         const atMax =
-          (distEnabled && dist >= radius) || (angleEnabled && angle >= maxAngle);
+          (distEnabled && dist >= radius) ||
+          (angleEnabled && angle >= maxAngle);
         if (i === 0) {
           this.hands.leftHandAtMaxRange = atMax;
         } else {
