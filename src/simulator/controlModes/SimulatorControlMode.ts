@@ -225,7 +225,7 @@ export class SimulatorControlMode {
       }
     }
     if (angleOpt.enabled) {
-      const maxAngle = THREE.MathUtils.degToRad(angleOpt.angle * 0.5);
+      const maxAngle = angleOpt.angle * 0.5;
       const curAngle = currentOffsetVec.angleTo(forwardVec);
       if (
         curAngle >= maxAngle &&
@@ -244,7 +244,7 @@ export class SimulatorControlMode {
 
     if (distEnabled || angleEnabled) {
       const radius = distOpt!.radius;
-      const maxAngle = THREE.MathUtils.degToRad(angleOpt!.angle * 0.5);
+      const maxAngle = angleOpt!.angle * 0.5;
 
       for (let i = 0; i < 2; i++) {
         this.getHandOrigin(i, originVec);
