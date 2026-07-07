@@ -4,6 +4,7 @@ import {WaitFrame} from '../../core/components/WaitFrame';
 import {UP} from '../../utils/HelperConstants';
 import {clampRotationToAngle, lookAtRotation} from '../../utils/RotationUtils';
 import {clamp} from '../../utils/utils';
+import {SimulatorNavigation} from '../SimulatorNavigation';
 import {SimulatorUser} from '../SimulatorUser';
 
 import {SimulatorUserAction} from './SimulatorUserAction';
@@ -27,17 +28,31 @@ const inverseCameraRotation = new THREE.Quaternion();
  * Represents a action to walk towards a panel or object.
  */
 export class WalkTowardsPanelAction extends SimulatorUserAction {
-  static dependencies = {camera: THREE.Camera, timer: THREE.Timer};
+  static dependencies = {
+    camera: THREE.Camera,
+    timer: THREE.Timer,
+    navigation: SimulatorNavigation,
+  };
   camera!: THREE.Camera;
   timer!: THREE.Timer;
+  navigation!: SimulatorNavigation;
 
   constructor(private target: THREE.Object3D) {
     super();
   }
 
-  async init({camera, timer}: {camera: THREE.Camera; timer: THREE.Timer}) {
+  async init({
+    camera,
+    timer,
+    navigation,
+  }: {
+    camera: THREE.Camera;
+    timer: THREE.Timer;
+    navigation: SimulatorNavigation;
+  }) {
     this.camera = camera;
     this.timer = timer;
+    this.navigation = navigation;
   }
 
   isLookingAtTarget() {
@@ -99,10 +114,13 @@ export class WalkTowardsPanelAction extends SimulatorUserAction {
       0,
       MOVEMENT_SPEED_METERS_PER_SECOND * deltaTime
     );
-    camera.position.addScaledVector(
-      cameraToCloseToTarget,
-      movementDistance / cameraToCloseToTarget.length()
-    );
+    closeToTargetPosition
+      .copy(camera.position)
+      .addScaledVector(
+        cameraToCloseToTarget,
+        movementDistance / cameraToCloseToTarget.length()
+      );
+    this.navigation.applyUserMovement(camera, closeToTargetPosition);
   }
 
   async play({

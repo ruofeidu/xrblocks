@@ -8,11 +8,26 @@ const DEFAULT_ZONE_ID = 'simulator';
 
 type PathfindingConstructor = typeof import('three-pathfinding').Pathfinding;
 type PathfindingNode = ReturnType<PathfindingType['getClosestNode']>;
+type PathfindingZone = {
+  groups: PathfindingNode[][];
+  vertices: THREE.Vector3[];
+};
+
+export interface SimulatorNavigationPath {
+  target: THREE.Vector3;
+  path: THREE.Vector3[];
+}
 
 const desiredGroundPosition = new THREE.Vector3();
 const startGroundPosition = new THREE.Vector3();
 const clampedGroundPosition = new THREE.Vector3();
 const initialScenePosition = new THREE.Vector3();
+const targetWorldPosition = new THREE.Vector3();
+const randomTriangleA = new THREE.Vector3();
+const randomTriangleB = new THREE.Vector3();
+const randomTriangleC = new THREE.Vector3();
+const randomTriangleAB = new THREE.Vector3();
+const randomTriangleAC = new THREE.Vector3();
 
 export class SimulatorNavigation {
   enabled = false;
@@ -20,6 +35,7 @@ export class SimulatorNavigation {
 
   private Pathfinding?: PathfindingConstructor;
   private pathfinding?: PathfindingType;
+  private zone?: PathfindingZone;
   private zoneId = DEFAULT_ZONE_ID;
   private groupId: number | null = null;
   private currentNode: PathfindingNode | null = null;
@@ -47,6 +63,7 @@ export class SimulatorNavigation {
     this.groupId = null;
     this.currentNode = null;
     this.pathfinding = undefined;
+    this.zone = undefined;
 
     if (!this.enabled) return;
     if (!environment?.navMeshPath) {
@@ -78,8 +95,10 @@ export class SimulatorNavigation {
 
   async setGeometry(geometry: THREE.BufferGeometry) {
     const Pathfinding = await this.loadPathfinding();
+    const zone = Pathfinding.createZone(geometry) as PathfindingZone;
     this.pathfinding = new Pathfinding();
-    this.pathfinding.setZoneData(this.zoneId, Pathfinding.createZone(geometry));
+    this.pathfinding.setZoneData(this.zoneId, zone);
+    this.zone = zone;
     this.ready = true;
     this.groupId = null;
     this.currentNode = null;
@@ -149,9 +168,7 @@ export class SimulatorNavigation {
     if (!this.constrained || !this.pathfinding) return null;
     const start = startGroundPosition.copy(startCameraPosition);
     start.y -= this.eyeHeight;
-    const groupId = this.pathfinding.getGroup(this.zoneId, start) as
-      | number
-      | null;
+    const groupId = this.getGroup(start);
     if (groupId === null) return null;
     return this.pathfinding.findPath(
       start,
@@ -159,6 +176,94 @@ export class SimulatorNavigation {
       this.zoneId,
       groupId
     );
+  }
+
+  findRandomPathFrom(
+    startCameraPosition: THREE.Vector3
+  ): SimulatorNavigationPath | null {
+    if (!this.constrained || !this.pathfinding || !this.zone) return null;
+    const start = startGroundPosition.copy(startCameraPosition);
+    start.y -= this.eyeHeight;
+    const groupId = this.getGroup(start);
+    if (groupId === null) return null;
+
+    const target = this.getRandomPointInGroup(groupId);
+    if (!target) return null;
+
+    const path = this.pathfinding.findPath(
+      start,
+      target,
+      this.zoneId,
+      groupId
+    );
+    if (!path) return null;
+    return {target, path};
+  }
+
+  isGroundPositionReachable(
+    startCameraPosition: THREE.Vector3,
+    targetGroundPosition: THREE.Vector3
+  ) {
+    return this.findPathTo(startCameraPosition, targetGroundPosition) !== null;
+  }
+
+  isObjectReachable(startCameraPosition: THREE.Vector3, object: THREE.Object3D) {
+    object.getWorldPosition(targetWorldPosition);
+    return this.isGroundPositionReachable(
+      startCameraPosition,
+      targetWorldPosition
+    );
+  }
+
+  private getGroup(position: THREE.Vector3) {
+    if (!this.pathfinding) return null;
+    return this.pathfinding.getGroup(this.zoneId, position) as number | null;
+  }
+
+  private getRandomPointInGroup(groupId: number) {
+    const group = this.zone?.groups[groupId];
+    if (!group) return null;
+
+    let totalArea = 0;
+    const areas = group.map((node) => {
+      const area = this.getNodeArea(node);
+      totalArea += area;
+      return totalArea;
+    });
+    if (totalArea <= 0) return null;
+
+    const targetArea = Math.random() * totalArea;
+    const nodeIndex = areas.findIndex((area) => area >= targetArea);
+    const node = group[nodeIndex === -1 ? group.length - 1 : nodeIndex];
+    return this.sampleNode(node);
+  }
+
+  private getNodeArea(node: PathfindingNode) {
+    if (!node || !this.zone) return 0;
+    const [a, b, c] = node.vertexIds.map((id) => this.zone!.vertices[id]);
+    randomTriangleAB.subVectors(b, a);
+    randomTriangleAC.subVectors(c, a);
+    return randomTriangleAB.cross(randomTriangleAC).length() * 0.5;
+  }
+
+  private sampleNode(node: PathfindingNode) {
+    if (!node || !this.zone) return null;
+    const [a, b, c] = node.vertexIds.map((id) => this.zone!.vertices[id]);
+    randomTriangleA.copy(a);
+    randomTriangleB.copy(b);
+    randomTriangleC.copy(c);
+
+    let u = Math.random();
+    let v = Math.random();
+    if (u + v > 1) {
+      u = 1 - u;
+      v = 1 - v;
+    }
+
+    return new THREE.Vector3()
+      .copy(randomTriangleA)
+      .addScaledVector(randomTriangleAB.subVectors(randomTriangleB, randomTriangleA), u)
+      .addScaledVector(randomTriangleAC.subVectors(randomTriangleC, randomTriangleA), v);
   }
 
   private async loadGeometry(
