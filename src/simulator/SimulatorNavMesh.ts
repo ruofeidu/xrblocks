@@ -7,7 +7,13 @@ import {SimulatorEnvironment, SimulatorOptions} from './SimulatorOptions';
 const DEFAULT_ZONE_ID = 'simulator';
 const RANDOM_PATH_SAMPLE_ATTEMPTS = 8;
 
-type PathfindingConstructor = typeof import('three-pathfinding').Pathfinding;
+type PathfindingConstructor = {
+  new (): PathfindingType;
+  createZone: (
+    geometry: THREE.BufferGeometry,
+    tolerance?: number
+  ) => unknown;
+};
 type PathfindingNode = ReturnType<PathfindingType['getClosestNode']>;
 type PathfindingZone = {
   groups: PathfindingNode[][];
