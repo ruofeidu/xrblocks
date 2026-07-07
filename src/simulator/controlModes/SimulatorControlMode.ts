@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import {GamepadController} from '../../input/GamepadController.js';
 import {Input} from '../../input/Input.js';
 import {Keycodes} from '../../utils/Keycodes';
-import {SimulatorHandPose} from '../handPoses/HandPoses';
 import {SimulatorRenderMode} from '../SimulatorConstants';
 import {SimulatorControllerState} from '../SimulatorControllerState';
 import {SimulatorHands} from '../SimulatorHands.js';
