@@ -155,7 +155,7 @@ export class EmbodiedControlExecutor {
         .multiplyScalar(fraction)
         .applyQuaternion(initialCameraQuaternion);
       vector.add(camera.position);
-      this.dependencies.simulator.navigation.applyUserMovement(camera, vector);
+      this.dependencies.simulator.navMesh.applyUserMovement(camera, vector);
     }
 
     if (control.rotate) {
@@ -304,14 +304,14 @@ export class EmbodiedControlExecutor {
         );
         targetCameraPosition.addScaledVector(forward, distance);
       }
-      this.dependencies.simulator.navigation.applyUserMovement(
+      this.dependencies.simulator.navMesh.applyUserMovement(
         camera,
         targetCameraPosition
       );
 
       if (
         snapToGround &&
-        !this.dependencies.simulator.navigation.constrained &&
+        !this.dependencies.simulator.navMesh.constrained &&
         world?.planes &&
         user
       ) {

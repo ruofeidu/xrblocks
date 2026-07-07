@@ -4,7 +4,7 @@ import {Input} from '../input/Input.js';
 import {SimulatorControls} from './SimulatorControls.js';
 import {ISimulatorSettingsPanelElement} from './interfaces/ISimulatorSettingsPanelElement.js';
 import {SimulatorHands} from './SimulatorHands.js';
-import {SimulatorNavigation} from './SimulatorNavigation.js';
+import {SimulatorNavMesh} from './SimulatorNavMesh.js';
 import {
   SimulatorCustomInstruction,
   SimulatorOptions,
@@ -71,14 +71,14 @@ export class SimulatorInterface {
     simulatorHands: SimulatorHands,
     input?: Input,
     simulatorScene?: SimulatorScene,
-    simulatorNavigation?: SimulatorNavigation
+    simulatorNavMesh?: SimulatorNavMesh
   ) {
     if (simulatorScene) {
       this.createSimulatorSettingsPanel(
         simulatorOptions,
         simulatorControls,
         simulatorScene,
-        simulatorNavigation
+        simulatorNavMesh
       );
     }
     this.showGeminiLivePanel(simulatorOptions);
@@ -98,7 +98,7 @@ export class SimulatorInterface {
     simulatorOptions: SimulatorOptions,
     simulatorControls: SimulatorControls,
     simulatorScene: SimulatorScene,
-    simulatorNavigation?: SimulatorNavigation
+    simulatorNavMesh?: SimulatorNavMesh
   ) {
     if (simulatorOptions.simulatorSettingsPanel.enabled) {
       const settingsElement = document.createElement(
@@ -126,7 +126,7 @@ export class SimulatorInterface {
                 simulatorOptions.initialScenePosition.z
               )
             );
-            void simulatorNavigation?.setEnvironment(
+            void simulatorNavMesh?.setEnvironment(
               activeEnv ?? null,
               simulatorOptions
             );

@@ -14,7 +14,7 @@ type PathfindingZone = {
   vertices: THREE.Vector3[];
 };
 
-export interface SimulatorNavigationPath {
+export interface SimulatorNavMeshPath {
   target: THREE.Vector3;
   path: THREE.Vector3[];
 }
@@ -30,7 +30,7 @@ const randomTriangleC = new THREE.Vector3();
 const randomTriangleAB = new THREE.Vector3();
 const randomTriangleAC = new THREE.Vector3();
 
-export class SimulatorNavigation {
+export class SimulatorNavMesh {
   enabled = false;
   ready = false;
 
@@ -47,8 +47,8 @@ export class SimulatorNavigation {
   }
 
   async init(options: SimulatorOptions) {
-    this.enabled = options.navigation.enabled;
-    this.eyeHeight = options.navigation.eyeHeight;
+    this.enabled = options.navMesh.enabled;
+    this.eyeHeight = options.navMesh.eyeHeight;
     const activeEnv =
       options.environments[options.activeEnvironmentIndex] ?? null;
     await this.setEnvironment(activeEnv, options);
@@ -58,8 +58,8 @@ export class SimulatorNavigation {
     environment: SimulatorEnvironment | null,
     options: SimulatorOptions
   ) {
-    this.enabled = options.navigation.enabled;
-    this.eyeHeight = options.navigation.eyeHeight;
+    this.enabled = options.navMesh.enabled;
+    this.eyeHeight = options.navMesh.eyeHeight;
     this.ready = false;
     this.groupId = null;
     this.currentNode = null;
@@ -69,7 +69,7 @@ export class SimulatorNavigation {
     if (!this.enabled) return;
     if (!environment?.navMeshPath) {
       console.warn(
-        'SimulatorNavigation: navigation is enabled, but the active environment has no navMeshPath.'
+        'SimulatorNavMesh: navmesh is enabled, but the active environment has no navMeshPath.'
       );
       return;
     }
@@ -88,7 +88,7 @@ export class SimulatorNavigation {
       geometry.dispose();
     } catch (error) {
       console.warn(
-        `SimulatorNavigation: failed to load navmesh at ${environment.navMeshPath}.`,
+        `SimulatorNavMesh: failed to load navmesh at ${environment.navMeshPath}.`,
         error
       );
     }
@@ -181,7 +181,7 @@ export class SimulatorNavigation {
 
   findRandomPathFrom(
     startCameraPosition: THREE.Vector3
-  ): SimulatorNavigationPath | null {
+  ): SimulatorNavMeshPath | null {
     if (!this.constrained || !this.pathfinding || !this.zone) return null;
     const start = startGroundPosition.copy(startCameraPosition);
     start.y -= this.eyeHeight;

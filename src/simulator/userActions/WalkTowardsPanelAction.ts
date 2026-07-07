@@ -4,7 +4,7 @@ import {WaitFrame} from '../../core/components/WaitFrame';
 import {UP} from '../../utils/HelperConstants';
 import {clampRotationToAngle, lookAtRotation} from '../../utils/RotationUtils';
 import {clamp} from '../../utils/utils';
-import {SimulatorNavigation} from '../SimulatorNavigation';
+import {SimulatorNavMesh} from '../SimulatorNavMesh';
 import {SimulatorUser} from '../SimulatorUser';
 
 import {SimulatorUserAction} from './SimulatorUserAction';
@@ -31,11 +31,11 @@ export class WalkTowardsPanelAction extends SimulatorUserAction {
   static dependencies = {
     camera: THREE.Camera,
     timer: THREE.Timer,
-    navigation: SimulatorNavigation,
+    navMesh: SimulatorNavMesh,
   };
   camera!: THREE.Camera;
   timer!: THREE.Timer;
-  navigation!: SimulatorNavigation;
+  navMesh!: SimulatorNavMesh;
 
   constructor(private target: THREE.Object3D) {
     super();
@@ -44,15 +44,15 @@ export class WalkTowardsPanelAction extends SimulatorUserAction {
   async init({
     camera,
     timer,
-    navigation,
+    navMesh,
   }: {
     camera: THREE.Camera;
     timer: THREE.Timer;
-    navigation: SimulatorNavigation;
+    navMesh: SimulatorNavMesh;
   }) {
     this.camera = camera;
     this.timer = timer;
-    this.navigation = navigation;
+    this.navMesh = navMesh;
   }
 
   isLookingAtTarget() {
@@ -120,7 +120,7 @@ export class WalkTowardsPanelAction extends SimulatorUserAction {
         cameraToCloseToTarget,
         movementDistance / cameraToCloseToTarget.length()
       );
-    this.navigation.applyUserMovement(camera, closeToTargetPosition);
+    this.navMesh.applyUserMovement(camera, closeToTargetPosition);
   }
 
   async play({

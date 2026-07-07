@@ -77,7 +77,7 @@ export class SimulatorOptions {
   stereo = {
     enabled: false,
   };
-  navigation = {
+  navMesh = {
     enabled: false,
     eyeHeight: 1.5,
   };

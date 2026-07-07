@@ -120,6 +120,17 @@ For automation or external remote runs, use `options.enableAutomationMode()` bef
 camera input, hides simulator control panels, and can also be activated from the
 URL with `?xrAutomation=1`.
 
+Simulator navmesh constraints are opt-in. Set
+`options.simulator.navMesh.enabled = true` and provide a glTF/GLB
+`navMeshPath` on the active simulator environment. The navmesh represents the
+walkable floor surface; XR Blocks uses it to ground/constrain the Simulator User
+only, not simulated hands/controllers. Author it in the same local coordinates as
+the simulator scene; XR Blocks applies the same environment placement transform
+to both. `SimulatorNavMesh` also exposes high-level helpers for reachable
+location/object checks and random reachable path generation, without exposing
+`three-pathfinding` groups or nodes. CDN/importmap apps that enable this need
+`"three-pathfinding": "https://cdn.jsdelivr.net/npm/three-pathfinding@1.3.0/dist/three-pathfinding.module.js"`.
+
 ## Script lifecycle hooks
 
 Override only what you need (all verified against `core/Script.ts` and `core/User.ts`):

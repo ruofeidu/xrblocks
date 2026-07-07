@@ -7,7 +7,7 @@ import {SimulatorHandPose} from '../handPoses/HandPoses';
 import {SimulatorRenderMode} from '../SimulatorConstants';
 import {SimulatorControllerState} from '../SimulatorControllerState';
 import {SimulatorHands} from '../SimulatorHands.js';
-import {SimulatorNavigation} from '../SimulatorNavigation';
+import {SimulatorNavMesh} from '../SimulatorNavMesh';
 
 const {A_CODE, D_CODE, E_CODE, Q_CODE, S_CODE, W_CODE} = Keycodes;
 const vector3 = new THREE.Vector3();
@@ -28,7 +28,7 @@ export class SimulatorControlMode {
     protected simulatorControllerState: SimulatorControllerState,
     protected downKeys: Set<Keycodes>,
     protected hands: SimulatorHands,
-    protected navigation: SimulatorNavigation,
+    protected navMesh: SimulatorNavMesh,
     protected setStereoRenderMode: (_: SimulatorRenderMode) => void,
     protected toggleUserInterface: () => void,
     protected cycleSimulatorMode: () => void = () => {}
@@ -101,7 +101,7 @@ export class SimulatorControlMode {
       vector3
         .set(
           Number(downKeys.has(D_CODE)) - Number(downKeys.has(A_CODE)),
-          this.navigation.constrained
+          this.navMesh.constrained
             ? 0
             : Number(downKeys.has(Q_CODE)) - Number(downKeys.has(E_CODE)),
           Number(downKeys.has(S_CODE)) - Number(downKeys.has(W_CODE))
@@ -109,7 +109,7 @@ export class SimulatorControlMode {
         .multiplyScalar(deltaTime)
         .applyQuaternion(cameraRotation)
     );
-    this.navigation.applyUserMovement(this.camera, desiredCameraPosition);
+    this.navMesh.applyUserMovement(this.camera, desiredCameraPosition);
 
     // Gamepad stick input (if connected). Skip while the tab isn't
     // focused — the Gamepad API delivers state to every tab, so without
@@ -127,7 +127,7 @@ export class SimulatorControlMode {
             .multiplyScalar(deltaTime)
             .applyQuaternion(cameraRotation)
         );
-        this.navigation.applyUserMovement(this.camera, desiredCameraPosition);
+        this.navMesh.applyUserMovement(this.camera, desiredCameraPosition);
       }
 
       // Right stick → look (yaw + pitch).
@@ -142,14 +142,14 @@ export class SimulatorControlMode {
       }
 
       // Configurable vertical movement bindings (defaults LT/RT, analog).
-      if (!this.navigation.constrained) {
+      if (!this.navMesh.constrained) {
         const downVal = gp.getButtonValue(gp.bindings.getBinding('moveDown'));
         const upVal = gp.getButtonValue(gp.bindings.getBinding('moveUp'));
         const verticalDelta = (upVal - downVal) * deltaTime;
         if (verticalDelta !== 0) {
           desiredCameraPosition.copy(cameraPosition);
           desiredCameraPosition.y += verticalDelta;
-          this.navigation.applyUserMovement(this.camera, desiredCameraPosition);
+          this.navMesh.applyUserMovement(this.camera, desiredCameraPosition);
         }
       }
     }

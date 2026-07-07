@@ -92,7 +92,7 @@ class NavMeshWireframe extends xb.Script {
   }
 
   showRandomPath() {
-    const result = xb.core.simulator.navigation.findRandomPathFrom(
+    const result = xb.core.simulator.navMesh.findRandomPathFrom(
       xb.core.camera.position
     );
     if (!result) {
@@ -104,8 +104,9 @@ class NavMeshWireframe extends xb.Script {
     }
 
     pathStart.copy(xb.core.camera.position);
-    pathStart.y -= xb.core.options.simulator.navigation.eyeHeight;
-    this.routePoints = [...result.path, result.target];
+    pathStart.y -= xb.core.options.simulator.navMesh.eyeHeight;
+    this.routePoints =
+      result.path.length > 0 ? [...result.path] : [result.target];
     this.routeIndex = 0;
     this.pathButton.textContent = 'Navigating...';
     this.drawPath([pathStart, ...this.routePoints]);
@@ -153,7 +154,7 @@ class NavMeshWireframe extends xb.Script {
   updateNavigation() {
     if (this.routeIndex >= this.routePoints.length) return;
 
-    const eyeHeight = xb.core.options.simulator.navigation.eyeHeight;
+    const eyeHeight = xb.core.options.simulator.navMesh.eyeHeight;
     const target = this.routePoints[this.routeIndex];
     currentFootPosition.copy(xb.core.camera.position);
     currentFootPosition.y -= eyeHeight;
@@ -176,7 +177,7 @@ class NavMeshWireframe extends xb.Script {
     desiredCameraPosition.copy(xb.core.camera.position).add(waypointDelta);
     desiredCameraPosition.y =
       currentFootPosition.y + waypointDelta.y + eyeHeight;
-    xb.core.simulator.navigation.applyUserMovement(
+    xb.core.simulator.navMesh.applyUserMovement(
       xb.core.camera,
       desiredCameraPosition
     );
@@ -195,8 +196,8 @@ document.addEventListener('DOMContentLoaded', () => {
   options.formFactor = 'desktop';
   options.setAppTitle('Simulator Navmesh');
   options.simulator.defaultMode = xb.SimulatorMode.POINTER_LOCK;
-  options.simulator.navigation.enabled = true;
-  options.simulator.navigation.eyeHeight = EYE_HEIGHT;
+  options.simulator.navMesh.enabled = true;
+  options.simulator.navMesh.eyeHeight = EYE_HEIGHT;
   options.simulator.initialCameraPosition = {
     x: START_FOOT_POSITION.x,
     y: START_FOOT_POSITION.y + EYE_HEIGHT,
