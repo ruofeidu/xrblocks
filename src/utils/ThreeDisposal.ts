@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 
+type DisposableObject = THREE.Object3D & {dispose?: () => void};
+type RenderableObject = THREE.Object3D & {
+  geometry?: {dispose?: () => void};
+  material?: THREE.Material | THREE.Material[];
+};
+
 export function disposeMaterial(
   material: THREE.Material | THREE.Material[] | undefined,
   except = new Set<THREE.Material>()
@@ -16,8 +22,20 @@ export function disposeMaterial(
 }
 
 export function disposeMeshResources(mesh: THREE.Mesh) {
-  mesh.geometry?.dispose();
-  disposeMaterial(mesh.material);
+  disposeRenderableResources(mesh);
+}
+
+export function disposeRenderableResources(object: THREE.Object3D) {
+  const renderable = object as RenderableObject;
+  renderable.geometry?.dispose?.();
+  disposeMaterial(renderable.material);
+}
+
+function hasRenderableResources(
+  object: THREE.Object3D
+): object is RenderableObject {
+  const renderable = object as RenderableObject;
+  return !!(renderable.geometry || renderable.material);
 }
 
 export function disposeObjectTree(object: THREE.Object3D) {
@@ -26,12 +44,12 @@ export function disposeObjectTree(object: THREE.Object3D) {
     object.remove(child);
   }
 
-  const disposable = object as {dispose?: () => void};
-  if (disposable.dispose) {
-    disposable.dispose();
-  } else if (object instanceof THREE.Mesh) {
-    disposeMeshResources(object);
+  if (hasRenderableResources(object)) {
+    disposeRenderableResources(object);
   }
+
+  const disposable = object as DisposableObject;
+  disposable.dispose?.();
 }
 
 export function disposeObjectChildren(object: THREE.Object3D) {

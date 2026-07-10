@@ -9,6 +9,7 @@ import {Depth} from '../../depth/Depth';
 import {
   disposeMaterial,
   disposeObjectChildren,
+  disposeObjectTree,
 } from '../../utils/ThreeDisposal';
 import {WorldOptions} from '../WorldOptions';
 import {DetectedObject} from './DetectedObject';
@@ -375,6 +376,7 @@ export class ObjectDetector extends Script {
 
   private clearDetectedObjects() {
     for (const obj of this._detectedObjects.values()) {
+      disposeObjectTree(obj);
       this.remove(obj);
     }
     this._detectedObjects.clear();
@@ -401,8 +403,8 @@ export class ObjectDetector extends Script {
   override dispose() {
     this.disposed = true;
     this.activeClients.clear();
-    this.clear();
     disposeObjectChildren(this);
+    this.clear(); // Unlinks children so needs to come last
 
     for (const backendPromise of this._detectorBackends.values()) {
       void backendPromise
