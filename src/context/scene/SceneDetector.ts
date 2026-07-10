@@ -309,6 +309,8 @@ export class SceneDetector extends Script {
         scene: this.scene,
         camera,
         semanticTree: snapshot.semanticInternal!,
+        occlusionOpacityThreshold:
+          this.options.scene.visibleObjects.occlusionOpacityThreshold,
       });
     }
     if (!this.disposed) {

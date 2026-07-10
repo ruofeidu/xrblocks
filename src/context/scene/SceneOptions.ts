@@ -16,7 +16,13 @@ class SceneDerivedContextOptions {
   }
 }
 
-export class SceneVisibilityOptions extends SceneDerivedContextOptions {}
+export class SceneVisibilityOptions extends SceneDerivedContextOptions {
+  /**
+   * Raycast hits on materials with effective opacity less than or equal to this
+   * threshold are ignored for line-of-sight occlusion.
+   */
+  occlusionOpacityThreshold = 0;
+}
 export class SceneSetOfMarkOptions extends SceneDerivedContextOptions {}
 
 export class SceneOptions {

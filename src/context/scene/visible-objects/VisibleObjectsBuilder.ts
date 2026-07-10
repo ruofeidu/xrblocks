@@ -23,10 +23,12 @@ export function createVisibleObjectsContext({
   scene,
   camera,
   semanticTree,
+  occlusionOpacityThreshold = 0,
 }: {
   scene: THREE.Scene;
   camera: THREE.Camera;
   semanticTree: SemanticTreeInternal;
+  occlusionOpacityThreshold?: number;
 }): SemanticTree {
   scene.updateMatrixWorld(true);
   camera.updateMatrixWorld(true);
@@ -47,6 +49,7 @@ export function createVisibleObjectsContext({
             node,
             object,
             raycastTargets,
+            occlusionOpacityThreshold,
           })
         : createNotRenderedViewData(),
     };
@@ -63,11 +66,13 @@ function createSemanticViewData({
   node,
   object,
   raycastTargets,
+  occlusionOpacityThreshold,
 }: {
   camera: THREE.Camera;
   node: SemanticNode;
   object: THREE.Object3D;
   raycastTargets: THREE.Object3D[];
+  occlusionOpacityThreshold: number;
 }): SemanticViewData {
   if (!node.visible || !isObjectVisible(object)) {
     return createNotRenderedViewData();
@@ -93,6 +98,7 @@ function createSemanticViewData({
     object,
     targetPoint: center,
     raycastTargets,
+    occlusionOpacityThreshold,
   });
 
   return {
@@ -144,11 +150,13 @@ function isObjectInLineOfSight({
   object,
   targetPoint,
   raycastTargets,
+  occlusionOpacityThreshold,
 }: {
   camera: THREE.Camera;
   object: THREE.Object3D;
   targetPoint: THREE.Vector3;
   raycastTargets: THREE.Object3D[];
+  occlusionOpacityThreshold: number;
 }): boolean {
   camera.getWorldPosition(tempCameraPosition);
   tempDirection.copy(targetPoint).sub(tempCameraPosition);
@@ -175,8 +183,28 @@ function isObjectInLineOfSight({
     ) {
       return false;
     }
+    if (!isOpacityOccluding(hit.object, occlusionOpacityThreshold)) {
+      return false;
+    }
     return isObjectVisible(hit.object);
   });
 
   return occludingHit === undefined;
+}
+
+function isOpacityOccluding(
+  object: THREE.Object3D,
+  occlusionOpacityThreshold: number
+) {
+  if (!(object instanceof THREE.Mesh)) {
+    return true;
+  }
+  return getMaterialOpacity(object.material) > occlusionOpacityThreshold;
+}
+
+function getMaterialOpacity(material: THREE.Material | THREE.Material[]) {
+  const materials = Array.isArray(material) ? material : [material];
+  return Math.max(
+    ...materials.map((item) => (item.transparent ? item.opacity : 1))
+  );
 }
