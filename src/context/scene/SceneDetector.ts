@@ -86,6 +86,10 @@ export class SceneDetector extends Script {
     this.deviceCamera = deviceCamera;
   }
 
+  resolveNodeObject(nodeId: string): THREE.Object3D | undefined {
+    return this.snapshot?.semanticInternal?.nodeObjects.get(nodeId);
+  }
+
   start(client: object): void {
     if (!this.options.enabled || !this.options.scene.enabled) {
       console.warn(
