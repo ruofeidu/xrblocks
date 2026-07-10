@@ -85,11 +85,7 @@ export class ScreenshotSynthesizer {
       !this.virtualRealCaptureInFlight
     ) {
       this.virtualRealCaptureInFlight = true;
-      this.createVirtualRealImageDataURL(
-        renderer,
-        renderSceneFn,
-        deviceCamera
-      )
+      this.createVirtualRealImageDataURL(renderer, renderSceneFn, deviceCamera)
         .then((virtualRealImageDataUrl) => {
           if (virtualRealImageDataUrl) {
             this.resolveVirtualRealRequests(virtualRealImageDataUrl);
