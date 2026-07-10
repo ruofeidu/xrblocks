@@ -17,6 +17,7 @@ const tempCenter = new THREE.Vector3();
 const tempProjection = new THREE.Vector3();
 const tempCameraPosition = new THREE.Vector3();
 const tempDirection = new THREE.Vector3();
+const tempBoundsBox = new THREE.Box3();
 const raycaster = new THREE.Raycaster();
 
 export function createVisibleObjectsContext({
@@ -78,7 +79,7 @@ function createSemanticViewData({
     return createNotRenderedViewData();
   }
 
-  const box = getObjectBounds(object);
+  const box = getObjectBounds(object, tempBoundsBox);
   const center =
     box?.getCenter(tempCenter) ?? object.getWorldPosition(tempCenter);
   const projected = projectWorldPoint(center, camera);
@@ -123,8 +124,7 @@ function projectWorldPoint(point: THREE.Vector3, camera: THREE.Camera) {
   return tempProjection
     .copy(point)
     .applyMatrix4(camera.matrixWorldInverse)
-    .applyMatrix4(camera.projectionMatrix)
-    .clone();
+    .applyMatrix4(camera.projectionMatrix);
 }
 
 function isProjectedInFrame(projected: THREE.Vector3): boolean {

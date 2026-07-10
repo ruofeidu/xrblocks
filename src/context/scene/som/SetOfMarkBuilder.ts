@@ -8,6 +8,10 @@ import {
   VisibleObjectsContext,
 } from '../../shared/SemanticTypes';
 
+const tempCenter = new THREE.Vector3();
+const tempBoundsBox = new THREE.Box3();
+const tempProjection = new THREE.Vector3();
+
 export async function createSetOfMarkContext({
   tree,
   image,
@@ -63,16 +67,15 @@ function projectObjectCenter(
   projectionMatrix: THREE.Matrix4,
   matrixWorldInverse: THREE.Matrix4
 ) {
-  const center = new THREE.Vector3();
-  const box = getObjectBounds(object);
+  const box = getObjectBounds(object, tempBoundsBox);
   if (box) {
-    box.getCenter(center);
+    box.getCenter(tempCenter);
   } else {
-    object.getWorldPosition(center);
+    object.getWorldPosition(tempCenter);
   }
 
-  const projected = center
-    .clone()
+  const projected = tempProjection
+    .copy(tempCenter)
     .applyMatrix4(matrixWorldInverse)
     .applyMatrix4(projectionMatrix);
   if (

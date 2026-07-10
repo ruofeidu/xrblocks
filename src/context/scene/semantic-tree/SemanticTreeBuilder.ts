@@ -12,7 +12,6 @@ import {
   SemanticNode,
   SemanticSource,
   SemanticTree,
-  Vec3Tuple,
 } from '../../shared/SemanticTypes';
 
 type SemanticObject = THREE.Object3D & {
@@ -44,6 +43,9 @@ export interface SemanticTreeInternal {
 }
 
 const tempPosition = new THREE.Vector3();
+const tempBoundsCenter = new THREE.Vector3();
+const tempBoundsSize = new THREE.Vector3();
+const tempBoundsBox = new THREE.Box3();
 let snapshotCounter = 0;
 
 export function buildSemanticTree({
@@ -326,7 +328,7 @@ function createSemanticNode(
     role: semantic.role,
     name: semantic.name,
     visible: object.visible,
-    position: tempPosition.toArray() as Vec3Tuple,
+    position: [tempPosition.x, tempPosition.y, tempPosition.z],
     children: [],
     objectId: object.id,
     source: semantic.source,
@@ -348,14 +350,14 @@ function createSemanticNode(
 }
 
 function getSemanticBounds(object: THREE.Object3D): SemanticBounds | undefined {
-  const bounds = getObjectBounds(object);
+  const bounds = getObjectBounds(object, tempBoundsBox);
   if (!bounds) {
     return undefined;
   }
-  const center = bounds.getCenter(new THREE.Vector3());
-  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(tempBoundsCenter);
+  const size = bounds.getSize(tempBoundsSize);
   return {
-    center: center.toArray() as Vec3Tuple,
-    size: size.toArray() as Vec3Tuple,
+    center: [center.x, center.y, center.z],
+    size: [size.x, size.y, size.z],
   };
 }

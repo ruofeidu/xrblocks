@@ -65,8 +65,11 @@ export function isDescendantOf(
   return false;
 }
 
-export function getObjectBounds(object: THREE.Object3D): THREE.Box3 | null {
-  const uiBounds = getUIObjectBounds(object);
+export function getObjectBounds(
+  object: THREE.Object3D,
+  target?: THREE.Box3
+): THREE.Box3 | null {
+  const uiBounds = getUIObjectBounds(object, target);
   if (uiBounds) {
     return uiBounds;
   }
@@ -76,7 +79,10 @@ export function getObjectBounds(object: THREE.Object3D): THREE.Box3 | null {
   } catch (_error) {
     return null;
   }
-  return boundsBox.isEmpty() ? null : boundsBox.clone();
+  if (boundsBox.isEmpty()) {
+    return null;
+  }
+  return target ? target.copy(boundsBox) : boundsBox.clone();
 }
 
 function isInternalRoot(object: THREE.Object3D): boolean {
@@ -87,7 +93,10 @@ function isInternalRoot(object: THREE.Object3D): boolean {
   );
 }
 
-function getUIObjectBounds(object: THREE.Object3D): THREE.Box3 | null {
+function getUIObjectBounds(
+  object: THREE.Object3D,
+  target?: THREE.Box3
+): THREE.Box3 | null {
   const uiObject = object as BoundsObject;
   if (
     uiObject.isUI !== true ||
@@ -109,5 +118,5 @@ function getUIObjectBounds(object: THREE.Object3D): THREE.Box3 | null {
     }
   }
 
-  return boundsBox.clone();
+  return target ? target.copy(boundsBox) : boundsBox.clone();
 }
