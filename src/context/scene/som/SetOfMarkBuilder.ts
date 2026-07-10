@@ -32,12 +32,12 @@ export async function createSetOfMarkContext({
     if (!object) {
       continue;
     }
-    const screenCenter = projectObjectCenter(
+    const screenPosition = projectObjectCenter(
       object,
       projectionMatrix,
       matrixWorldInverse
     );
-    if (!screenCenter) {
+    if (!screenPosition) {
       continue;
     }
     marks.push({
@@ -45,8 +45,8 @@ export async function createSetOfMarkContext({
       nodeId: node.id,
       role: node.role,
       name: node.name,
-      screenCenter,
-      screenBounds: node.view.screenBounds,
+      x: screenPosition.x,
+      y: screenPosition.y,
     });
   }
 
@@ -85,7 +85,10 @@ function projectObjectCenter(
   ) {
     return null;
   }
-  return [(projected.x + 1) / 2, (projected.y + 1) / 2] as [number, number];
+  return {
+    x: (projected.x + 1) / 2,
+    y: (1 - projected.y) / 2,
+  };
 }
 
 async function renderSetOfMarkImage(
@@ -113,8 +116,8 @@ async function renderSetOfMarkImage(
   ctx.drawImage(img, 0, 0);
 
   for (const mark of marks) {
-    const x = mark.screenCenter[0] * canvas.width;
-    const y = (1 - mark.screenCenter[1]) * canvas.height;
+    const x = mark.x * canvas.width;
+    const y = mark.y * canvas.height;
     ctx.beginPath();
     ctx.arc(x, y, 14, 0, Math.PI * 2);
     ctx.fillStyle = '#ff0055';

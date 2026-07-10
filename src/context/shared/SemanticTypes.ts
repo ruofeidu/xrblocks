@@ -20,13 +20,16 @@ export interface SemanticViewData {
   inFrame: boolean;
   inLineOfSight: boolean;
   occlusion: SemanticViewOcclusion;
-  screenCenter?: Vec2Tuple;
-  screenBounds?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
+  /**
+   * Normalized horizontal screen coordinate: 0 at the left edge, 1 at the
+   * right edge.
+   */
+  x?: number;
+  /**
+   * Normalized vertical screen coordinate: 0 at the top edge, 1 at the
+   * bottom edge. This matches detector 2D bounding-box conventions.
+   */
+  y?: number;
 }
 
 export interface SemanticNode {
@@ -63,8 +66,16 @@ export interface SetOfMark {
   nodeId: string;
   role: string;
   name: string;
-  screenCenter: Vec2Tuple;
-  screenBounds?: SemanticViewData['screenBounds'];
+  /**
+   * Normalized horizontal screen coordinate: 0 at the left edge, 1 at the
+   * right edge.
+   */
+  x: number;
+  /**
+   * Normalized vertical screen coordinate: 0 at the top edge, 1 at the
+   * bottom edge. This matches detector 2D bounding-box conventions.
+   */
+  y: number;
 }
 
 export interface SetOfMarkContext {

@@ -11,7 +11,6 @@ import {
   SemanticNode,
   SemanticTree,
   SemanticViewData,
-  Vec2Tuple,
 } from '../../shared/SemanticTypes';
 
 const tempCenter = new THREE.Vector3();
@@ -85,8 +84,7 @@ function createSemanticViewData({
       inFrame: false,
       inLineOfSight: false,
       occlusion: 'outOfFrame',
-      screenCenter: projectedToScreenCenter(projected),
-      screenBounds: box ? projectScreenBounds(box, camera) : undefined,
+      ...projectedToScreenCoordinates(projected),
     };
   }
 
@@ -102,8 +100,7 @@ function createSemanticViewData({
     inFrame: true,
     inLineOfSight,
     occlusion: inLineOfSight ? 'none' : 'occluded',
-    screenCenter: projectedToScreenCenter(projected),
-    screenBounds: box ? projectScreenBounds(box, camera) : undefined,
+    ...projectedToScreenCoordinates(projected),
   };
 }
 
@@ -135,48 +132,10 @@ function isProjectedInFrame(projected: THREE.Vector3): boolean {
   );
 }
 
-function projectedToScreenCenter(projected: THREE.Vector3): Vec2Tuple {
-  return [(projected.x + 1) / 2, (projected.y + 1) / 2];
-}
-
-function projectScreenBounds(box: THREE.Box3, camera: THREE.Camera) {
-  const min = new THREE.Vector2(Infinity, Infinity);
-  const max = new THREE.Vector2(-Infinity, -Infinity);
-  const center = box.getCenter(new THREE.Vector3());
-  const halfSize = box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
-
-  for (const x of [-1, 1]) {
-    for (const y of [-1, 1]) {
-      for (const z of [-1, 1]) {
-        const projected = projectWorldPoint(
-          new THREE.Vector3(
-            center.x + halfSize.x * x,
-            center.y + halfSize.y * y,
-            center.z + halfSize.z * z
-          ),
-          camera
-        );
-        if (projected.z < -1 || projected.z > 1) {
-          continue;
-        }
-        const screen = projectedToScreenCenter(projected);
-        min.x = Math.min(min.x, screen[0]);
-        min.y = Math.min(min.y, screen[1]);
-        max.x = Math.max(max.x, screen[0]);
-        max.y = Math.max(max.y, screen[1]);
-      }
-    }
-  }
-
-  if (!Number.isFinite(min.x) || !Number.isFinite(min.y)) {
-    return undefined;
-  }
-
+function projectedToScreenCoordinates(projected: THREE.Vector3) {
   return {
-    x: Math.max(0, min.x),
-    y: Math.max(0, min.y),
-    width: Math.min(1, max.x) - Math.max(0, min.x),
-    height: Math.min(1, max.y) - Math.max(0, min.y),
+    x: (projected.x + 1) / 2,
+    y: (1 - projected.y) / 2,
   };
 }
 
