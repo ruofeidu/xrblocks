@@ -123,7 +123,7 @@ async function renderSetOfMarkImage(
     const y = mark.y * canvas.height;
     ctx.beginPath();
     ctx.arc(x, y, 14, 0, Math.PI * 2);
-    ctx.fillStyle = '#ff0055';
+    ctx.fillStyle = '#ff005599';
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#ffffff';
