@@ -89,7 +89,6 @@ function createSemanticViewData({
       rendered: true,
       inFrame: false,
       inLineOfSight: false,
-      occlusion: 'outOfFrame',
       ...projectedToScreenCoordinates(projected),
     };
   }
@@ -106,7 +105,6 @@ function createSemanticViewData({
     rendered: true,
     inFrame: true,
     inLineOfSight,
-    occlusion: inLineOfSight ? 'none' : 'occluded',
     ...projectedToScreenCoordinates(projected),
   };
 }
@@ -116,7 +114,6 @@ function createNotRenderedViewData(): SemanticViewData {
     rendered: false,
     inFrame: false,
     inLineOfSight: false,
-    occlusion: 'notRendered',
   };
 }
 
