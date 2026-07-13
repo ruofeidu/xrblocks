@@ -50,8 +50,9 @@ XR Blocks is a **singleton engine driven by a script lifecycle**:
   `initPhysics`...). Apps are added via `xb.add(new MyScript())` before `xb.init()`.
 - **`Options`** ([`src/core/Options.ts`](src/core/Options.ts)) aggregates per-subsystem config
   and exposes chainable `enable*()` methods. `enableAutomationMode()` is the shared
-  desktop simulator preset for automation and external remote runs, also available through
-  `?xrAutomation=1`.
+  desktop simulator and context preset for automation and external runs, also available
+  through `?xrAutomation=1`. Separately, `?debug=1` exposes `window.xb` and
+  `window.xbReady` for in-page browser drivers.
 - **Barrel export**: every public symbol flows through [`src/xrblocks.ts`](src/xrblocks.ts).
   New public symbols MUST be added there.
 - **Build**: Rollup ([`rollup.config.js`](rollup.config.js)) emits `build/xrblocks.js` (ESM),
