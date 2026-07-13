@@ -120,9 +120,11 @@ URL does the same. `options.catchScriptExceptions` (default `true`) keeps one bu
 script from crashing the app.
 
 For automation or external remote runs, use `options.enableAutomationMode()` before
-`xb.init(options)`. It applies the desktop simulator preset, enables hands and
-camera input, hides simulator control panels, and can also be activated from the
-URL with `?xrAutomation=1`.
+`xb.init(options)`. It applies the desktop simulator preset, enables hands, camera
+input, and agent context, hides simulator control panels, and can also be activated
+from the URL with `?xrAutomation=1`. Separately, `?debug=1` exposes the full SDK as
+`window.xb` and initialization as `window.xbReady`. Combine the flags when browser
+tooling needs both direct SDK access and the automation preset.
 
 Simulator navmesh constraints are opt-in. Set
 `options.simulator.navMesh.enabled = true`; the default Living Room environment

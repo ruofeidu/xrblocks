@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import {AI} from '../ai/AI';
 import {AIOptions} from '../ai/AIOptions';
+import {markDebugFailed, markDebugReady} from '../debug/DebugGlobals';
 import {XRDeviceCamera} from '../camera/XRDeviceCamera';
 import {Context} from '../context/Context';
 import {ContextOptions} from '../context/ContextOptions';
@@ -249,6 +250,16 @@ export class Core {
    * session.
    */
   async init(options = new Options()) {
+    try {
+      await this.initialize(options);
+      markDebugReady(this);
+    } catch (error) {
+      markDebugFailed(this, error);
+      throw error;
+    }
+  }
+
+  private async initialize(options: Options) {
     loadingSpinnerManager.showSpinner();
 
     this.registry.register(options, Options);
