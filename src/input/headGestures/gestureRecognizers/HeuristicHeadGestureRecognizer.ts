@@ -28,7 +28,7 @@ const DEFAULT_OPTIONS: HeuristicHeadGestureRecognizerOptions = {
   returnToleranceFactor: 0.55,
   smoothingTimeConstantMs: 35,
   minimumPathEfficiency: 0.65,
-  minimumPeakAngularSpeed: 0.75,
+  minimumPeakAngularSpeed: 0.6,
 };
 
 export class HeuristicHeadGestureRecognizer implements HeadGestureRecognizer {
