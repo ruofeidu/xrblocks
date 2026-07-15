@@ -50,110 +50,13 @@ export function detectShake(
   config: HeadGestureConfiguration,
   options: HeuristicHeadGestureRecognizerOptions
 ): HeadGestureDetectionResult | undefined {
-  const threshold = config.threshold ?? THREE.MathUtils.degToRad(15);
+  const threshold = config.threshold ?? THREE.MathUtils.degToRad(10);
   const series = buildMotionSeries(context, options);
   if (!series) return;
 
-  const tolerance = threshold * options.returnToleranceFactor;
-  const extrema = findExtrema(series, 'yaw', threshold);
-  let best:
-    | {result: HeadGestureDetectionResult; completedAt: number}
-    | undefined;
-
-  for (let first = 0; first < extrema.length; first++) {
-    const firstIndex = extrema[first];
-    const firstValue = series[firstIndex].yaw;
-    for (let second = first + 1; second < extrema.length; second++) {
-      const secondIndex = extrema[second];
-      const secondValue = series[secondIndex].yaw;
-      if (Math.sign(firstValue) === Math.sign(secondValue)) continue;
-
-      const startIndex = findLastNearBaseline(
-        series,
-        'yaw',
-        firstIndex,
-        tolerance
-      );
-      const endIndex = findFirstNearBaseline(
-        series,
-        'yaw',
-        secondIndex,
-        tolerance
-      );
-      if (startIndex === undefined || endIndex === undefined) continue;
-
-      const durationMs =
-        series[endIndex].timestamp - series[startIndex].timestamp;
-      if (!validDuration(durationMs, options)) continue;
-      if (
-        series.at(-1)!.timestamp - series[endIndex].timestamp >
-        options.detectionHoldMs
-      ) {
-        continue;
-      }
-
-      const amplitude = Math.min(Math.abs(firstValue), Math.abs(secondValue));
-      const dominantPeak = Math.max(
-        Math.abs(firstValue),
-        Math.abs(secondValue)
-      );
-      const offAxis = maximumAbsoluteValue(series, startIndex, endIndex, [
-        'pitch',
-        'roll',
-      ]);
-      const offAxisRatio = offAxis / dominantPeak;
-      if (offAxisRatio > options.maximumOffAxisRatio) continue;
-
-      const expectedVariation =
-        Math.abs(firstValue - series[startIndex].yaw) +
-        Math.abs(secondValue - firstValue) +
-        Math.abs(series[endIndex].yaw - secondValue);
-      const actualVariation = totalVariation(
-        series,
-        'yaw',
-        startIndex,
-        endIndex
-      );
-      const pathEfficiency =
-        expectedVariation / Math.max(actualVariation, 1e-6);
-      if (pathEfficiency < options.minimumPathEfficiency) continue;
-
-      const peakAngularSpeed = getPeakAngularSpeed(
-        series,
-        'yaw',
-        startIndex,
-        endIndex
-      );
-      if (peakAngularSpeed < options.minimumPeakAngularSpeed) continue;
-
-      const confidence = scoreCandidate({
-        amplitude,
-        threshold,
-        durationMs,
-        returnError: Math.abs(series[endIndex].yaw),
-        returnTolerance: tolerance,
-        offAxisRatio,
-        pathEfficiency,
-        peakAngularSpeed,
-        options,
-      });
-      const completedAt = series[endIndex].timestamp;
-      const result: HeadGestureDetectionResult = {
-        confidence,
-        data: {
-          amplitudeRadians: Math.abs(firstValue) + Math.abs(secondValue),
-          durationMs,
-          peakAngularSpeed,
-          initialDirection: firstValue >= 0 ? 'left' : 'right',
-        },
-      };
-      if (!best || completedAt > best.completedAt) {
-        best = {result, completedAt};
-      }
-    }
-  }
-
-  return best?.result;
+  return findSingleExcursion(series, 'yaw', threshold, options, (value) =>
+    value >= 0 ? 'left' : 'right'
+  );
 }
 
 function findSingleExcursion(

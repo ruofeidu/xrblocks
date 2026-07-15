@@ -47,8 +47,8 @@ options.headGestures.setGestureConfig('nod', {
 ```
 
 For built-in heuristics, `threshold` is the minimum angular amplitude in
-radians. Defaults are approximately 12 degrees for nods and 15 degrees on each
-side for shakes.
+radians. Defaults are approximately 12 degrees for nods and 10 degrees for
+shakes.
 
 ## Recognition Pipeline
 
@@ -63,9 +63,9 @@ emits once when confidence crosses `minimumConfidence` and rearms below
 `releaseConfidence`.
 
 The default `HeuristicHeadGestureRecognizer` measures motion in axes local to a
-recent resting orientation. A nod is a pitch excursion and return. A shake
-crosses both sides of the yaw baseline and returns. The detectors accept either
-starting direction and reject excessive off-axis motion.
+recent resting orientation. A nod is a pitch excursion and return. A shake is a
+yaw excursion and return. The detectors accept either starting direction and
+reject excessive off-axis motion.
 
 Large tracking jumps and timestamp gaps clear recognition history without
 emitting. This prevents session entry, tab suspension, or simulator pose resets

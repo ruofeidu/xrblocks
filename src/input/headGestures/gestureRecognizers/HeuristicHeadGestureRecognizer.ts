@@ -98,7 +98,7 @@ export class HeuristicHeadGestureRecognizer implements HeadGestureRecognizer {
     this.registerGesture(
       'shake',
       (context, config) => detectShake(context, config, this.options),
-      {enabled: true, threshold: (15 * Math.PI) / 180}
+      {enabled: true, threshold: (10 * Math.PI) / 180}
     );
   }
 }

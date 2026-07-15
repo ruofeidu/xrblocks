@@ -1,7 +1,7 @@
 # Head Gestures
 
 Displays completed `nod` and `shake` events in a world-fixed UIBlocks card in
-front of the user's initial view. Each result clears after 1.5 seconds.
+front of the user's initial view. Each result clears after one second.
 
 Serve the repository and open:
 

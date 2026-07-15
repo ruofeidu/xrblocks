@@ -78,7 +78,7 @@ class HeadGestureDemo extends xb.Script {
       this.clearGestureTimeout = window.setTimeout(() => {
         this.gestureText.setText('Waiting…');
         this.confidenceText.setText('Nod or shake your head');
-      }, 1500);
+      }, 1000);
     };
     headGestures.addEventListener('gesture', this.onGesture);
   }

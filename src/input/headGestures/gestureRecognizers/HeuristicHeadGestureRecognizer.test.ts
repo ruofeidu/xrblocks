@@ -35,15 +35,14 @@ describe('HeuristicHeadGestureRecognizer', () => {
     'recognizes a shake starting in direction %s',
     (direction) => {
       const recognizer = new HeuristicHeadGestureRecognizer();
-      const samples = createSamples(1050, (time) => ({
+      const samples = createSamples(850, (time) => ({
         yaw:
           direction *
           piecewise(time, [
             [0, 250, 0, 0],
-            [250, 450, 0, degrees(25)],
-            [450, 700, degrees(25), degrees(-25)],
-            [700, 900, degrees(-25), 0],
-            [900, 1050, 0, 0],
+            [250, 500, 0, degrees(18)],
+            [500, 750, degrees(18), 0],
+            [750, 850, 0, 0],
           ]),
       }));
 
