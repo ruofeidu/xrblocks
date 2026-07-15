@@ -19,6 +19,8 @@ type RegisteredGesture = {
   config: HeadGestureConfiguration;
 };
 
+type HeadGestureInitialDirection = 'up' | 'down' | 'left' | 'right';
+
 const DEFAULT_OPTIONS: HeuristicHeadGestureRecognizerOptions = {
   minimumGestureDurationMs: 200,
   maximumGestureDurationMs: 750,
@@ -90,15 +92,46 @@ export class HeuristicHeadGestureRecognizer implements HeadGestureRecognizer {
   }
 
   private registerBuiltInGestures() {
+    const nodThreshold = (12 * Math.PI) / 180;
+    const shakeThreshold = (10 * Math.PI) / 180;
+
     this.registerGesture(
       'nod',
       (context, config) => detectNod(context, config, this.options),
-      {enabled: true, threshold: (12 * Math.PI) / 180}
+      {enabled: true, threshold: nodThreshold}
     );
     this.registerGesture(
       'shake',
       (context, config) => detectShake(context, config, this.options),
-      {enabled: true, threshold: (10 * Math.PI) / 180}
+      {enabled: true, threshold: shakeThreshold}
     );
+    this.registerGesture('nod-up', this.detectDirection(detectNod, 'up'), {
+      enabled: true,
+      threshold: nodThreshold,
+    });
+    this.registerGesture('nod-down', this.detectDirection(detectNod, 'down'), {
+      enabled: true,
+      threshold: nodThreshold,
+    });
+    this.registerGesture(
+      'shake-left',
+      this.detectDirection(detectShake, 'left'),
+      {enabled: true, threshold: shakeThreshold}
+    );
+    this.registerGesture(
+      'shake-right',
+      this.detectDirection(detectShake, 'right'),
+      {enabled: true, threshold: shakeThreshold}
+    );
+  }
+
+  private detectDirection(
+    detector: typeof detectNod,
+    direction: HeadGestureInitialDirection
+  ): HeuristicHeadGestureDetector {
+    return (context, config) => {
+      const result = detector(context, config, this.options);
+      return result?.data?.initialDirection === direction ? result : undefined;
+    };
   }
 }

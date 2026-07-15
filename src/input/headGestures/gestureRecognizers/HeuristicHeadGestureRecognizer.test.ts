@@ -25,10 +25,15 @@ describe('HeuristicHeadGestureRecognizer', () => {
         ]),
     }));
 
-    const result = recognizer.recognize({samples}).nod;
+    const scores = recognizer.recognize({samples});
+    const result = scores.nod;
+    const directionalName = direction > 0 ? 'nod-up' : 'nod-down';
+    const oppositeName = direction > 0 ? 'nod-down' : 'nod-up';
 
     expect(result?.confidence).toBeGreaterThanOrEqual(0.6);
     expect(result?.data?.initialDirection).toBe(direction > 0 ? 'up' : 'down');
+    expect(scores[directionalName]).toEqual(result);
+    expect(scores[oppositeName]).toBeUndefined();
   });
 
   it.each([1, -1])(
@@ -46,12 +51,17 @@ describe('HeuristicHeadGestureRecognizer', () => {
           ]),
       }));
 
-      const result = recognizer.recognize({samples}).shake;
+      const scores = recognizer.recognize({samples});
+      const result = scores.shake;
+      const directionalName = direction > 0 ? 'shake-left' : 'shake-right';
+      const oppositeName = direction > 0 ? 'shake-right' : 'shake-left';
 
       expect(result?.confidence).toBeGreaterThanOrEqual(0.6);
       expect(result?.data?.initialDirection).toBe(
         direction > 0 ? 'left' : 'right'
       );
+      expect(scores[directionalName]).toEqual(result);
+      expect(scores[oppositeName]).toBeUndefined();
     }
   );
 

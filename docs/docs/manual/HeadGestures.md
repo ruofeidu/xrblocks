@@ -25,8 +25,11 @@ xb.input.headGestures?.addEventListener('gesture', (event) => {
 });
 ```
 
-The built-in gesture names are `nod` and `shake`. Both are enabled by default.
-Each event represents one completed motion rather than a held pose.
+The built-in gesture names are `nod`, `shake`, `nod-up`, `nod-down`,
+`shake-left`, and `shake-right`. All are enabled by default. A completed motion
+emits both its generic and directional gesture; for example, an upward-first nod
+emits `nod` and `nod-up`. Each event represents one completed motion rather than
+a held pose.
 
 ## Configuration
 
@@ -64,8 +67,9 @@ emits once when confidence crosses `minimumConfidence` and rearms below
 
 The default `HeuristicHeadGestureRecognizer` measures motion in axes local to a
 recent resting orientation. A nod is a pitch excursion and return. A shake is a
-yaw excursion and return. The detectors accept either starting direction and
-reject excessive off-axis motion.
+yaw excursion and return. The directional variants classify the initial
+excursion as up, down, left, or right. The detectors accept either starting
+direction and reject excessive off-axis motion.
 
 Built-in gestures are intentionally quick: a completed excursion must take
 roughly 200–750 ms and reach a minimum peak angular speed. Slow looks and slow

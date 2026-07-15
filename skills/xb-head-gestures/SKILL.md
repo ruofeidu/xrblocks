@@ -21,7 +21,9 @@ options.enableHeadGestures();
 await xb.init(options);
 ```
 
-The built-in `nod` and `shake` gestures are enabled by default. They emit once
+The built-in `nod`, `shake`, `nod-up`, `nod-down`, `shake-left`, and
+`shake-right` gestures are enabled by default. A completed motion emits its
+generic and directional names, such as `nod` and `nod-down`. They emit once
 after a complete motion, unlike held hand-pose gestures.
 
 ## Subscribe
