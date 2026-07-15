@@ -12,6 +12,7 @@ import {DepthOptions} from '../depth/DepthOptions';
 import {Hands} from '../input/Hands';
 import {GestureRecognition} from '../input/gestures/GestureRecognition';
 import {GestureRecognitionOptions} from '../input/gestures/GestureRecognitionOptions.js';
+import {HeadGestureRecognitionOptions} from '../input/headGestures/HeadGestureRecognitionOptions.js';
 import type {PoseEstimator} from '../input/gestures/GestureTypes';
 import {StrokeRecognitionOptions} from '../input/strokes/StrokeRecognitionOptions';
 import {Input} from '../input/Input';
@@ -262,6 +263,7 @@ export class Core {
     this.registry.register(options.ai, AIOptions);
     this.registry.register(options.sound, SoundOptions);
     this.registry.register(options.gestures, GestureRecognitionOptions);
+    this.registry.register(options.headGestures, HeadGestureRecognitionOptions);
     this.registry.register(options.strokes, StrokeRecognitionOptions);
 
     if (options.transition.enabled) {
@@ -318,14 +320,14 @@ export class Core {
     this.options = options;
     this.scriptsManager.catchExceptions = options.catchScriptExceptions;
 
-    // Sets up controllers.
+    // Sets up input. Head gestures are camera-only and do not require controllers.
+    this.input.init({
+      scene: this.scene,
+      systemsGroup: this.xrSystemsGroup,
+      options: options,
+      renderer: this.renderer,
+    });
     if (options.controllers.enabled) {
-      this.input.init({
-        scene: this.scene,
-        systemsGroup: this.xrSystemsGroup,
-        options: options,
-        renderer: this.renderer,
-      });
       this.input.bindSelectStart(this.scriptsManager.callSelectStart);
       this.input.bindSelectEnd(this.scriptsManager.callSelectEnd);
       this.input.bindSelect(this.scriptsManager.callSelect);
