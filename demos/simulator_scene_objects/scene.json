@@ -1,0 +1,7 @@
+{
+  "scenePath": "https://cdn.jsdelivr.net/gh/xrblocks/assets@d872cfdb7668443da5cd38361fc3a3d131aca04c/simulator/scenes/XREmulatorsceneV5_livingRoom.glb",
+  "scenePlanesPath": "https://cdn.jsdelivr.net/gh/xrblocks/assets@d872cfdb7668443da5cd38361fc3a3d131aca04c/simulator/scenes/XREmulatorsceneV5_livingRoom_planes.json",
+  "navMeshPath": "https://cdn.jsdelivr.net/gh/xrblocks/assets@d872cfdb7668443da5cd38361fc3a3d131aca04c/simulator/scenes/XREmulatorsceneV5_livingRoom_navmesh.glb",
+  "position": [-1.6, 0.3, 0],
+  "objects": []
+}
