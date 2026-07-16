@@ -19,12 +19,19 @@ import {
 import {SIMULATOR_HAND_POSE_ROTATIONS} from './handPoses/HandPoseRotations';
 import {SimulatorControllerState} from './SimulatorControllerState';
 import {SimulatorXRHand} from './SimulatorXRHand';
+import type {SimulatorPhysics} from './scene/SimulatorPhysics';
 
 const DEFAULT_HAND_PROFILE_PATH =
   'https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/';
 
 const vector3 = new THREE.Vector3();
 const quaternion = new THREE.Quaternion();
+const wristPosition = new THREE.Vector3();
+const metacarpalPosition = new THREE.Vector3();
+const desiredPalmPosition = new THREE.Vector3();
+const constrainedPalmPosition = new THREE.Vector3();
+const controllerWorldPosition = new THREE.Vector3();
+const userWorldPosition = new THREE.Vector3();
 const ROTATION_JOINT_NAMES = HAND_JOINT_NAMES.filter(
   (jointName) => !jointName.endsWith('-tip')
 );
@@ -118,6 +125,8 @@ export class SimulatorHands {
   handPosePanelElement?: SimulatorHandPoseHTMLElement;
   input!: Input;
   loader!: GLTFLoader;
+  private physics?: SimulatorPhysics;
+  private camera?: THREE.Camera;
 
   private leftXRHand = new SimulatorXRHand();
   private rightXRHand = new SimulatorXRHand();
@@ -132,8 +141,18 @@ export class SimulatorHands {
   /**
    * Initialize Simulator Hands.
    */
-  async init({input}: {input: Input}) {
+  async init({
+    input,
+    physics,
+    camera,
+  }: {
+    input: Input;
+    physics?: SimulatorPhysics;
+    camera?: THREE.Camera;
+  }) {
     this.input = input;
+    this.physics = physics;
+    this.camera = camera;
     await this.loadMeshes();
     this.simulatorScene.add(this.leftController);
     this.simulatorScene.add(this.rightController);
@@ -347,7 +366,47 @@ export class SimulatorHands {
   update() {
     this.lerpLeftHandPose();
     this.lerpRightHandPose();
+    this.constrainHand(0, this.leftController, this.leftHand);
+    this.constrainHand(1, this.rightController, this.rightHand);
     this.syncHandJoints();
+  }
+
+  private constrainHand(
+    index: number,
+    controller: THREE.Object3D,
+    hand?: THREE.Object3D
+  ) {
+    if (!this.physics) return;
+    controller.updateWorldMatrix(true, true);
+    const wrist = hand?.getObjectByName('wrist');
+    const metacarpal = hand?.getObjectByName('middle-finger-metacarpal');
+    if (wrist && metacarpal) {
+      wrist.getWorldPosition(wristPosition);
+      metacarpal.getWorldPosition(metacarpalPosition);
+      desiredPalmPosition.lerpVectors(wristPosition, metacarpalPosition, 0.5);
+    } else {
+      controller.getWorldPosition(desiredPalmPosition);
+    }
+
+    constrainedPalmPosition.copy(desiredPalmPosition);
+    this.camera?.getWorldPosition(userWorldPosition);
+    this.physics.constrainHand(
+      index,
+      constrainedPalmPosition,
+      controller.visible,
+      this.camera ? userWorldPosition : undefined
+    );
+    if (!controller.visible) return;
+
+    controller.getWorldPosition(controllerWorldPosition);
+    controllerWorldPosition.add(
+      constrainedPalmPosition.sub(desiredPalmPosition)
+    );
+    if (controller.parent) {
+      controller.parent.worldToLocal(controllerWorldPosition);
+    }
+    controller.position.copy(controllerWorldPosition);
+    controller.updateWorldMatrix(true, true);
   }
 
   lerpLeftHandPose() {

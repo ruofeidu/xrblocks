@@ -6,7 +6,7 @@ import {Keycodes} from '../../utils/Keycodes';
 import {SimulatorRenderMode} from '../SimulatorConstants';
 import {SimulatorControllerState} from '../SimulatorControllerState';
 import {SimulatorHands} from '../SimulatorHands.js';
-import {SimulatorNavMesh} from '../SimulatorNavMesh';
+import {SimulatorNavMesh} from '../scene/SimulatorNavMesh';
 import {SimulatorHandPose} from '../handPoses/HandPoses';
 import {SimulatorOptions} from '../SimulatorOptions';
 
