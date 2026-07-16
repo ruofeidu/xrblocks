@@ -42,20 +42,8 @@ export class SimulatorPhysics {
     let hand = this.hands[index];
     if (!hand) {
       if (!enabled) return;
-      handPosition.copy(reentryOrigin ?? position);
-      handInputDelta.copy(position).sub(handPosition);
-      if (handInputDelta.lengthSq() > 0) {
-        const hit = this.world.castShape(
-          handPosition,
-          identityRotation,
-          handInputDelta,
-          new this.RAPIER.Ball(HAND_RADIUS),
-          HAND_CONTACT_OFFSET,
-          1,
-          false
-        );
-        handPosition.addScaledVector(handInputDelta, hit?.time_of_impact ?? 1);
-      }
+      this.clampHandToOrigin(position, reentryOrigin);
+      handPosition.copy(position);
       const body = this.world.createRigidBody(
         this.RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(
           handPosition.x,
@@ -86,32 +74,8 @@ export class SimulatorPhysics {
     if (hand.enabled !== enabled) {
       hand.enabled = enabled;
       if (enabled) {
-        if (reentryOrigin) {
-          handPosition.copy(reentryOrigin);
-        } else {
-          const translation = hand.body.translation();
-          handPosition.set(translation.x, translation.y, translation.z);
-        }
-        handInputDelta.copy(position).sub(handPosition);
-        if (handInputDelta.lengthSq() > 0) {
-          const hit = this.world.castShape(
-            handPosition,
-            identityRotation,
-            handInputDelta,
-            new this.RAPIER.Ball(HAND_RADIUS),
-            HAND_CONTACT_OFFSET,
-            1,
-            false,
-            undefined,
-            undefined,
-            hand.collider,
-            hand.body
-          );
-          handPosition.addScaledVector(
-            handInputDelta,
-            hit?.time_of_impact ?? 1
-          );
-        }
+        this.clampHandToOrigin(position, reentryOrigin);
+        handPosition.copy(position);
         hand.body.setTranslation(handPosition, true);
         hand.body.setEnabled(true);
       } else {
@@ -119,6 +83,11 @@ export class SimulatorPhysics {
       }
     }
     if (!enabled) return;
+
+    if (this.clampHandToOrigin(position, reentryOrigin)) {
+      hand.body.setTranslation(position, true);
+      return;
+    }
 
     const translation = hand.body.translation();
     handInputDelta.set(
@@ -140,6 +109,34 @@ export class SimulatorPhysics {
     }
 
     position.copy(handPosition);
+  }
+
+  private clampHandToOrigin(position: THREE.Vector3, origin?: THREE.Vector3) {
+    if (!origin) return false;
+    handInputDelta.copy(position).sub(origin);
+    if (handInputDelta.lengthSq() === 0) return false;
+    const hit = this.world.castShape(
+      origin,
+      identityRotation,
+      handInputDelta,
+      new this.RAPIER.Ball(HAND_RADIUS),
+      HAND_CONTACT_OFFSET,
+      1,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (collider) => {
+        if (this.hands.some((hand) => hand?.collider === collider)) {
+          return false;
+        }
+        return collider.parent()?.isFixed() ?? true;
+      }
+    );
+    if (!hit) return false;
+    position.copy(origin).addScaledVector(handInputDelta, hit.time_of_impact);
+    return true;
   }
 
   step() {

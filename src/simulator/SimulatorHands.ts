@@ -20,6 +20,7 @@ import {SIMULATOR_HAND_POSE_ROTATIONS} from './handPoses/HandPoseRotations';
 import {SimulatorControllerState} from './SimulatorControllerState';
 import {SimulatorXRHand} from './SimulatorXRHand';
 import type {SimulatorPhysics} from './scene/SimulatorPhysics';
+import type {SimulatorOptions} from './SimulatorOptions';
 
 const DEFAULT_HAND_PROFILE_PATH =
   'https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/';
@@ -31,7 +32,7 @@ const metacarpalPosition = new THREE.Vector3();
 const desiredPalmPosition = new THREE.Vector3();
 const constrainedPalmPosition = new THREE.Vector3();
 const controllerWorldPosition = new THREE.Vector3();
-const userWorldPosition = new THREE.Vector3();
+const handOriginWorldPosition = new THREE.Vector3();
 const ROTATION_JOINT_NAMES = HAND_JOINT_NAMES.filter(
   (jointName) => !jointName.endsWith('-tip')
 );
@@ -127,6 +128,7 @@ export class SimulatorHands {
   loader!: GLTFLoader;
   private physics?: SimulatorPhysics;
   private camera?: THREE.Camera;
+  private simulatorOptions?: SimulatorOptions;
 
   private leftXRHand = new SimulatorXRHand();
   private rightXRHand = new SimulatorXRHand();
@@ -145,14 +147,17 @@ export class SimulatorHands {
     input,
     physics,
     camera,
+    simulatorOptions,
   }: {
     input: Input;
     physics?: SimulatorPhysics;
     camera?: THREE.Camera;
+    simulatorOptions?: SimulatorOptions;
   }) {
     this.input = input;
     this.physics = physics;
     this.camera = camera;
+    this.simulatorOptions = simulatorOptions;
     await this.loadMeshes();
     this.simulatorScene.add(this.leftController);
     this.simulatorScene.add(this.rightController);
@@ -389,12 +394,20 @@ export class SimulatorHands {
     }
 
     constrainedPalmPosition.copy(desiredPalmPosition);
-    this.camera?.getWorldPosition(userWorldPosition);
+    if (this.camera && this.simulatorOptions) {
+      const origin =
+        index === 0
+          ? this.simulatorOptions.leftHandOrigin
+          : this.simulatorOptions.rightHandOrigin;
+      handOriginWorldPosition
+        .set(origin.x, origin.y, origin.z)
+        .applyMatrix4(this.camera.matrixWorld);
+    }
     this.physics.constrainHand(
       index,
       constrainedPalmPosition,
       controller.visible,
-      this.camera ? userWorldPosition : undefined
+      this.camera && this.simulatorOptions ? handOriginWorldPosition : undefined
     );
     if (!controller.visible) return;
 

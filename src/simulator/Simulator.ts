@@ -170,7 +170,12 @@ export class Simulator extends Script {
       );
       world.objects.setSimulatorSource(this.objectDetectionSource);
     }
-    await this.hands.init({input, physics: this.simulatorPhysics, camera});
+    await this.hands.init({
+      input,
+      physics: this.simulatorPhysics,
+      camera,
+      simulatorOptions,
+    });
     this.controls.init({camera, input, timer, renderer, simulatorOptions});
     if (
       deviceCamera &&

@@ -223,7 +223,9 @@ export class SimulatorControlMode {
     const angleOpt = this.simulatorOptions?.reachAngle;
     if (!distOpt?.enabled && !angleOpt?.enabled) return false;
     const originObj =
-      idx === 0 ? distOpt!.leftHandOrigin : distOpt!.rightHandOrigin;
+      idx === 0
+        ? this.simulatorOptions!.leftHandOrigin
+        : this.simulatorOptions!.rightHandOrigin;
     target.set(originObj.x, originObj.y, originObj.z);
     return true;
   }

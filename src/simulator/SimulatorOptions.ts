@@ -98,15 +98,15 @@ export class SimulatorOptions {
   renderToRenderTexture = true;
   // Blending mode when rendering the virtual scene.
   blendingMode: 'normal' | 'screen' = 'normal';
+  /** Shoulder/chest origin of the left hand in local camera space. */
+  leftHandOrigin = {x: -0.2, y: -0.2, z: 0};
+  /** Shoulder/chest origin of the right hand in local camera space. */
+  rightHandOrigin = {x: 0.2, y: -0.2, z: 0};
   /** Limits how far each hand controller can travel from the user's shoulder origin. */
   reachDistance = {
     enabled: false,
     /** The maximum distance in meters a controller can move from its origin point. */
     radius: 0.75,
-    /** The shoulder/chest origin point for the left hand in local camera space. */
-    leftHandOrigin: {x: -0.2, y: -0.2, z: 0},
-    /** The shoulder/chest origin point for the right hand in local camera space. */
-    rightHandOrigin: {x: 0.2, y: -0.2, z: 0},
   };
   /** Limits the angular cone in front of the user within which controllers can move. */
   reachAngle = {
