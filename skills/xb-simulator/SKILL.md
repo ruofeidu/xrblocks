@@ -64,6 +64,42 @@ options.simulator.reachAngle.enabled = true;
 options.simulator.reachAngle.angle = Math.PI; // radians (default Math.PI is a front hemisphere)
 ```
 
+## Scene manifests and physical-world objects
+
+Simulator environments use one strict JSON manifest:
+
+```js
+options.simulator.environments = [
+  {name: 'Evaluation Room', manifestPath: './evaluation-room.json'},
+];
+```
+
+The manifest can contain `scenePath` or `videoPath`, `scenePlanesPath`,
+`navMeshPath`, a root `position`/`quaternion`/`scale`, and an `objects` array.
+Object entries support `assetPath`, optional transform arrays,
+`physics: false | 'fixed' | 'dynamic'`, and `detectObject` plus `label`. All paths
+may be manifest-relative, root-relative, or absolute CDN URLs.
+
+At runtime, use the plural API:
+
+```js
+await xb.core.simulator.objects.addObjects([
+  {
+    assetPath: './chair.glb',
+    physics: 'fixed',
+    detectObject: true,
+    label: 'chair',
+  },
+]);
+xb.core.simulator.objects.get();
+xb.core.simulator.objects.removeObjects(['simulator-object-1']);
+```
+
+Set `options.world.objects.simulatorOverride = true` after enabling object
+detection to make the normal `world.objects.runDetection()` API use simulator
+frustum and visibility checks on desktop. Real XR sessions continue to use the
+configured detector backend.
+
 ## Lifecycle
 
 `onSimulatorStarted()` fires when the simulator boots — a common pattern is to mirror your XR
