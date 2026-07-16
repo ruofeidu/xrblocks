@@ -1,15 +1,12 @@
-import * as THREE from 'three';
 import {GamepadController} from '../input/GamepadController.js';
 import {Input} from '../input/Input.js';
 import {SimulatorControls} from './SimulatorControls.js';
 import {ISimulatorSettingsPanelElement} from './interfaces/ISimulatorSettingsPanelElement.js';
 import {SimulatorHands} from './SimulatorHands.js';
-import {SimulatorNavMesh} from './SimulatorNavMesh.js';
 import {
   SimulatorCustomInstruction,
   SimulatorOptions,
 } from './SimulatorOptions.js';
-import {SimulatorScene} from './SimulatorScene.js';
 import {SetSimulatorEnvironmentEvent} from './events/SimulatorEnvironmentEvents.js';
 import {ShowSimulatorInstructionsEvent} from './events/SimulatorInstructionsEvents.js';
 
@@ -70,15 +67,13 @@ export class SimulatorInterface {
     simulatorControls: SimulatorControls,
     simulatorHands: SimulatorHands,
     input?: Input,
-    simulatorScene?: SimulatorScene,
-    simulatorNavMesh?: SimulatorNavMesh
+    setEnvironment?: (index: number) => Promise<void>
   ) {
-    if (simulatorScene) {
+    if (setEnvironment) {
       this.createSimulatorSettingsPanel(
         simulatorOptions,
         simulatorControls,
-        simulatorScene,
-        simulatorNavMesh
+        setEnvironment
       );
     }
     this.showGeminiLivePanel(simulatorOptions);
@@ -97,8 +92,7 @@ export class SimulatorInterface {
   createSimulatorSettingsPanel(
     simulatorOptions: SimulatorOptions,
     simulatorControls: SimulatorControls,
-    simulatorScene: SimulatorScene,
-    simulatorNavMesh?: SimulatorNavMesh
+    setEnvironment: (index: number) => Promise<void>
   ) {
     if (simulatorOptions.simulatorSettingsPanel.enabled) {
       const settingsElement = document.createElement(
@@ -115,21 +109,9 @@ export class SimulatorInterface {
         SetSimulatorEnvironmentEvent.type,
         (event: Event) => {
           if (event instanceof SetSimulatorEnvironmentEvent) {
-            simulatorOptions.activeEnvironmentIndex = event.environmentIndex;
-            const activeEnv =
-              simulatorOptions.environments[event.environmentIndex];
-            simulatorScene.setEnvironment(
-              activeEnv?.scenePath ?? null,
-              new THREE.Vector3(
-                simulatorOptions.initialScenePosition.x,
-                simulatorOptions.initialScenePosition.y,
-                simulatorOptions.initialScenePosition.z
-              )
-            );
-            void simulatorNavMesh?.setEnvironment(
-              activeEnv ?? null,
-              simulatorOptions
-            );
+            void setEnvironment(event.environmentIndex).catch((error) => {
+              console.error('Failed to switch simulator environment.', error);
+            });
           }
         }
       );

@@ -28,30 +28,34 @@ export interface SimulatorCustomInstruction {
 
 export interface SimulatorEnvironment {
   name: string;
-  scenePath?: string | null;
-  scenePlanesPath?: string | null;
-  navMeshPath?: string | null;
-  videoPath?: string;
+  manifestPath: string;
 }
+
+const DEFAULT_LIVING_ROOM_MANIFEST = encodeURIComponent(
+  JSON.stringify({
+    scenePath:
+      XR_BLOCKS_ASSETS_PATH +
+      'simulator/scenes/XREmulatorsceneV5_livingRoom.glb',
+    scenePlanesPath:
+      XR_BLOCKS_ASSETS_PATH +
+      'simulator/scenes/XREmulatorsceneV5_livingRoom_planes.json',
+    navMeshPath:
+      XR_BLOCKS_ASSETS_PATH +
+      'simulator/scenes/XREmulatorsceneV5_livingRoom_navmesh.glb',
+    position: [-1.6, 0.3, 0],
+    objects: [],
+  })
+);
 
 export class SimulatorOptions {
   initialCameraPosition = {x: 0, y: 1.5, z: 0};
   environments: SimulatorEnvironment[] = [
     {
       name: 'Living Room',
-      scenePath:
-        XR_BLOCKS_ASSETS_PATH +
-        'simulator/scenes/XREmulatorsceneV5_livingRoom.glb',
-      scenePlanesPath:
-        XR_BLOCKS_ASSETS_PATH +
-        'simulator/scenes/XREmulatorsceneV5_livingRoom_planes.json',
-      navMeshPath:
-        XR_BLOCKS_ASSETS_PATH +
-        'simulator/scenes/XREmulatorsceneV5_livingRoom_navmesh.glb',
+      manifestPath: `data:application/json;charset=utf-8,${DEFAULT_LIVING_ROOM_MANIFEST}`,
     },
   ];
   activeEnvironmentIndex = 0;
-  initialScenePosition = {x: -1.6, y: 0.3, z: 0};
   defaultMode = SimulatorMode.USER;
   defaultHand = Handedness.LEFT;
   modeToggle = {
