@@ -74,22 +74,22 @@ XR Blocks is a **singleton engine driven by a script lifecycle**:
 
 ### `src/` subsystems
 
-| Folder                                      | Responsibility                                                                               |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `core/`                                     | `Core` singleton, `Script`, `Options`, `User`, DI `Registry`, `XRButton`, WebXR session mgmt |
-| `input/`                                    | controllers, hands, gaze, mouse, gamepad; `gestures/`; `headGestures/`; `strokes/`           |
-| `world/`                                    | `World` + `planes/`, `mesh/`, `objects/` (Gemini & MediaPipe backends), `sounds/`            |
-| `context/`                                  | Agent-facing scene context: semantic tree, visible objects, Set-of-Mark screenshots          |
-| `depth/`                                    | depth sensing, depth mesh, `occlusion/` shaders & passes                                     |
-| `ai/`                                       | `AI` facade over `Gemini` + `OpenAI` (query / live / image gen)                              |
-| `agent/`                                    | agent framework: tools, memory, context (WIP)                                                |
-| `ui/`                                       | core spatial UI: `SpatialPanel`, `Grid`/`Row`/`Col`, views, `ModelViewer`, `Reticle`         |
-| `ux/`                                       | `DragManager`, reusable interaction behaviors                                                |
-| `simulator/`                                | desktop XR simulator (virtual user/hands/depth/planes, control modes)                        |
-| `sound/`                                    | spatial audio, speech recognizer/synthesizer                                                 |
-| `physics/`                                  | Rapier3D integration                                                                         |
-| `lighting/`, `camera/`, `video/`, `stereo/` | light estimation, device camera, video streams, stereo utils                                 |
-| `utils/`                                    | `ModelLoader`, dependency injection, helpers                                                 |
+| Folder                                      | Responsibility                                                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `core/`                                     | `Core` singleton, `Script`, `Options`, `User`, DI `Registry`, `XRButton`, WebXR session mgmt                   |
+| `input/`                                    | controllers, hands, gaze, mouse, gamepad; `gestures/`; `headGestures/`; `strokes/`                             |
+| `world/`                                    | `World` + `planes/`, `mesh/`, `objects/` (Gemini & MediaPipe backends), `sounds/`                              |
+| `context/`                                  | Agent-facing scene context: semantic tree, visible objects, Set-of-Mark screenshots                            |
+| `depth/`                                    | depth sensing, depth mesh, `occlusion/` shaders & passes                                                       |
+| `ai/`                                       | `AI` facade over `Gemini` + `OpenAI` (query / live / image gen)                                                |
+| `agent/`                                    | agent framework: tools, memory, context (WIP)                                                                  |
+| `ui/`                                       | core spatial UI: `SpatialPanel`, `Grid`/`Row`/`Col`, views, `ModelViewer`, `Reticle`                           |
+| `ux/`                                       | `DragManager`, reusable interaction behaviors                                                                  |
+| `simulator/`                                | desktop XR simulator (manifest environments, physical objects, virtual user/hands/depth/planes, control modes) |
+| `sound/`                                    | spatial audio, speech recognizer/synthesizer                                                                   |
+| `physics/`                                  | Rapier3D integration                                                                                           |
+| `lighting/`, `camera/`, `video/`, `stereo/` | light estimation, device camera, video streams, stereo utils                                                   |
+| `utils/`                                    | `ModelLoader`, dependency injection, helpers                                                                   |
 
 ## Conventions
 
