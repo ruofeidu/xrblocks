@@ -6,17 +6,15 @@ import type {RAPIERCompat} from '../../physics/PhysicsOptions';
 
 const HAND_RADIUS = 0.075;
 const HAND_MASS = 1;
-const MAX_HAND_SPEED = 3;
+const HAND_CONTACT_OFFSET = 0.002;
 
 interface HandBody {
   body: RAPIER.RigidBody;
   collider: RAPIER.Collider;
-  target: THREE.Vector3;
-  lastInput: THREE.Vector3;
+  controller: RAPIER.KinematicCharacterController;
   enabled: boolean;
 }
 
-const handVelocity = new THREE.Vector3();
 const handPosition = new THREE.Vector3();
 const handInputDelta = new THREE.Vector3();
 const identityRotation = new THREE.Quaternion();
@@ -52,21 +50,18 @@ export class SimulatorPhysics {
           identityRotation,
           handInputDelta,
           new this.RAPIER.Ball(HAND_RADIUS),
-          0.002,
+          HAND_CONTACT_OFFSET,
           1,
           false
         );
         handPosition.addScaledVector(handInputDelta, hit?.time_of_impact ?? 1);
       }
       const body = this.world.createRigidBody(
-        this.RAPIER.RigidBodyDesc.dynamic()
-          .setTranslation(handPosition.x, handPosition.y, handPosition.z)
-          .setGravityScale(0)
-          .setLinearDamping(8)
-          .setAdditionalMass(HAND_MASS)
-          .lockRotations()
-          .setCanSleep(false)
-          .setCcdEnabled(true)
+        this.RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(
+          handPosition.x,
+          handPosition.y,
+          handPosition.z
+        )
       );
       const collider = this.world.createCollider(
         this.RAPIER.ColliderDesc.ball(HAND_RADIUS)
@@ -74,11 +69,15 @@ export class SimulatorPhysics {
           .setRestitution(0),
         body
       );
+      const controller =
+        this.world.createCharacterController(HAND_CONTACT_OFFSET);
+      controller.setSlideEnabled(true);
+      controller.setApplyImpulsesToDynamicBodies(true);
+      controller.setCharacterMass(HAND_MASS);
       hand = {
         body,
         collider,
-        target: handPosition.clone(),
-        lastInput: position.clone(),
+        controller,
         enabled: true,
       };
       this.hands[index] = hand;
@@ -100,7 +99,7 @@ export class SimulatorPhysics {
             identityRotation,
             handInputDelta,
             new this.RAPIER.Ball(HAND_RADIUS),
-            0.002,
+            HAND_CONTACT_OFFSET,
             1,
             false,
             undefined,
@@ -114,46 +113,43 @@ export class SimulatorPhysics {
           );
         }
         hand.body.setTranslation(handPosition, true);
-        hand.body.setLinvel({x: 0, y: 0, z: 0}, true);
-        hand.target.copy(handPosition);
         hand.body.setEnabled(true);
       } else {
-        hand.body.setLinvel({x: 0, y: 0, z: 0}, false);
         hand.body.setEnabled(false);
       }
     }
-    if (!enabled) {
-      hand.lastInput.copy(position);
-      return;
-    }
-
-    hand.target.add(handInputDelta.copy(position).sub(hand.lastInput));
-    hand.lastInput.copy(position);
+    if (!enabled) return;
 
     const translation = hand.body.translation();
-    position.set(translation.x, translation.y, translation.z);
+    handInputDelta.set(
+      position.x - translation.x,
+      position.y - translation.y,
+      position.z - translation.z
+    );
+    if (handInputDelta.lengthSq() > 0) {
+      hand.controller.computeColliderMovement(hand.collider, handInputDelta);
+      const movement = hand.controller.computedMovement();
+      handPosition.set(
+        translation.x + movement.x,
+        translation.y + movement.y,
+        translation.z + movement.z
+      );
+      hand.body.setTranslation(handPosition, true);
+    } else {
+      handPosition.set(translation.x, translation.y, translation.z);
+    }
+
+    position.copy(handPosition);
   }
 
   step() {
-    for (const hand of this.hands) {
-      if (!hand?.enabled) continue;
-      const translation = hand.body.translation();
-      handVelocity
-        .copy(hand.target)
-        .sub(handPosition.set(translation.x, translation.y, translation.z));
-      handVelocity.multiplyScalar(1 / this.world.timestep);
-      handVelocity.clampLength(0, MAX_HAND_SPEED);
-      hand.body.setLinvel(handVelocity, true);
-    }
     this.world.step();
-    for (const hand of this.hands) {
-      if (!hand?.enabled) continue;
-      const translation = hand.body.translation();
-      hand.target.set(translation.x, translation.y, translation.z);
-    }
   }
 
   dispose() {
+    for (const hand of this.hands) {
+      if (hand) this.world.removeCharacterController(hand.controller);
+    }
     this.hands.length = 0;
     this.world.free();
   }
