@@ -232,6 +232,7 @@ options.world.enableMeshDetection();
 options.world.meshes.showDebugVisualizations = true;
 options.enableObjectDetection();
 options.world.objects.simulatorOverride = true;
+options.simulator.handPhysics.enabled = true;
 options.simulator.environments = [
   {
     name: 'Living Room Object Test',

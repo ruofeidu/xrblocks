@@ -141,6 +141,16 @@ reachable path generation, without exposing `three-pathfinding` groups or nodes.
 CDN/importmap apps that enable this need
 `"three-pathfinding": "https://cdn.jsdelivr.net/npm/three-pathfinding@1.3.0/dist/three-pathfinding.module.js"`.
 
+Simulator hand physics is opt-in with `options.simulator.handPhysics.enabled = true` and
+requires Rapier. The top-level `leftHandOrigin` and `rightHandOrigin` values are shared
+camera-local shoulder anchors for reach limits and the physics tether. Fixed geometry
+between an anchor and its palm clamps the hand to the near side, while dynamic simulator
+objects remain pushable.
+
+Set `options.simulator.physics.enabled = false` before initialization to disable the
+simulator's isolated physics world without disabling the app's regular Rapier world. This
+also disables simulator room, object, and hand collision.
+
 Use `xb.core.simulator.objects.addObjects(definitions)` for runtime additions. The
 matching plural APIs are `get(ids?)`, `removeObjects(ids)`, and `clear()`. An object
 definition accepts either `assetPath` or `object`, optional transform arrays,
