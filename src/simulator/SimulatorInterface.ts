@@ -9,6 +9,7 @@ import {
 } from './SimulatorOptions.js';
 import {SetSimulatorEnvironmentEvent} from './events/SimulatorEnvironmentEvents.js';
 import {ShowSimulatorInstructionsEvent} from './events/SimulatorInstructionsEvents.js';
+import {SetSimulatorHandPhysicsEvent} from './events/SimulatorPhysicsEvents.js';
 
 /** Minimal interface for the gamepad toast element. */
 interface GamepadToastElement extends HTMLElement {
@@ -68,14 +69,14 @@ export class SimulatorInterface {
     simulatorHands: SimulatorHands,
     input?: Input,
     setEnvironment?: (index: number) => Promise<void>,
-    simulatorPhysicsEnabled = false
+    handPhysicsAvailable = false
   ) {
     if (setEnvironment) {
       this.createSimulatorSettingsPanel(
         simulatorOptions,
         simulatorControls,
         setEnvironment,
-        simulatorPhysicsEnabled
+        handPhysicsAvailable
       );
     }
     this.showGeminiLivePanel(simulatorOptions);
@@ -95,7 +96,7 @@ export class SimulatorInterface {
     simulatorOptions: SimulatorOptions,
     simulatorControls: SimulatorControls,
     setEnvironment: (index: number) => Promise<void>,
-    simulatorPhysicsEnabled: boolean
+    handPhysicsAvailable: boolean
   ) {
     if (simulatorOptions.simulatorSettingsPanel.enabled) {
       const settingsElement = document.createElement(
@@ -106,7 +107,7 @@ export class SimulatorInterface {
         simulatorOptions.activeEnvironmentIndex;
       settingsElement.instructionsEnabled =
         simulatorOptions.instructions.enabled;
-      settingsElement.simulatorPhysicsEnabled = simulatorPhysicsEnabled;
+      settingsElement.handPhysicsAvailable = handPhysicsAvailable;
       settingsElement.handPhysicsEnabled = simulatorOptions.handPhysics.enabled;
       document.body.appendChild(settingsElement);
       simulatorControls.setSimulatorSettingsPanelElement(settingsElement);
@@ -124,6 +125,14 @@ export class SimulatorInterface {
         ShowSimulatorInstructionsEvent.type,
         () => {
           this.showInstructions(simulatorOptions);
+        }
+      );
+      settingsElement.addEventListener(
+        SetSimulatorHandPhysicsEvent.type,
+        (event: Event) => {
+          if (event instanceof SetSimulatorHandPhysicsEvent) {
+            simulatorOptions.handPhysics.enabled = event.enabled;
+          }
         }
       );
       this.elements.push(settingsElement);

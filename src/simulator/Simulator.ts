@@ -142,7 +142,6 @@ export class Simulator extends Script {
     this.world = world;
     camera.position.copy(this.options.initialCameraPosition);
     renderer.autoClearColor = false;
-    this.simulatorScene.init();
     await this.simulatorWorld.init(options, world);
     this.simulatorObjects.init(renderer, this.simulatorPhysics);
     this.environment = new SimulatorEnvironmentManager(

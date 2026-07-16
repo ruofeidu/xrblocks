@@ -179,7 +179,7 @@ export class SimulatorSettingsPanel
   @property({type: Number}) activeEnvironmentIndex = 0;
   @property({type: String}) simulatorMode = xb.SimulatorMode.USER;
   @property({type: Boolean}) instructionsEnabled = false;
-  @property({type: Boolean}) simulatorPhysicsEnabled = true;
+  @property({type: Boolean}) handPhysicsAvailable = false;
   @property({type: Boolean}) handPhysicsEnabled = false;
 
   @state() private _isOpen = false;
@@ -277,7 +277,7 @@ export class SimulatorSettingsPanel
             <input
               type="checkbox"
               .checked=${this.handPhysicsEnabled}
-              ?disabled=${!this.simulatorPhysicsEnabled}
+              ?disabled=${!this.handPhysicsAvailable}
               @change=${this._onHandPhysicsChange}
             />
           </label>

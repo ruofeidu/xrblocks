@@ -10,7 +10,6 @@ import {SimulatorPoseMode} from './controlModes/SimulatorPoseMode';
 import {SimulatorPointerLockMode} from './controlModes/SimulatorPointerLockMode';
 import {SimulatorUserMode} from './controlModes/SimulatorUserMode';
 import {SetSimulatorModeEvent} from './events/SimulatorModeEvents';
-import {SetSimulatorHandPhysicsEvent} from './events/SimulatorPhysicsEvents';
 import {SimulatorRenderMode} from './SimulatorConstants';
 import {SimulatorControllerState} from './SimulatorControllerState';
 import {SimulatorHands} from './SimulatorHands';
@@ -224,17 +223,6 @@ export class SimulatorControls {
         this.setSimulatorMode(event.simulatorMode);
       }
     });
-    element.addEventListener(
-      SetSimulatorHandPhysicsEvent.type,
-      (event: Event) => {
-        if (
-          event instanceof SetSimulatorHandPhysicsEvent &&
-          this.simulatorOptions
-        ) {
-          this.simulatorOptions.handPhysics.enabled = event.enabled;
-        }
-      }
-    );
     this.simulatorSettingsPanelElement = element;
   }
 

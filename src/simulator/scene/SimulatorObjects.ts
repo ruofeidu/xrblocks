@@ -20,15 +20,15 @@ export interface SimulatorObject {
 /** @internal */
 interface SimulatorObjectRecord extends SimulatorObject {
   rigidBody?: RAPIER.RigidBody;
-  colliders: RAPIER.Collider[];
   detectedMesh?: DetectedMesh;
+  physicsGeometry?: THREE.BufferGeometry;
+  ownsObject: boolean;
   preserveWorldTransform: boolean;
 }
 
 /** @internal */
 export interface PreparedSimulatorObjects {
   records: SimulatorObjectRecord[];
-  group: THREE.Group;
   nextId: number;
 }
 
@@ -102,14 +102,12 @@ export class SimulatorObjectsManager implements SimulatorObjects {
       const physics = definition.physics ?? false;
       if (physics && !this.physics) {
         throw new Error(
-          `Simulator object '${id}' requires physics, but XR Blocks physics is not enabled.`
+          `Simulator object '${id}' requires physics, but simulator physics is not enabled.`
         );
       }
       return {definition, id};
     });
 
-    const group = new THREE.Group();
-    group.name = 'Simulator Objects';
     const settled = await Promise.allSettled(
       normalized.map(async ({definition, id}) => {
         if (definition.object)
@@ -143,41 +141,51 @@ export class SimulatorObjectsManager implements SimulatorObjects {
           }>
         ).value
     );
-    for (const {definition, id, object} of loaded) {
-      const physicsGeometry =
-        (definition.physics ?? false) ? mergeObjectGeometry(object) : undefined;
-      if ((definition.physics ?? false) && !physicsGeometry) {
-        for (const entry of loaded) {
-          if (!entry.definition.object) disposeObjectTree(entry.object);
+    const records: SimulatorObjectRecord[] = [];
+    try {
+      for (const {definition, id, object} of loaded) {
+        const hasTransform =
+          !!definition.position ||
+          !!definition.quaternion ||
+          !!definition.scale;
+        object.name ||= id;
+        if (definition.position) object.position.fromArray(definition.position);
+        if (definition.quaternion)
+          object.quaternion.fromArray(definition.quaternion);
+        if (definition.scale) object.scale.fromArray(definition.scale);
+        object.visible = definition.visible ?? true;
+        const physicsGeometry =
+          (definition.physics ?? false)
+            ? (mergeObjectGeometry(object) ?? undefined)
+            : undefined;
+        if ((definition.physics ?? false) && !physicsGeometry) {
+          throw new Error(
+            `Simulator object '${id}' has no mesh geometry for physics.`
+          );
         }
-        throw new Error(
-          `Simulator object '${id}' has no mesh geometry for physics.`
-        );
+        records.push({
+          id,
+          object,
+          definition: {...definition, id},
+          physicsGeometry,
+          ownsObject: !definition.object,
+          preserveWorldTransform: !!definition.object?.parent && !hasTransform,
+        });
       }
-      physicsGeometry?.dispose();
+    } catch (error) {
+      for (const record of records) record.physicsGeometry?.dispose();
+      for (const entry of loaded) {
+        if (!entry.definition.object) disposeObjectTree(entry.object);
+      }
+      throw error;
     }
-    const records = loaded.map(({definition, id, object}) => {
-      const hasTransform =
-        !!definition.position || !!definition.quaternion || !!definition.scale;
-      object.name ||= id;
-      if (definition.position) object.position.fromArray(definition.position);
-      if (definition.quaternion)
-        object.quaternion.fromArray(definition.quaternion);
-      if (definition.scale) object.scale.fromArray(definition.scale);
-      object.visible = definition.visible ?? true;
-      return {
-        id,
-        object,
-        definition: {...definition, id},
-        colliders: [],
-        preserveWorldTransform: !!definition.object?.parent && !hasTransform,
-      } satisfies SimulatorObjectRecord;
-    });
-    return {records, group, nextId};
+    return {records, nextId};
   }
 
-  activatePrepared(prepared: PreparedSimulatorObjects, group?: THREE.Group) {
-    const targetGroup = group ?? prepared.group;
+  activatePrepared(
+    prepared: PreparedSimulatorObjects,
+    targetGroup: THREE.Group
+  ) {
     for (const record of prepared.records) {
       if (record.object.parent !== targetGroup) {
         if (record.preserveWorldTransform) targetGroup.attach(record.object);
@@ -300,7 +308,7 @@ export class SimulatorObjectsManager implements SimulatorObjects {
   private createPhysics(record: SimulatorObjectRecord) {
     const mode = record.definition.physics ?? false;
     if (!mode || !this.physics) return;
-    const geometry = mergeObjectGeometry(record.object);
+    const geometry = record.physicsGeometry;
     if (!geometry) {
       throw new Error(
         `Simulator object '${record.id}' has no mesh geometry for physics.`
@@ -325,10 +333,9 @@ export class SimulatorObjectsManager implements SimulatorObjects {
       );
     }
     record.rigidBody = body;
-    record.colliders.push(
-      this.physics.world.createCollider(colliderDesc, body)
-    );
+    this.physics.world.createCollider(colliderDesc, body);
     geometry.dispose();
+    record.physicsGeometry = undefined;
   }
 
   private createBodyDesc(mode: Exclude<SimulatorPhysicsMode, false>) {
@@ -341,10 +348,11 @@ export class SimulatorObjectsManager implements SimulatorObjects {
     if (this.physics && record.rigidBody) {
       this.physics.world.removeRigidBody(record.rigidBody);
       record.rigidBody = undefined;
-      record.colliders.length = 0;
     }
+    record.physicsGeometry?.dispose();
+    record.physicsGeometry = undefined;
     record.object.removeFromParent();
-    disposeObjectTree(record.object);
+    if (record.ownsObject) disposeObjectTree(record.object);
   }
 
   dispose() {

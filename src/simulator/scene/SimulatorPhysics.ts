@@ -37,64 +37,37 @@ export class SimulatorPhysics {
     index: number,
     position: THREE.Vector3,
     enabled: boolean,
-    reentryOrigin?: THREE.Vector3
+    handOrigin?: THREE.Vector3
   ) {
+    let hand = this.hands[index];
     if (!this.handOptions.enabled) {
-      const hand = this.hands[index];
       if (hand?.enabled) {
         hand.enabled = false;
         hand.body.setEnabled(false);
       }
       return;
     }
-    let hand = this.hands[index];
-    if (!hand) {
-      if (!enabled) return;
-      this.validateHandOptions();
-      this.clampHandToOrigin(position, reentryOrigin);
-      handPosition.copy(position);
-      const body = this.world.createRigidBody(
-        this.RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(
-          handPosition.x,
-          handPosition.y,
-          handPosition.z
-        )
-      );
-      const collider = this.world.createCollider(
-        this.RAPIER.ColliderDesc.ball(this.handOptions.radius)
-          .setFriction(this.handOptions.friction)
-          .setRestitution(this.handOptions.restitution),
-        body
-      );
-      const controller = this.world.createCharacterController(
-        this.handOptions.contactOffset
-      );
-      controller.setSlideEnabled(true);
-      controller.setApplyImpulsesToDynamicBodies(true);
-      controller.setCharacterMass(this.handOptions.mass);
-      hand = {
-        body,
-        collider,
-        controller,
-        enabled: true,
-      };
-      this.hands[index] = hand;
-    }
-
-    if (hand.enabled !== enabled) {
-      hand.enabled = enabled;
-      if (enabled) {
-        this.clampHandToOrigin(position, reentryOrigin);
-        handPosition.copy(position);
-        hand.body.setTranslation(handPosition, true);
-        hand.body.setEnabled(true);
-      } else {
+    if (!enabled) {
+      if (hand?.enabled) {
+        hand.enabled = false;
         hand.body.setEnabled(false);
       }
+      return;
     }
-    if (!enabled) return;
 
-    if (this.clampHandToOrigin(position, reentryOrigin)) {
+    const tethered = this.clampHandToOrigin(position, handOrigin);
+    if (!hand) {
+      hand = this.createHand(position);
+      this.hands[index] = hand;
+      return;
+    }
+    if (!hand.enabled) {
+      hand.enabled = true;
+      hand.body.setTranslation(position, true);
+      hand.body.setEnabled(true);
+      return;
+    }
+    if (tethered) {
       hand.body.setTranslation(position, true);
       return;
     }
@@ -121,6 +94,30 @@ export class SimulatorPhysics {
     position.copy(handPosition);
   }
 
+  private createHand(position: THREE.Vector3): HandBody {
+    this.validateHandOptions();
+    const body = this.world.createRigidBody(
+      this.RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(
+        position.x,
+        position.y,
+        position.z
+      )
+    );
+    const collider = this.world.createCollider(
+      this.RAPIER.ColliderDesc.ball(this.handOptions.radius)
+        .setFriction(this.handOptions.friction)
+        .setRestitution(this.handOptions.restitution),
+      body
+    );
+    const controller = this.world.createCharacterController(
+      this.handOptions.contactOffset
+    );
+    controller.setSlideEnabled(true);
+    controller.setApplyImpulsesToDynamicBodies(true);
+    controller.setCharacterMass(this.handOptions.mass);
+    return {body, collider, controller, enabled: true};
+  }
+
   private clampHandToOrigin(position: THREE.Vector3, origin?: THREE.Vector3) {
     if (!origin) return false;
     handInputDelta.copy(position).sub(origin);
@@ -133,16 +130,7 @@ export class SimulatorPhysics {
       this.handOptions.contactOffset,
       1,
       false,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      (collider) => {
-        if (this.hands.some((hand) => hand?.collider === collider)) {
-          return false;
-        }
-        return collider.parent()?.isFixed() ?? true;
-      }
+      this.RAPIER.QueryFilterFlags.ONLY_FIXED
     );
     if (!hit) return false;
     position.copy(origin).addScaledVector(handInputDelta, hit.time_of_impact);

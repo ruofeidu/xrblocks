@@ -6,14 +6,10 @@ import {ResolvedSimulatorSceneManifest} from './SimulatorEnvironmentManifest';
 export class SimulatorScene extends THREE.Scene {
   gltf?: GLTF;
   environmentRoot?: THREE.Group;
-  objectsGroup?: THREE.Group;
 
   constructor() {
     super();
-  }
-
-  init() {
-    this.addLights();
+    this.add(new THREE.HemisphereLight(0xbbbbbb, 0x888888, 3));
   }
 
   createEnvironmentRoot(manifest: ResolvedSimulatorSceneManifest) {
@@ -28,11 +24,10 @@ export class SimulatorScene extends THREE.Scene {
     return {root, objects};
   }
 
-  commitEnvironment(root: THREE.Group, objects: THREE.Group, gltf?: GLTF) {
+  commitEnvironment(root: THREE.Group, gltf?: GLTF) {
     const previousRoot = this.environmentRoot;
     this.add(root);
     this.environmentRoot = root;
-    this.objectsGroup = objects;
     this.gltf = gltf;
     previousRoot?.removeFromParent();
     return previousRoot;
@@ -41,11 +36,6 @@ export class SimulatorScene extends THREE.Scene {
   clearEnvironment() {
     this.environmentRoot?.removeFromParent();
     this.environmentRoot = undefined;
-    this.objectsGroup = undefined;
     this.gltf = undefined;
-  }
-
-  addLights() {
-    this.add(new THREE.HemisphereLight(0xbbbbbb, 0x888888, 3));
   }
 }

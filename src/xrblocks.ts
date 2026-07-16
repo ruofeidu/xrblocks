@@ -78,7 +78,14 @@ export * from './simulator/SimulatorControllerState';
 export * from './simulator/SimulatorControls';
 export * from './simulator/scene/SimulatorDepth';
 export * from './simulator/scene/SimulatorDepthMaterial';
-export * from './simulator/scene/SimulatorEnvironmentManifest';
+export type {
+  SimulatorObjectDefinition,
+  SimulatorPhysicsMode,
+  SimulatorQuaternionTuple,
+  ResolvedSimulatorSceneManifest,
+  SimulatorSceneManifest,
+  SimulatorVector3Tuple,
+} from './simulator/scene/SimulatorEnvironmentManifest';
 export * from './simulator/SimulatorHands';
 export * from './simulator/SimulatorInterface';
 export * from './simulator/SimulatorMediaDeviceInfo';

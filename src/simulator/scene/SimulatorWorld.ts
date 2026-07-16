@@ -114,10 +114,7 @@ export class SimulatorWorld {
   ) {
     if (!this.world.meshes) return;
     const sources: SimulatorMesh[] = [];
-    if (room) {
-      const source = this.createMeshSource(room, 'global mesh');
-      if (source) sources.push(source);
-    }
+    if (room) sources.push(...this.createRoomMeshSources(room));
     for (const record of objects.getMeshRecords()) {
       const source = this.createMeshSource(record.object, 'other', record.id);
       if (source) sources.push(source);
@@ -131,6 +128,24 @@ export class SimulatorWorld {
       )
     );
     objects.setDetectedMeshes(objectMeshes);
+  }
+
+  /** Preserves the original simulator behavior of exposing each room submesh. */
+  private createRoomMeshSources(root: THREE.Object3D) {
+    root.updateWorldMatrix(true, true);
+    const sources: SimulatorMesh[] = [];
+    root.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.geometry?.attributes.position) return;
+      const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+      sources.push({
+        vertices: geometryVertices(geometry),
+        indices: geometryIndices(geometry),
+        lastChangedTime: 0,
+      });
+      geometry.dispose();
+    });
+    return sources;
   }
 
   private createMeshSource(

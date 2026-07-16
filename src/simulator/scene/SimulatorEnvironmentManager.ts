@@ -54,6 +54,7 @@ export class SimulatorEnvironmentManager {
       this.simulatorScene.createEnvironmentRoot(manifest);
 
     let gltf: GLTF | undefined;
+    let roomGeometry: THREE.BufferGeometry | undefined;
     try {
       const roomPromise = manifest.scenePath
         ? new ModelLoader().loadGLTF({
@@ -110,13 +111,13 @@ export class SimulatorEnvironmentManager {
         objectsGroup.add(record.object);
       }
       if (gltf && this.physics) {
-        const roomGeometry = mergeObjectGeometry(gltf.scene);
+        roomGeometry = mergeObjectGeometry(gltf.scene) ?? undefined;
         if (!roomGeometry) {
           throw new Error('Simulator room has no mesh geometry for physics.');
         }
-        roomGeometry.dispose();
       }
       if (generation !== this.generation) {
+        roomGeometry?.dispose();
         disposeObjectTree(root);
         return;
       }
@@ -124,10 +125,11 @@ export class SimulatorEnvironmentManager {
       const previousRoot = this.simulatorScene.environmentRoot;
       this.disposeRoomPhysics();
       this.simulatorObjects.reset();
-      this.simulatorScene.commitEnvironment(root, objectsGroup, gltf);
+      this.simulatorScene.commitEnvironment(root, gltf);
       this.simulatorObjects.setEnvironmentGroup(objectsGroup);
       this.simulatorObjects.activatePrepared(preparedObjects, objectsGroup);
-      this.createRoomPhysics(gltf?.scene);
+      this.createRoomPhysics(gltf?.scene, roomGeometry);
+      roomGeometry = undefined;
       this.navMesh.commitEnvironment(preparedNavMesh);
       this.simulatorWorld.commitPlanes(preparedPlanes);
       this.refreshMeshes();
@@ -137,6 +139,7 @@ export class SimulatorEnvironmentManager {
 
       if (previousRoot) disposeObjectTree(previousRoot);
     } catch (error) {
+      roomGeometry?.dispose();
       if (root !== this.simulatorScene.environmentRoot) {
         disposeObjectTree(root);
       }
@@ -144,9 +147,11 @@ export class SimulatorEnvironmentManager {
     }
   }
 
-  private createRoomPhysics(room?: THREE.Object3D) {
+  private createRoomPhysics(
+    room?: THREE.Object3D,
+    geometry?: THREE.BufferGeometry
+  ) {
     if (!room || !this.physics) return;
-    const geometry = mergeObjectGeometry(room);
     if (!geometry) {
       throw new Error('Simulator room has no mesh geometry for physics.');
     }
