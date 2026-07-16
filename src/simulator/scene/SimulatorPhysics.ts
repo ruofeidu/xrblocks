@@ -3,10 +3,7 @@ import type RAPIER from 'rapier3d';
 
 import type {Physics} from '../../physics/Physics';
 import type {RAPIERCompat} from '../../physics/PhysicsOptions';
-
-const HAND_RADIUS = 0.075;
-const HAND_MASS = 1;
-const HAND_CONTACT_OFFSET = 0.002;
+import type {SimulatorHandPhysicsOptions} from '../SimulatorOptions';
 
 interface HandBody {
   body: RAPIER.RigidBody;
@@ -25,7 +22,10 @@ export class SimulatorPhysics {
   readonly world: RAPIER.World;
   private hands: Array<HandBody | undefined> = [];
 
-  constructor(physics: Physics) {
+  constructor(
+    physics: Physics,
+    private handOptions: SimulatorHandPhysicsOptions
+  ) {
     this.RAPIER = physics.RAPIER;
     this.world = new this.RAPIER.World(
       physics.options?.gravity ?? {x: 0, y: -9.81, z: 0}
@@ -39,9 +39,18 @@ export class SimulatorPhysics {
     enabled: boolean,
     reentryOrigin?: THREE.Vector3
   ) {
+    if (!this.handOptions.enabled) {
+      const hand = this.hands[index];
+      if (hand?.enabled) {
+        hand.enabled = false;
+        hand.body.setEnabled(false);
+      }
+      return;
+    }
     let hand = this.hands[index];
     if (!hand) {
       if (!enabled) return;
+      this.validateHandOptions();
       this.clampHandToOrigin(position, reentryOrigin);
       handPosition.copy(position);
       const body = this.world.createRigidBody(
@@ -52,16 +61,17 @@ export class SimulatorPhysics {
         )
       );
       const collider = this.world.createCollider(
-        this.RAPIER.ColliderDesc.ball(HAND_RADIUS)
-          .setFriction(0.8)
-          .setRestitution(0),
+        this.RAPIER.ColliderDesc.ball(this.handOptions.radius)
+          .setFriction(this.handOptions.friction)
+          .setRestitution(this.handOptions.restitution),
         body
       );
-      const controller =
-        this.world.createCharacterController(HAND_CONTACT_OFFSET);
+      const controller = this.world.createCharacterController(
+        this.handOptions.contactOffset
+      );
       controller.setSlideEnabled(true);
       controller.setApplyImpulsesToDynamicBodies(true);
-      controller.setCharacterMass(HAND_MASS);
+      controller.setCharacterMass(this.handOptions.mass);
       hand = {
         body,
         collider,
@@ -119,8 +129,8 @@ export class SimulatorPhysics {
       origin,
       identityRotation,
       handInputDelta,
-      new this.RAPIER.Ball(HAND_RADIUS),
-      HAND_CONTACT_OFFSET,
+      new this.RAPIER.Ball(this.handOptions.radius),
+      this.handOptions.contactOffset,
       1,
       false,
       undefined,
@@ -137,6 +147,23 @@ export class SimulatorPhysics {
     if (!hit) return false;
     position.copy(origin).addScaledVector(handInputDelta, hit.time_of_impact);
     return true;
+  }
+
+  private validateHandOptions() {
+    if (this.handOptions.radius <= 0) {
+      throw new RangeError('Simulator hand physics radius must be positive.');
+    }
+    if (
+      this.handOptions.contactOffset <= 0 ||
+      this.handOptions.contactOffset >= this.handOptions.radius
+    ) {
+      throw new RangeError(
+        'Simulator hand physics contactOffset must be positive and smaller than radius.'
+      );
+    }
+    if (this.handOptions.mass <= 0) {
+      throw new RangeError('Simulator hand physics mass must be positive.');
+    }
   }
 
   step() {

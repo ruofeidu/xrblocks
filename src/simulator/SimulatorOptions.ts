@@ -31,6 +31,15 @@ export interface SimulatorEnvironment {
   manifestPath: string;
 }
 
+export interface SimulatorHandPhysicsOptions {
+  enabled: boolean;
+  radius: number;
+  mass: number;
+  contactOffset: number;
+  friction: number;
+  restitution: number;
+}
+
 const DEFAULT_LIVING_ROOM_MANIFEST = encodeURIComponent(
   JSON.stringify({
     scenePath:
@@ -88,6 +97,10 @@ export class SimulatorOptions {
     enabled: false,
     eyeHeight: 1.5,
   };
+  /** Controls the isolated physics world used by the desktop simulator. */
+  physics = {
+    enabled: true,
+  };
   deviceCamera = {
     // Whether to enable the simulator camera feed.
     // If disabled, the actual device camera will be used instead.
@@ -102,6 +115,15 @@ export class SimulatorOptions {
   leftHandOrigin = {x: -0.2, y: -0.2, z: 0};
   /** Shoulder/chest origin of the right hand in local camera space. */
   rightHandOrigin = {x: 0.2, y: -0.2, z: 0};
+  /** Optional physical constraints for simulated hands. Requires Rapier. */
+  handPhysics: SimulatorHandPhysicsOptions = {
+    enabled: false,
+    radius: 0.075,
+    mass: 1,
+    contactOffset: 0.002,
+    friction: 0.8,
+    restitution: 0,
+  };
   /** Limits how far each hand controller can travel from the user's shoulder origin. */
   reachDistance = {
     enabled: false,

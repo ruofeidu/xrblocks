@@ -130,7 +130,10 @@ export class Simulator extends Script {
     // Get optional dependencies from the registry.
     const deviceCamera = registry.get(XRDeviceCamera);
     const physics = registry.get(Physics);
-    this.simulatorPhysics = physics ? new SimulatorPhysics(physics) : undefined;
+    this.simulatorPhysics =
+      physics && simulatorOptions.physics.enabled
+        ? new SimulatorPhysics(physics, simulatorOptions.handPhysics)
+        : undefined;
     this.options = simulatorOptions;
     this.renderer = renderer;
     this.mainCamera = camera;
@@ -157,7 +160,8 @@ export class Simulator extends Script {
       this.controls,
       this.hands,
       input,
-      this.setEnvironment.bind(this)
+      this.setEnvironment.bind(this),
+      !!this.simulatorPhysics
     );
     await this.setEnvironment(this.options.activeEnvironmentIndex);
     this.useSimulatorObjectDetection =

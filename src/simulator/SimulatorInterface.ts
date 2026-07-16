@@ -67,13 +67,15 @@ export class SimulatorInterface {
     simulatorControls: SimulatorControls,
     simulatorHands: SimulatorHands,
     input?: Input,
-    setEnvironment?: (index: number) => Promise<void>
+    setEnvironment?: (index: number) => Promise<void>,
+    simulatorPhysicsEnabled = false
   ) {
     if (setEnvironment) {
       this.createSimulatorSettingsPanel(
         simulatorOptions,
         simulatorControls,
-        setEnvironment
+        setEnvironment,
+        simulatorPhysicsEnabled
       );
     }
     this.showGeminiLivePanel(simulatorOptions);
@@ -92,7 +94,8 @@ export class SimulatorInterface {
   createSimulatorSettingsPanel(
     simulatorOptions: SimulatorOptions,
     simulatorControls: SimulatorControls,
-    setEnvironment: (index: number) => Promise<void>
+    setEnvironment: (index: number) => Promise<void>,
+    simulatorPhysicsEnabled: boolean
   ) {
     if (simulatorOptions.simulatorSettingsPanel.enabled) {
       const settingsElement = document.createElement(
@@ -103,6 +106,8 @@ export class SimulatorInterface {
         simulatorOptions.activeEnvironmentIndex;
       settingsElement.instructionsEnabled =
         simulatorOptions.instructions.enabled;
+      settingsElement.simulatorPhysicsEnabled = simulatorPhysicsEnabled;
+      settingsElement.handPhysicsEnabled = simulatorOptions.handPhysics.enabled;
       document.body.appendChild(settingsElement);
       simulatorControls.setSimulatorSettingsPanelElement(settingsElement);
       settingsElement.addEventListener(
