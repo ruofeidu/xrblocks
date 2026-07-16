@@ -162,7 +162,14 @@ export class Simulator extends Script {
       this.setEnvironment.bind(this),
       !!this.simulatorPhysics
     );
-    await this.setEnvironment(this.options.activeEnvironmentIndex);
+    const initialEnvironment =
+      this.options.environments[this.options.activeEnvironmentIndex];
+    if (!initialEnvironment) {
+      throw new Error(
+        `Simulator environment index ${this.options.activeEnvironmentIndex} does not exist.`
+      );
+    }
+    await this.environment.setEnvironment(initialEnvironment);
     this.useSimulatorObjectDetection =
       options.world.objects.enabled && options.world.objects.simulatorOverride;
     if (this.useSimulatorObjectDetection && world.objects) {
@@ -221,11 +228,18 @@ export class Simulator extends Script {
     this.initialized = true;
   }
 
-  async setEnvironment(index: number) {
-    if (!this.environment) {
+  /**
+   * Loads and activates a simulator environment at runtime.
+   */
+  async setEnvironment(name: string, manifestPath: string) {
+    if (!this.initialized || !this.environment) {
       throw new Error('Simulator is not initialized.');
     }
-    await this.environment.setEnvironment(index);
+    await this.environment.setEnvironment({name, manifestPath});
+  }
+
+  get activeEnvironment() {
+    return this.environment?.activeEnvironment;
   }
 
   get activeEnvironmentManifest() {

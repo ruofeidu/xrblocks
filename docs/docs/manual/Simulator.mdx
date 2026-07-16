@@ -66,6 +66,17 @@ options.simulator.environments = [
 ];
 ```
 
+The list supplies the simulator settings panel and selects the initial environment through
+`activeEnvironmentIndex`. To load any environment directly at runtime, pass its display name and
+manifest path:
+
+```js
+await xb.core.simulator.setEnvironment(
+  'Ad Hoc Evaluation Room',
+  './ad-hoc-evaluation-room.json'
+);
+```
+
 ```json title="evaluation-room.json"
 {
   "scenePath": "./room.glb",

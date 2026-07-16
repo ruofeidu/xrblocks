@@ -19,6 +19,7 @@ import {SimulatorObjectsManager} from './SimulatorObjects';
 import type {SimulatorPhysics} from './SimulatorPhysics';
 import {SimulatorScene} from './SimulatorScene';
 import {SimulatorWorld} from './SimulatorWorld';
+import type {SimulatorEnvironment} from '../SimulatorOptions';
 
 interface RoomPhysics {
   rigidBody: RAPIER.RigidBody;
@@ -26,6 +27,7 @@ interface RoomPhysics {
 
 export class SimulatorEnvironmentManager {
   manifest?: ResolvedSimulatorSceneManifest;
+  activeEnvironment?: SimulatorEnvironment;
 
   private generation = 0;
   private roomPhysics?: RoomPhysics;
@@ -43,11 +45,7 @@ export class SimulatorEnvironmentManager {
     this.simulatorObjects.onChanged = this.refreshMeshes.bind(this);
   }
 
-  async setEnvironment(index: number) {
-    const environment = this.options.simulator.environments[index];
-    if (!environment) {
-      throw new Error(`Simulator environment index ${index} does not exist.`);
-    }
+  async setEnvironment(environment: SimulatorEnvironment) {
     const generation = ++this.generation;
     const manifest = await loadSimulatorSceneManifest(environment.manifestPath);
     const {root, objects: objectsGroup} =
@@ -134,7 +132,7 @@ export class SimulatorEnvironmentManager {
       this.simulatorWorld.commitPlanes(preparedPlanes);
       this.refreshMeshes();
       this.setVideoPath(manifest.videoPath);
-      this.options.simulator.activeEnvironmentIndex = index;
+      this.activeEnvironment = environment;
       this.manifest = manifest;
 
       if (previousRoot) disposeObjectTree(previousRoot);
@@ -208,6 +206,7 @@ export class SimulatorEnvironmentManager {
     root?.removeFromParent();
     if (root) disposeObjectTree(root);
     this.simulatorScene.clearEnvironment();
+    this.activeEnvironment = undefined;
     this.manifest = undefined;
     this.setVideoPath(undefined);
   }

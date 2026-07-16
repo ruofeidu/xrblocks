@@ -68,7 +68,7 @@ export class SimulatorInterface {
     simulatorControls: SimulatorControls,
     simulatorHands: SimulatorHands,
     input?: Input,
-    setEnvironment?: (index: number) => Promise<void>,
+    setEnvironment?: (name: string, manifestPath: string) => Promise<void>,
     handPhysicsAvailable = false
   ) {
     if (setEnvironment) {
@@ -95,7 +95,7 @@ export class SimulatorInterface {
   createSimulatorSettingsPanel(
     simulatorOptions: SimulatorOptions,
     simulatorControls: SimulatorControls,
-    setEnvironment: (index: number) => Promise<void>,
+    setEnvironment: (name: string, manifestPath: string) => Promise<void>,
     handPhysicsAvailable: boolean
   ) {
     if (simulatorOptions.simulatorSettingsPanel.enabled) {
@@ -115,7 +115,18 @@ export class SimulatorInterface {
         SetSimulatorEnvironmentEvent.type,
         (event: Event) => {
           if (event instanceof SetSimulatorEnvironmentEvent) {
-            void setEnvironment(event.environmentIndex).catch((error) => {
+            const environment =
+              simulatorOptions.environments[event.environmentIndex];
+            if (!environment) {
+              console.error(
+                `Simulator environment index ${event.environmentIndex} does not exist.`
+              );
+              return;
+            }
+            void setEnvironment(
+              environment.name,
+              environment.manifestPath
+            ).catch((error) => {
               console.error('Failed to switch simulator environment.', error);
             });
           }
