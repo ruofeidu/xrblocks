@@ -54,9 +54,15 @@ export function mergeObjectGeometry(root: THREE.Object3D) {
 }
 
 export function geometryVertices(geometry: THREE.BufferGeometry) {
-  return new Float32Array(
-    geometry.attributes.position.array as ArrayLike<number>
-  );
+  const position = geometry.getAttribute('position');
+  const vertices = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) {
+    const offset = i * 3;
+    vertices[offset] = position.getX(i);
+    vertices[offset + 1] = position.getY(i);
+    vertices[offset + 2] = position.getZ(i);
+  }
+  return vertices;
 }
 
 export function geometryIndices(geometry: THREE.BufferGeometry) {

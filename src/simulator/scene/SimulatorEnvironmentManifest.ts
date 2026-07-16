@@ -265,7 +265,9 @@ export async function loadSimulatorSceneManifest(
   baseUrl = document.baseURI
 ) {
   const manifestUrl = new URL(manifestPath, baseUrl).href;
-  const response = await fetch(manifestUrl);
+  // Manifests are small, mutable environment descriptors. Always refresh them
+  // while allowing the larger assets they reference to use normal HTTP caching.
+  const response = await fetch(manifestUrl, {cache: 'no-store'});
   if (!response.ok) {
     throw new Error(
       `Failed to load simulator manifest at ${manifestUrl}: ${response.status} ${response.statusText}`
