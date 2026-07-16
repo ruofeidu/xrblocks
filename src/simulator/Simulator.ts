@@ -238,12 +238,16 @@ export class Simulator extends Script {
   }
 
   override onXRSessionStarted() {
+    if (this.useSimulatorObjectDetection) {
+      this.world?.objects?.clear();
+    }
     this.world?.objects?.setSimulatorSource(undefined);
     this.environment?.suspendSensing();
   }
 
   override onXRSessionEnded() {
     if (this.useSimulatorObjectDetection) {
+      this.world?.objects?.clear();
       this.world?.objects?.setSimulatorSource(this.objectDetectionSource);
     }
     this.environment?.resumeSensing();
