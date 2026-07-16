@@ -24,6 +24,7 @@ code runs in an ordinary browser. The published npm package exposes one ESM bund
 ```bash
 npm ci                 # install from the lockfile
 npm run dev            # rollup watch + http-server on http://127.0.0.1:8080
+npm run build:sdk      # preferred product build for testing without building demos/samples
 npm run build          # production build (rollup -c --failAfterWarnings)
 npm run serve          # serve the repo without rebuilding
 npm test               # vitest run
