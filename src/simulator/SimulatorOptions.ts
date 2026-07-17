@@ -19,6 +19,13 @@ const DEFAULT_MODE_TOGGLE_ORDER = {
   [SimulatorMode.POINTER_LOCK]: SimulatorMode.USER,
 };
 
+const DEFAULT_ENVIRONMENT_MANIFESTS = [
+  'living-room.json',
+  'office.json',
+  'emulator-scene-v5.json',
+  'emulator-scene-dark.json',
+];
+
 export interface SimulatorCustomInstruction {
   header: string | TemplateResult;
   videoSrc?: string;
@@ -29,6 +36,15 @@ export interface SimulatorEnvironment {
   /** Optional display name; otherwise the manifest name is used. */
   name?: string;
   manifestPath: string;
+}
+
+function defaultEnvironment(manifestFile: string): SimulatorEnvironment {
+  return {
+    manifestPath: new URL(
+      `../src/simulator/scene/defaultManifests/${manifestFile}`,
+      import.meta.url
+    ).href,
+  };
 }
 
 export interface SimulatorHandPhysicsOptions {
@@ -42,32 +58,7 @@ export interface SimulatorHandPhysicsOptions {
 
 export class SimulatorOptions {
   initialCameraPosition = {x: 0, y: 1.5, z: 0};
-  environments: SimulatorEnvironment[] = [
-    {
-      manifestPath: new URL(
-        '../src/simulator/scene/defaultManifests/living-room.json',
-        import.meta.url
-      ).href,
-    },
-    {
-      manifestPath: new URL(
-        '../src/simulator/scene/defaultManifests/office.json',
-        import.meta.url
-      ).href,
-    },
-    {
-      manifestPath: new URL(
-        '../src/simulator/scene/defaultManifests/emulator-scene-v5.json',
-        import.meta.url
-      ).href,
-    },
-    {
-      manifestPath: new URL(
-        '../src/simulator/scene/defaultManifests/emulator-scene-dark.json',
-        import.meta.url
-      ).href,
-    },
-  ];
+  environments = DEFAULT_ENVIRONMENT_MANIFESTS.map(defaultEnvironment);
   activeEnvironmentIndex = 0;
   defaultMode = SimulatorMode.USER;
   defaultHand = Handedness.LEFT;

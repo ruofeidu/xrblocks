@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import type {GLTF} from 'three/addons/loaders/GLTFLoader.js';
 import type RAPIER from 'rapier3d';
 
-import {Options} from '../../core/Options';
 import {disposeObjectTree} from '../../utils/ThreeDisposal';
 import {ModelLoader} from '../../utils/ModelLoader';
 import {
@@ -19,10 +18,14 @@ import {SimulatorObjectsManager} from './SimulatorObjects';
 import type {SimulatorPhysics} from './SimulatorPhysics';
 import {SimulatorScene} from './SimulatorScene';
 import {SimulatorWorld} from './SimulatorWorld';
-import type {SimulatorEnvironment} from '../SimulatorOptions';
+import type {SimulatorEnvironment, SimulatorOptions} from '../SimulatorOptions';
 
 interface RoomPhysics {
   rigidBody: RAPIER.RigidBody;
+}
+
+function getManifestFallbackName(manifestUrl: string) {
+  return new URL(manifestUrl).pathname.split('/').pop() || manifestUrl;
 }
 
 export class SimulatorEnvironmentManager {
@@ -33,7 +36,7 @@ export class SimulatorEnvironmentManager {
   private roomPhysics?: RoomPhysics;
 
   constructor(
-    private options: Options,
+    private options: SimulatorOptions,
     private renderer: THREE.WebGLRenderer,
     private simulatorScene: SimulatorScene,
     private simulatorObjects: SimulatorObjectsManager,
@@ -89,7 +92,7 @@ export class SimulatorEnvironmentManager {
           manifest.manifestUrl,
           {replaceExisting: true}
         ),
-        this.navMesh.prepareEnvironment(manifest, this.options.simulator),
+        this.navMesh.prepareEnvironment(manifest, this.options),
         this.simulatorWorld.preparePlanes(manifest),
       ]);
       const failure = results.find(
@@ -160,7 +163,9 @@ export class SimulatorEnvironmentManager {
       this.refreshMeshes();
       this.setVideoPath(manifest.videoPath);
       environment.name =
-        manifest.name ?? environment.name ?? environment.manifestPath;
+        environment.name ??
+        manifest.name ??
+        getManifestFallbackName(manifest.manifestUrl);
       this.activeEnvironment = environment;
       this.manifest = manifest;
 

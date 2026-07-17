@@ -3,8 +3,9 @@ import {Input} from '../input/Input.js';
 import {SimulatorControls} from './SimulatorControls.js';
 import {ISimulatorSettingsPanelElement} from './interfaces/ISimulatorSettingsPanelElement.js';
 import {SimulatorHands} from './SimulatorHands.js';
-import {
+import type {
   SimulatorCustomInstruction,
+  SimulatorEnvironment,
   SimulatorOptions,
 } from './SimulatorOptions.js';
 import {SetSimulatorEnvironmentEvent} from './events/SimulatorEnvironmentEvents.js';
@@ -68,7 +69,7 @@ export class SimulatorInterface {
     simulatorControls: SimulatorControls,
     simulatorHands: SimulatorHands,
     input?: Input,
-    setEnvironment?: (name: string, manifestPath: string) => Promise<void>,
+    setEnvironment?: (environment: SimulatorEnvironment) => Promise<void>,
     handPhysicsAvailable = false
   ) {
     if (setEnvironment) {
@@ -95,7 +96,7 @@ export class SimulatorInterface {
   createSimulatorSettingsPanel(
     simulatorOptions: SimulatorOptions,
     simulatorControls: SimulatorControls,
-    setEnvironment: (name: string, manifestPath: string) => Promise<void>,
+    setEnvironment: (environment: SimulatorEnvironment) => Promise<void>,
     handPhysicsAvailable: boolean
   ) {
     if (simulatorOptions.simulatorSettingsPanel.enabled) {
@@ -123,10 +124,7 @@ export class SimulatorInterface {
               );
               return;
             }
-            void setEnvironment(
-              environment.name ?? environment.manifestPath,
-              environment.manifestPath
-            ).catch((error) => {
+            void setEnvironment(environment).catch((error) => {
               console.error('Failed to switch simulator environment.', error);
             });
           }

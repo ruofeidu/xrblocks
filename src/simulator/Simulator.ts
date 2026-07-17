@@ -20,6 +20,7 @@ import {SimulatorHands} from './SimulatorHands';
 import {SimulatorInterface} from './SimulatorInterface';
 import {SimulatorNavMesh} from './scene/SimulatorNavMesh';
 import {SimulatorOptions} from './SimulatorOptions';
+import type {SimulatorEnvironment} from './SimulatorOptions';
 import {SimulatorScene} from './scene/SimulatorScene';
 import {SimulatorUser} from './SimulatorUser';
 import {SimulatorEnvironmentManager} from './scene/SimulatorEnvironmentManager';
@@ -149,7 +150,7 @@ export class Simulator extends Script {
     await this.simulatorWorld.init(options, world);
     this.simulatorObjects.init(renderer, this.simulatorPhysics);
     this.environment = new SimulatorEnvironmentManager(
-      options,
+      simulatorOptions,
       renderer,
       this.simulatorScene,
       this.simulatorObjects,
@@ -157,15 +158,6 @@ export class Simulator extends Script {
       this.simulatorWorld,
       this.simulatorPhysics,
       this.setVideoPath.bind(this)
-    );
-    await this.environment.resolveEnvironmentNames(this.options.environments);
-    this.userInterface.init(
-      simulatorOptions,
-      this.controls,
-      this.hands,
-      input,
-      this.setEnvironment.bind(this),
-      !!this.simulatorPhysics
     );
     const initialEnvironment =
       this.options.environments[this.options.activeEnvironmentIndex];
@@ -175,6 +167,15 @@ export class Simulator extends Script {
       );
     }
     await this.environment.setEnvironment(initialEnvironment);
+    await this.environment.resolveEnvironmentNames(this.options.environments);
+    this.userInterface.init(
+      simulatorOptions,
+      this.controls,
+      this.hands,
+      input,
+      this.activateEnvironment.bind(this),
+      !!this.simulatorPhysics
+    );
     this.useSimulatorObjectDetection =
       options.world.objects.enabled && options.world.objects.simulatorOverride;
     if (this.useSimulatorObjectDetection && world.objects) {
@@ -237,10 +238,20 @@ export class Simulator extends Script {
    * Loads and activates a simulator environment at runtime.
    */
   async setEnvironment(name: string, manifestPath: string) {
+    await this.activateEnvironment({name, manifestPath});
+  }
+
+  private async activateEnvironment(environment: SimulatorEnvironment) {
     if (!this.initialized || !this.environment) {
       throw new Error('Simulator is not initialized.');
     }
-    await this.environment.setEnvironment({name, manifestPath});
+    const index = this.options.environments.findIndex(
+      (candidate) => candidate.manifestPath === environment.manifestPath
+    );
+    if (index !== -1) {
+      this.options.activeEnvironmentIndex = index;
+    }
+    await this.environment.setEnvironment(environment);
   }
 
   get activeEnvironment() {
