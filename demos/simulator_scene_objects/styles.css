@@ -91,13 +91,3 @@
   background: black;
   image-rendering: pixelated;
 }
-
-#status {
-  min-height: 42px;
-  margin: 12px 0 0;
-  color: #a5f3fc;
-  font:
-    12px/1.45 ui-monospace,
-    monospace;
-  white-space: pre-wrap;
-}

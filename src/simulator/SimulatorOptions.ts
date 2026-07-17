@@ -1,6 +1,5 @@
 import type {TemplateResult} from 'lit';
 
-import {XR_BLOCKS_ASSETS_PATH} from '../constants';
 import {Handedness} from '../input/Hands';
 import {deepMerge} from '../utils/OptionsUtils';
 import {DeepPartial, DeepReadonly} from '../utils/Types';
@@ -27,7 +26,8 @@ export interface SimulatorCustomInstruction {
 }
 
 export interface SimulatorEnvironment {
-  name: string;
+  /** Optional display name; otherwise the manifest name is used. */
+  name?: string;
   manifestPath: string;
 }
 
@@ -40,28 +40,32 @@ export interface SimulatorHandPhysicsOptions {
   restitution: number;
 }
 
-const DEFAULT_LIVING_ROOM_MANIFEST = encodeURIComponent(
-  JSON.stringify({
-    scenePath:
-      XR_BLOCKS_ASSETS_PATH +
-      'simulator/scenes/XREmulatorsceneV5_livingRoom.glb',
-    scenePlanesPath:
-      XR_BLOCKS_ASSETS_PATH +
-      'simulator/scenes/XREmulatorsceneV5_livingRoom_planes.json',
-    navMeshPath:
-      XR_BLOCKS_ASSETS_PATH +
-      'simulator/scenes/XREmulatorsceneV5_livingRoom_navmesh.glb',
-    position: [-1.6, 0.3, 0],
-    objects: [],
-  })
-);
-
 export class SimulatorOptions {
   initialCameraPosition = {x: 0, y: 1.5, z: 0};
   environments: SimulatorEnvironment[] = [
     {
-      name: 'Living Room',
-      manifestPath: `data:application/json;charset=utf-8,${DEFAULT_LIVING_ROOM_MANIFEST}`,
+      manifestPath: new URL(
+        '../src/simulator/scene/defaultManifests/living-room.json',
+        import.meta.url
+      ).href,
+    },
+    {
+      manifestPath: new URL(
+        '../src/simulator/scene/defaultManifests/office.json',
+        import.meta.url
+      ).href,
+    },
+    {
+      manifestPath: new URL(
+        '../src/simulator/scene/defaultManifests/emulator-scene-v5.json',
+        import.meta.url
+      ).href,
+    },
+    {
+      manifestPath: new URL(
+        '../src/simulator/scene/defaultManifests/emulator-scene-dark.json',
+        import.meta.url
+      ).href,
     },
   ];
   activeEnvironmentIndex = 0;
@@ -95,6 +99,7 @@ export class SimulatorOptions {
   };
   navMesh = {
     enabled: false,
+    showDebugVisualizations: false,
     eyeHeight: 1.5,
   };
   /** Controls the isolated physics world used by the desktop simulator. */

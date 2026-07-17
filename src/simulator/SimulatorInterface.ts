@@ -124,7 +124,7 @@ export class SimulatorInterface {
               return;
             }
             void setEnvironment(
-              environment.name,
+              environment.name ?? environment.manifestPath,
               environment.manifestPath
             ).catch((error) => {
               console.error('Failed to switch simulator environment.', error);

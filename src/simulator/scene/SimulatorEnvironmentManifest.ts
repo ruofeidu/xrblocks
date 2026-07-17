@@ -19,6 +19,7 @@ export interface SimulatorObjectDefinition {
 }
 
 export interface SimulatorSceneManifest {
+  name?: string;
   scenePath?: string;
   videoPath?: string;
   scenePlanesPath?: string;
@@ -43,6 +44,7 @@ export interface ResolvedSimulatorSceneManifest
 }
 
 const MANIFEST_KEYS = new Set([
+  'name',
   'scenePath',
   'videoPath',
   'scenePlanesPath',
@@ -231,6 +233,7 @@ export function parseSimulatorSceneManifest(
       throw new Error('manifest.scale: components must be non-zero.');
     }
     return {
+      name: parseString(value.name, 'manifest.name'),
       scenePath: resolveOptionalUrl(scenePath, manifestUrl),
       videoPath: resolveOptionalUrl(videoPath, manifestUrl),
       scenePlanesPath: resolveOptionalUrl(

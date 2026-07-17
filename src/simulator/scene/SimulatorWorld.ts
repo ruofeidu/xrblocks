@@ -39,7 +39,8 @@ export class SimulatorWorld {
   async preparePlanes(manifest: ResolvedSimulatorSceneManifest) {
     if (!this.options.world.planes.enabled) return undefined;
     if (!manifest.scenePlanesPath) return [];
-    const response = await fetch(manifest.scenePlanesPath);
+    // Plane sidecars are frequently regenerated while authoring environments.
+    const response = await fetch(manifest.scenePlanesPath, {cache: 'no-store'});
     if (!response.ok) {
       throw new Error(
         `Failed to load simulator planes at ${manifest.scenePlanesPath}: ${response.status} ${response.statusText}`

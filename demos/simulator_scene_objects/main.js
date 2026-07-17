@@ -3,10 +3,11 @@ import * as THREE from 'three';
 import * as xb from 'xrblocks';
 import 'xrblocks/addons/simulator/SimulatorAddons.js';
 
-const status = document.querySelector('#status');
 const detectButton = document.querySelector('#detect');
 const resetButton = document.querySelector('#reset');
 const meshesButton = document.querySelector('#meshes');
+const planesButton = document.querySelector('#planes');
+const navMeshButton = document.querySelector('#navmesh');
 const depthCanvas = document.querySelector('#depth-preview');
 const depthContext = depthCanvas.getContext('2d');
 depthContext.imageSmoothingEnabled = false;
@@ -14,6 +15,7 @@ depthContext.imageSmoothingEnabled = false;
 class SimulatorSceneObjectsDemo extends xb.Script {
   dynamicBox = null;
   detectionMarkers = new THREE.Group();
+  planeLabels = [];
   depthImageData = null;
   lastDepthPreviewTime = 0;
 
@@ -28,6 +30,7 @@ class SimulatorSceneObjectsDemo extends xb.Script {
 
   async setupObjects() {
     xb.core.simulator.simulatorScene.add(this.detectionMarkers);
+    this.addPlaneLabels();
     const floatingTorus = new THREE.Mesh(
       new THREE.TorusKnotGeometry(0.3, 0.1, 96, 12),
       new THREE.MeshStandardMaterial({color: 0xffca28, roughness: 0.35})
@@ -64,9 +67,8 @@ class SimulatorSceneObjectsDemo extends xb.Script {
     detectButton.disabled = false;
     resetButton.disabled = false;
     meshesButton.disabled = false;
-    this.updateStatus(
-      'Ready. The red box should fall onto the Living Room floor.'
-    );
+    planesButton.disabled = false;
+    navMeshButton.disabled = false;
   }
 
   update() {
@@ -132,7 +134,6 @@ class SimulatorSceneObjectsDemo extends xb.Script {
     ]);
     this.tintDetectedMeshes();
     this.clearDetectionMarkers();
-    this.updateStatus('Dynamic box removed and re-added at its start pose.');
   }
 
   tintDetectedMeshes() {
@@ -147,19 +148,6 @@ class SimulatorSceneObjectsDemo extends xb.Script {
     for (const detection of detections) {
       this.detectionMarkers.add(this.createDetectionMarker(detection));
     }
-    this.updateStatus(
-      detections.length > 0
-        ? detections
-            .map(
-              (item) =>
-                `${item.label}: (${item.position
-                  .toArray()
-                  .map((value) => value.toFixed(2))
-                  .join(', ')})`
-            )
-            .join('\n')
-        : 'No visible simulator objects detected.'
-    );
   }
 
   createDetectionMarker(detection) {
@@ -193,6 +181,7 @@ class SimulatorSceneObjectsDemo extends xb.Script {
     label.position.y = 0.13;
     label.scale.set(0.65, 0.16, 1);
     label.renderOrder = 1000;
+    label.raycast = () => {};
     marker.add(label);
     return marker;
   }
@@ -209,10 +198,60 @@ class SimulatorSceneObjectsDemo extends xb.Script {
     }
   }
 
-  updateStatus(message) {
-    const meshCount = xb.world.meshes.xrMeshToThreeMesh.size;
-    const objectCount = xb.core.simulator.objects.get().length;
-    status.textContent = `${message}\nobjects: ${objectCount} · world meshes: ${meshCount}`;
+  addPlaneLabels() {
+    this.clearPlaneLabels();
+    xb.world.planes.get().forEach((plane, index) => {
+      const center = new THREE.Vector3(0, 0.04, 0);
+      const polygon = plane.simulatorPlane?.polygon;
+      if (polygon?.length) {
+        for (const point of polygon) {
+          center.x += point.x;
+          center.z += point.y;
+        }
+        center.x /= polygon.length;
+        center.z /= polygon.length;
+      } else {
+        plane.geometry.computeBoundingBox();
+        plane.geometry.boundingBox?.getCenter(center);
+        center.y += 0.04;
+      }
+
+      const text = `#${index + 1} ${plane.label ?? 'unlabeled'}`;
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 128;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      context.fillStyle = '#ffe600';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = '#171700';
+      context.font = '700 48px system-ui, sans-serif';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(text, canvas.width / 2, canvas.height / 2);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const label = new THREE.Sprite(
+        new THREE.SpriteMaterial({map: texture, depthTest: false})
+      );
+      label.name = `Plane ${index + 1} Label`;
+      label.position.copy(center);
+      label.scale.set(0.8, 0.2, 1);
+      label.renderOrder = 1000;
+      label.raycast = () => {};
+      plane.add(label);
+      this.planeLabels.push(label);
+    });
+  }
+
+  clearPlaneLabels() {
+    for (const label of this.planeLabels) {
+      label.material.map.dispose();
+      label.material.dispose();
+      label.removeFromParent();
+    }
+    this.planeLabels.length = 0;
   }
 }
 
@@ -222,6 +261,13 @@ resetButton.addEventListener('click', () => void demo.resetDynamicBox());
 meshesButton.addEventListener('click', () => {
   xb.world.meshes.visible = !xb.world.meshes.visible;
 });
+planesButton.addEventListener('click', () => {
+  xb.world.planes.showDebugVisualizations(!xb.world.planes.visible);
+});
+navMeshButton.addEventListener('click', () => {
+  const navMesh = xb.core.simulator.navMesh;
+  navMesh.showDebugVisualizations(!navMesh.debugVisualizationsVisible);
+});
 
 const options = new xb.Options();
 options.formFactor = 'desktop';
@@ -230,15 +276,18 @@ options.physics.RAPIER = RAPIER;
 options.enableDepth();
 options.world.enableMeshDetection();
 options.world.meshes.showDebugVisualizations = true;
+options.enablePlaneDetection();
+options.world.planes.showDebugVisualizations = true;
 options.enableObjectDetection();
 options.world.objects.simulatorOverride = true;
 options.simulator.handPhysics.enabled = true;
-options.simulator.environments = [
-  {
-    name: 'Living Room Object Test',
-    manifestPath: './scene.json?demo=simulator-scene-objects',
-  },
-];
+options.simulator.navMesh.showDebugVisualizations = true;
+options.simulator.environments.push({
+  name: 'Living Room Object Test',
+  manifestPath: './scene.json?demo=simulator-scene-objects',
+});
+options.simulator.activeEnvironmentIndex =
+  options.simulator.environments.length - 1;
 options.simulator.initialCameraPosition = {x: 0, y: 1.5, z: 3};
 options.simulator.defaultMode = xb.SimulatorMode.USER;
 

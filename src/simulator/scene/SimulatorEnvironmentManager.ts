@@ -45,6 +45,28 @@ export class SimulatorEnvironmentManager {
     this.simulatorObjects.onChanged = this.refreshMeshes.bind(this);
   }
 
+  /**
+   * Resolves manifest names for the settings panel without loading scene assets.
+   */
+  async resolveEnvironmentNames(environments: SimulatorEnvironment[]) {
+    await Promise.all(
+      environments.map(async (environment) => {
+        if (environment.name) return;
+        try {
+          const manifest = await loadSimulatorSceneManifest(
+            environment.manifestPath
+          );
+          environment.name = manifest.name;
+        } catch (error) {
+          console.warn(
+            `Failed to read simulator environment name from ${environment.manifestPath}.`,
+            error
+          );
+        }
+      })
+    );
+  }
+
   async setEnvironment(environment: SimulatorEnvironment) {
     const generation = ++this.generation;
     const manifest = await loadSimulatorSceneManifest(environment.manifestPath);
@@ -85,6 +107,10 @@ export class SimulatorEnvironmentManager {
             objectsGroup.add(record.object);
           }
         }
+        const loadedNavMesh = results[2];
+        if (loadedNavMesh.status === 'fulfilled') {
+          loadedNavMesh.value.debugGeometry?.dispose();
+        }
         throw failure.reason;
       }
       const [loadedRoom, loadedObjects, loadedNavMesh, loadedPlanes] =
@@ -116,6 +142,7 @@ export class SimulatorEnvironmentManager {
       }
       if (generation !== this.generation) {
         roomGeometry?.dispose();
+        preparedNavMesh.debugGeometry?.dispose();
         disposeObjectTree(root);
         return;
       }
@@ -132,6 +159,8 @@ export class SimulatorEnvironmentManager {
       this.simulatorWorld.commitPlanes(preparedPlanes);
       this.refreshMeshes();
       this.setVideoPath(manifest.videoPath);
+      environment.name =
+        manifest.name ?? environment.name ?? environment.manifestPath;
       this.activeEnvironment = environment;
       this.manifest = manifest;
 
@@ -202,6 +231,7 @@ export class SimulatorEnvironmentManager {
     this.simulatorWorld.suspendSimulatorSensing();
     this.disposeRoomPhysics();
     this.simulatorObjects.dispose();
+    this.navMesh.dispose();
     const root = this.simulatorScene.environmentRoot;
     root?.removeFromParent();
     if (root) disposeObjectTree(root);

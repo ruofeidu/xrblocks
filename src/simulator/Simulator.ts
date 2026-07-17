@@ -140,6 +140,10 @@ export class Simulator extends Script {
     this.mainScene = scene;
     this.registry = registry;
     this.world = world;
+    this.simulatorScene.add(this.navMesh.debugVisualization);
+    this.navMesh.showDebugVisualizations(
+      this.options.navMesh.showDebugVisualizations
+    );
     camera.position.copy(this.options.initialCameraPosition);
     renderer.autoClearColor = false;
     await this.simulatorWorld.init(options, world);
@@ -154,6 +158,7 @@ export class Simulator extends Script {
       this.simulatorPhysics,
       this.setVideoPath.bind(this)
     );
+    await this.environment.resolveEnvironmentNames(this.options.environments);
     this.userInterface.init(
       simulatorOptions,
       this.controls,

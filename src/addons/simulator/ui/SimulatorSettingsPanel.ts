@@ -248,7 +248,7 @@ export class SimulatorSettingsPanel
                   value=${idx}
                   ?selected=${idx === this.activeEnvironmentIndex}
                 >
-                  ${env.name}
+                  ${env.name ?? env.manifestPath.split('/').pop()}
                 </option>
               `
             )}
