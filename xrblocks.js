@@ -14,9 +14,9 @@
  * limitations under the License.
  *
  * @file xrblocks.js
- * @version v0.16.0
- * @commitid e714616
- * @builddate 2026-06-13T17:54:32.361Z
+ * @version v0.18.0
+ * @commitid 0dfc5ae
+ * @builddate 2026-07-18T04:39:34.548Z
  * @description XR Blocks SDK, built from source with the above commit ID.
  * @agent When using with Gemini to create XR apps, use **Gemini Canvas** mode,
  * and follow rules below:
@@ -30,6 +30,7 @@
     "webgl-sdf-generator": "https://esm.sh/webgl-sdf-generator@1.1.1/es2022/webgl-sdf-generator.mjs",
     "lit": "https://cdn.jsdelivr.net/gh/lit/dist@3/core/lit-core.min.js",
     "lit/": "https://esm.run/lit@3/",
+    "three-pathfinding": "https://cdn.jsdelivr.net/npm/three-pathfinding@1.3.0/dist/three-pathfinding.module.js",
     2. If the app focus on standalone objects, spawn it in front of the user in
     WebXR and rescale to reasonable physical size. Wrap them with xb.ModelViewer
     and make sure users can drag the platform to move it around in XR.
@@ -44,16 +45,16 @@ import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { XREstimatedLight } from 'three/addons/webxr/XREstimatedLight.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
 
 /**
  * Builds the context to be sent to the AI for reasoning.
  */
-class Context {
+let Context$1 = class Context {
     constructor(instructions = 'You are a helpful assistant.') {
         this.instructions = instructions;
     }
@@ -87,7 +88,7 @@ class Context {
                 return `Tool Output: ${entry.content}`;
         }
     }
-}
+};
 
 /**
  * Manages the agent's memory, including short-term, long-term, and working
@@ -129,7 +130,7 @@ class Agent {
         this.ai = ai;
         this.tools = tools;
         this.memory = new Memory();
-        this.contextBuilder = new Context(instruction);
+        this.contextBuilder = new Context$1(instruction);
         this.lifecycleCallbacks = callbacks;
     }
     /**
@@ -980,7 +981,9 @@ function getUrlParameter(name) {
  * @returns The boolean value of the URL parameter.
  */
 function getUrlParamBool(name, defaultBool = false) {
-    const inputString = urlParams.get(name)?.toLowerCase();
+    const inputString = new URLSearchParams(window.location.search)
+        .get(name)
+        ?.toLowerCase();
     // Convert the parameter value to a boolean. Returns true for 'true' or '1'.
     if (inputString === 'true' || inputString === '1') {
         return true;
@@ -1001,7 +1004,7 @@ function getUrlParamBool(name, defaultBool = false) {
  * @returns The integer value of the URL parameter.
  */
 function getUrlParamInt(name, defaultNumber = 0) {
-    const inputNumber = urlParams.get(name);
+    const inputNumber = new URLSearchParams(window.location.search).get(name);
     if (inputNumber) {
         // Convert the parameter value to an integer. If valid, returns it.
         const num = parseInt(inputNumber, 10);
@@ -1022,7 +1025,7 @@ function getUrlParamInt(name, defaultNumber = 0) {
  * @returns The float value of the URL parameter.
  */
 function getUrlParamFloat(name, defaultNumber = 0) {
-    const inputNumber = urlParams.get(name);
+    const inputNumber = new URLSearchParams(window.location.search).get(name);
     if (inputNumber) {
         // Convert the parameter value to a float. If valid, returns it.
         const num = parseFloat(inputNumber);
@@ -1859,7 +1862,7 @@ const DEFAULT_DEVICE_CAMERA_WIDTH = 1280;
  * Corresponds to a 720p resolution.
  */
 const DEFAULT_DEVICE_CAMERA_HEIGHT = 720;
-const XR_BLOCKS_ASSETS_PATH = 'https://cdn.jsdelivr.net/gh/xrblocks/assets@02bbbf2093d20bcefdac18c65d3ff0f2b94b7535/';
+const XR_BLOCKS_ASSETS_PATH = 'https://cdn.jsdelivr.net/gh/xrblocks/assets@d872cfdb7668443da5cd38361fc3a3d131aca04c/';
 
 /**
  * Recursively freezes an object and all its nested properties, making them
@@ -2027,10 +2030,45 @@ function getMoohanCameraPose(_camera, xrCameras, target) {
     target.premultiply(xrCameras.cameras[1].matrixWorld);
 }
 
+// Approximate intrinsics for the Meta Quest 3 front passthrough RGB camera
+// as exposed via `getUserMedia` (camera-access is not available on Quest).
+// Named QUEST_3_* because these were measured on a Quest 3 - other Quest
+// variants (Quest 3S, Quest Pro, etc.) likely have different sensor and
+// passthrough characteristics and should get their own constants.
+// The stream comes back at 1280x720. Although the Quest 3 passthrough sensor
+// has ~108° native HFOV, the cropped/processed video stream surfaced via
+// getUserMedia behaves closer to ~77° HFOV (fx≈fy≈800), matching the
+// Galaxy XR `moohan` reference. These are estimates; exact values are not
+// exposed by WebXR and may need per-device calibration tweaks.
+// prettier-ignore
+const QUEST_3_INTRINSICS_MATRIX = [
+    800, 0, 640,
+    0, 800, 360,
+    0, 0, 1,
+];
+const QUEST_3_PROJECTION_MATRIX = intrinsicsToProjectionMatrix(QUEST_3_INTRINSICS_MATRIX, 1280, 720, 0.1, 1000, new THREE.Matrix4());
+// On Quest 3 the RGB passthrough cameras sit at the top-front of the visor,
+// roughly centered between the eye displays, slightly above the eye plane,
+// and a few cm forward. Offsets are relative to the right XR eye camera.
+const QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA_POSITION = new THREE.Vector3(-0.032, 0.02, -0.025);
+// Quest 3 passthrough RGB cameras are physically tilted downward (Meta design
+// favours seeing hands and the desk surface). Roughly ~15° pitch down.
+const QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA_ROTATION = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.26, 0, 0, 'YXZ'));
+const QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA_SCALE = new THREE.Vector3(1, 1, 1);
+const QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA = new THREE.Matrix4().compose(QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA_POSITION, QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA_ROTATION, QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA_SCALE);
+function getQuestCameraPose(_camera, xrCameras, target) {
+    target.copy(QUEST_3_CAMERA_POSE_IN_RIGHT_CAMERA);
+    target.premultiply(xrCameras.cameras[1].matrixWorld);
+}
+
 const DEVICE_CAMERA_PARAMETERS = {
     galaxyxr: {
         projectionMatrix: MOOHAN_PROJECTION_MATRIX,
         getCameraPose: getMoohanCameraPose,
+    },
+    quest3: {
+        projectionMatrix: QUEST_3_PROJECTION_MATRIX,
+        getCameraPose: getQuestCameraPose,
     },
 };
 function getDeviceCameraClipFromView(renderCamera, deviceCamera, targetDevice) {
@@ -2076,7 +2114,53 @@ function getDeviceCameraWorldFromClip(renderCamera, xrCameras, deviceCamera, tar
         .multiplyMatrices(projectionMatrix, viewMatrix)
         .invert();
 }
+// Milliseconds the device camera may remain unavailable during startup before
+// we surface a one-time warning. Ordinary warm-up (the simulator registering
+// its camera, or a WebXR session exposing its cameras) resolves well within
+// this window, so a warning indicates a real misconfiguration rather than
+// normal startup ordering.
+const DEVICE_CAMERA_READY_GRACE_MS = 5000;
+let deviceCameraUnavailableSinceMs = null;
+let warnedDeviceCameraUnavailable = false;
+/**
+ * Whether a device-camera pose can currently be resolved. This is false during
+ * the brief startup window before either the simulator camera is registered or
+ * the WebXR session exposes its cameras. While false, camera parameters are
+ * genuinely unavailable, and camera-dependent work should be skipped rather
+ * than run against a camera that does not exist yet.
+ *
+ * @param deviceCamera - The device camera, if configured.
+ * @param xrCameras - The WebXR array camera, or null outside an XR session.
+ * @returns True once a camera pose can be resolved.
+ */
+function isDeviceCameraPoseAvailable(deviceCamera, xrCameras) {
+    return !!(deviceCamera?.simulatorCamera ||
+        (xrCameras && xrCameras.cameras.length > 0));
+}
+/**
+ * Builds a snapshot of the device camera's view/projection matrices, or returns
+ * `null` while no camera pose is available yet (see
+ * {@link isDeviceCameraPoseAvailable}). Returning `null` lets per-frame callers
+ * skip cleanly during startup instead of throwing on every frame until a
+ * camera appears.
+ */
 function getCameraParametersSnapshot(camera, xrCameras, deviceCamera, targetDevice) {
+    if (!isDeviceCameraPoseAvailable(deviceCamera, xrCameras)) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        if (deviceCameraUnavailableSinceMs === null) {
+            deviceCameraUnavailableSinceMs = now;
+        }
+        else if (!warnedDeviceCameraUnavailable &&
+            now - deviceCameraUnavailableSinceMs > DEVICE_CAMERA_READY_GRACE_MS) {
+            warnedDeviceCameraUnavailable = true;
+            console.warn('[xrblocks] Device camera is still unavailable after ' +
+                `${DEVICE_CAMERA_READY_GRACE_MS} ms; camera-dependent detection is ` +
+                'being skipped. Check that the camera is permitted and that a ' +
+                'session or simulator is running.');
+        }
+        return null;
+    }
+    deviceCameraUnavailableSinceMs = null;
     const clipFromView = getDeviceCameraClipFromView(camera, deviceCamera, targetDevice);
     if (!clipFromView) {
         throw new Error('Could not get clip from view');
@@ -2312,7 +2396,7 @@ class VideoStream extends Script {
                 this.canvas_.width = width;
                 this.canvas_.height = height;
                 this.context_ = this.canvas_.getContext('2d', {
-                    willCaptureFrequently: this.willCaptureFrequently_,
+                    willReadFrequently: this.willCaptureFrequently_,
                 });
             }
             this.context_.drawImage(this.video_, 0, 0, width, height);
@@ -2468,7 +2552,7 @@ class XRDeviceCamera extends VideoStream {
             console.debug('Requesting media stream with constraints:', this.videoConstraints_);
             let stream = null;
             const deviceIdConstraint = this.videoConstraints_.deviceId;
-            const targetDeviceId = typeof deviceIdConstraint === 'string'
+            let targetDeviceId = typeof deviceIdConstraint === 'string'
                 ? deviceIdConstraint
                 : Array.isArray(deviceIdConstraint)
                     ? deviceIdConstraint[0]
@@ -2487,6 +2571,7 @@ class XRDeviceCamera extends VideoStream {
                     deviceId: targetDeviceIdFromLabel,
                     ...this.videoConstraints_,
                 };
+                targetDeviceId = targetDeviceIdFromLabel;
             }
             if (useSimulatorCamera) {
                 stream = this.simulatorCamera.getMedia(this.videoConstraints_);
@@ -2495,9 +2580,14 @@ class XRDeviceCamera extends VideoStream {
                 }
             }
             else {
+                const constraints = { ...this.videoConstraints_ };
+                if (targetDeviceId === '') {
+                    delete constraints.deviceId;
+                }
                 stream = await navigator.mediaDevices.getUserMedia({
-                    video: this.videoConstraints_,
+                    video: constraints,
                 });
+                this.availableDevices_ = await this.getAvailableVideoDevices();
             }
             const videoTracks = stream?.getVideoTracks() || [];
             if (!videoTracks.length) {
@@ -2508,6 +2598,11 @@ class XRDeviceCamera extends VideoStream {
             console.debug('Active track settings:', this.currentTrackSettings_);
             if (this.currentTrackSettings_.deviceId) {
                 this.currentDeviceIndex_ = this.availableDevices_.findIndex((device) => device.deviceId === this.currentTrackSettings_.deviceId);
+                if (targetDeviceId === '') {
+                    this.videoConstraints_.deviceId = {
+                        exact: this.currentTrackSettings_.deviceId,
+                    };
+                }
             }
             else {
                 console.warn('Stream started without deviceId as it was unavailable');
@@ -2695,6 +2790,1780 @@ class XRDeviceCamera extends VideoStream {
     }
 }
 
+// Use a small canvas since a full size canvas can consume a lot of memory and
+// cause toDataUrl to be slow.
+const DEFAULT_CANVAS_WIDTH = 640;
+function flipBufferVertically(buffer, width, height) {
+    const bytesPerRow = width * 4;
+    const tempRow = new Uint8Array(bytesPerRow);
+    for (let y = 0; y < height / 2; y++) {
+        const topRowY = y;
+        const bottomRowY = height - 1 - y;
+        const topRowOffset = topRowY * bytesPerRow;
+        const bottomRowOffset = bottomRowY * bytesPerRow;
+        tempRow.set(buffer.subarray(topRowOffset, topRowOffset + bytesPerRow));
+        buffer.set(buffer.subarray(bottomRowOffset, bottomRowOffset + bytesPerRow), topRowOffset);
+        buffer.set(tempRow, bottomRowOffset);
+    }
+}
+class PendingScreenshotRequest {
+    constructor(resolve, reject, overlayOnCamera) {
+        this.resolve = resolve;
+        this.reject = reject;
+        this.overlayOnCamera = overlayOnCamera;
+    }
+}
+class ScreenshotSynthesizer {
+    constructor() {
+        this.pendingScreenshotRequests = [];
+        this.virtualBuffer = new Uint8Array();
+        this.virtualRealBuffer = new Uint8Array();
+        this.renderTargetWidth = DEFAULT_CANVAS_WIDTH;
+        this.virtualCaptureInFlight = false;
+        this.virtualRealCaptureInFlight = false;
+    }
+    async onAfterRender(renderer, renderSceneFn, deviceCamera) {
+        if (this.pendingScreenshotRequests.length == 0) {
+            return;
+        }
+        const haveVirtualOnlyRequests = this.pendingScreenshotRequests.every((request) => !request.overlayOnCamera);
+        if (haveVirtualOnlyRequests && !this.virtualCaptureInFlight) {
+            this.virtualCaptureInFlight = true;
+            this.createVirtualImageDataURL(renderer, renderSceneFn)
+                .then((virtualImageDataUrl) => {
+                this.resolveVirtualOnlyRequests(virtualImageDataUrl);
+            })
+                .catch((error) => {
+                this.rejectVirtualOnlyRequests(error);
+            })
+                .finally(() => {
+                this.virtualCaptureInFlight = false;
+            });
+        }
+        const haveVirtualAndRealReqeusts = this.pendingScreenshotRequests.some((request) => request.overlayOnCamera);
+        if (haveVirtualAndRealReqeusts &&
+            deviceCamera &&
+            !this.virtualRealCaptureInFlight) {
+            this.virtualRealCaptureInFlight = true;
+            this.createVirtualRealImageDataURL(renderer, renderSceneFn, deviceCamera)
+                .then((virtualRealImageDataUrl) => {
+                if (virtualRealImageDataUrl) {
+                    this.resolveVirtualRealRequests(virtualRealImageDataUrl);
+                }
+            })
+                .catch((error) => {
+                this.rejectVirtualRealRequests(error);
+            })
+                .finally(() => {
+                this.virtualRealCaptureInFlight = false;
+            });
+        }
+        else if (haveVirtualAndRealReqeusts && !deviceCamera) {
+            throw new Error('No device camera provided');
+        }
+    }
+    async createVirtualImageDataURL(renderer, renderSceneFn) {
+        const mainRenderTarget = renderer.getRenderTarget();
+        const isRenderingStereo = renderer.xr.isPresenting && renderer.xr.getCamera().cameras.length == 2;
+        const mainRenderTargetSingleViewWidth = isRenderingStereo
+            ? mainRenderTarget.width / 2
+            : mainRenderTarget.width;
+        const scaledHeight = Math.round(mainRenderTarget.height *
+            (this.renderTargetWidth / mainRenderTargetSingleViewWidth));
+        if (!this.virtualRenderTarget ||
+            this.virtualRenderTarget.width != this.renderTargetWidth) {
+            this.virtualRenderTarget?.dispose();
+            this.virtualRenderTarget = new THREE.WebGLRenderTarget(this.renderTargetWidth, scaledHeight, { colorSpace: THREE.SRGBColorSpace });
+        }
+        const xrIsPresenting = renderer.xr.isPresenting;
+        renderer.xr.isPresenting = false;
+        const virtualRenderTarget = this.virtualRenderTarget;
+        renderer.setRenderTarget(virtualRenderTarget);
+        renderer.clearColor();
+        renderer.clearDepth();
+        renderSceneFn();
+        renderer.setRenderTarget(mainRenderTarget);
+        renderer.xr.isPresenting = xrIsPresenting;
+        const expectedBufferLength = virtualRenderTarget.width * virtualRenderTarget.height * 4;
+        if (this.virtualBuffer.length != expectedBufferLength) {
+            this.virtualBuffer = new Uint8Array(expectedBufferLength);
+        }
+        const buffer = this.virtualBuffer;
+        await renderer.readRenderTargetPixelsAsync(virtualRenderTarget, 0, 0, virtualRenderTarget.width, virtualRenderTarget.height, buffer);
+        flipBufferVertically(buffer, virtualRenderTarget.width, virtualRenderTarget.height);
+        const canvas = this.virtualCanvas ||
+            (this.virtualCanvas = document.createElement('canvas'));
+        canvas.width = virtualRenderTarget.width;
+        canvas.height = virtualRenderTarget.height;
+        const context = canvas.getContext('2d');
+        if (!context) {
+            throw new Error('Failed to get 2D context');
+        }
+        const imageData = new ImageData(new Uint8ClampedArray(buffer), virtualRenderTarget.width, virtualRenderTarget.height);
+        context.putImageData(imageData, 0, 0);
+        return canvas.toDataURL();
+    }
+    resolveVirtualOnlyRequests(virtualImageDataUrl) {
+        let remainingRequests = 0;
+        for (let i = 0; i < this.pendingScreenshotRequests.length; i++) {
+            const request = this.pendingScreenshotRequests[i];
+            if (!request.overlayOnCamera) {
+                request.resolve(virtualImageDataUrl);
+            }
+            else {
+                this.pendingScreenshotRequests[remainingRequests++] = request;
+            }
+        }
+        this.pendingScreenshotRequests.length = remainingRequests;
+    }
+    rejectVirtualOnlyRequests(error) {
+        let remainingRequests = 0;
+        for (let i = 0; i < this.pendingScreenshotRequests.length; i++) {
+            const request = this.pendingScreenshotRequests[i];
+            if (!request.overlayOnCamera) {
+                request.reject(error);
+            }
+            else {
+                this.pendingScreenshotRequests[remainingRequests++] = request;
+            }
+        }
+        this.pendingScreenshotRequests.length = remainingRequests;
+    }
+    async createVirtualRealImageDataURL(renderer, renderSceneFn, deviceCamera) {
+        if (!deviceCamera.loaded) {
+            console.debug('Waiting for device camera to be loaded');
+            return null;
+        }
+        const mainRenderTarget = renderer.getRenderTarget();
+        const isRenderingStereo = renderer.xr.isPresenting && renderer.xr.getCamera().cameras.length == 2;
+        const mainRenderTargetSize = new THREE.Vector2();
+        if (mainRenderTarget) {
+            mainRenderTargetSize.set(mainRenderTarget.width, mainRenderTarget.height);
+        }
+        else {
+            renderer.getSize(mainRenderTargetSize);
+        }
+        const mainRenderTargetSingleViewWidth = isRenderingStereo
+            ? mainRenderTargetSize.x / 2
+            : mainRenderTargetSize.x;
+        const scaledHeight = Math.round(mainRenderTargetSize.y *
+            (this.renderTargetWidth / mainRenderTargetSingleViewWidth));
+        if (!this.virtualRealRenderTarget ||
+            this.virtualRealRenderTarget.height != scaledHeight) {
+            this.virtualRealRenderTarget?.dispose();
+            this.virtualRealRenderTarget = new THREE.WebGLRenderTarget(this.renderTargetWidth, scaledHeight, { colorSpace: THREE.SRGBColorSpace });
+        }
+        const renderTarget = this.virtualRealRenderTarget;
+        renderer.setRenderTarget(renderTarget);
+        const xrIsPresenting = renderer.xr.isPresenting;
+        renderer.xr.isPresenting = false;
+        const quad = this.getFullScreenQuad();
+        quad.material.map = deviceCamera.texture;
+        quad.render(renderer);
+        renderSceneFn();
+        renderer.xr.isPresenting = xrIsPresenting;
+        renderer.setRenderTarget(mainRenderTarget);
+        if (this.virtualRealBuffer.length !=
+            renderTarget.width * renderTarget.height * 4) {
+            this.virtualRealBuffer = new Uint8Array(renderTarget.width * renderTarget.height * 4);
+        }
+        const buffer = this.virtualRealBuffer;
+        await renderer.readRenderTargetPixelsAsync(renderTarget, 0, 0, renderTarget.width, renderTarget.height, buffer);
+        flipBufferVertically(buffer, renderTarget.width, renderTarget.height);
+        const canvas = this.virtualRealCanvas ||
+            (this.virtualRealCanvas = document.createElement('canvas'));
+        canvas.width = renderTarget.width;
+        canvas.height = renderTarget.height;
+        const context = canvas.getContext('2d');
+        if (!context) {
+            throw new Error('Failed to get 2D context');
+        }
+        const imageData = new ImageData(new Uint8ClampedArray(buffer), renderTarget.width, renderTarget.height);
+        context.putImageData(imageData, 0, 0);
+        return canvas.toDataURL();
+    }
+    resolveVirtualRealRequests(virtualRealImageDataUrl) {
+        let remainingRequests = 0;
+        for (let i = 0; i < this.pendingScreenshotRequests.length; i++) {
+            const request = this.pendingScreenshotRequests[i];
+            if (request.overlayOnCamera) {
+                request.resolve(virtualRealImageDataUrl);
+            }
+            else {
+                this.pendingScreenshotRequests[remainingRequests++] = request;
+            }
+        }
+        this.pendingScreenshotRequests.length = remainingRequests;
+    }
+    rejectVirtualRealRequests(error) {
+        let remainingRequests = 0;
+        for (let i = 0; i < this.pendingScreenshotRequests.length; i++) {
+            const request = this.pendingScreenshotRequests[i];
+            if (request.overlayOnCamera) {
+                request.reject(error);
+            }
+            else {
+                this.pendingScreenshotRequests[remainingRequests++] = request;
+            }
+        }
+        this.pendingScreenshotRequests.length = remainingRequests;
+    }
+    getFullScreenQuad() {
+        if (!this.fullScreenQuad) {
+            this.fullScreenQuad = new FullScreenQuad(new THREE.MeshBasicMaterial({ transparent: true }));
+        }
+        return this.fullScreenQuad;
+    }
+    /**
+     * Requests a screenshot from the scene as a DataURL.
+     * @param overlayOnCamera - If true, overlays the image on a camera image
+     *     without any projection or aspect ratio correction.
+     * @returns Promise which returns the screenshot as a data uri.
+     */
+    async getScreenshot(overlayOnCamera = false) {
+        return new Promise((resolve, reject) => {
+            this.pendingScreenshotRequests.push(new PendingScreenshotRequest(resolve, reject, overlayOnCamera));
+        });
+    }
+}
+
+class SceneDerivedContextOptions {
+    constructor(options) {
+        this.enabled = false;
+        if (options) {
+            deepMerge(this, options);
+        }
+    }
+    enable() {
+        this.enabled = true;
+        return this;
+    }
+}
+class SceneVisibilityOptions extends SceneDerivedContextOptions {
+    constructor() {
+        super(...arguments);
+        /**
+         * Raycast hits on materials with effective opacity less than or equal to this
+         * threshold are ignored for line-of-sight occlusion.
+         */
+        this.occlusionOpacityThreshold = 0;
+    }
+}
+class SceneSetOfMarkOptions extends SceneDerivedContextOptions {
+}
+class SceneOptions {
+    constructor(options) {
+        this.enabled = false;
+        this.pollingIntervalMs = 3000;
+        this.visibleObjects = new SceneVisibilityOptions();
+        this.som = new SceneSetOfMarkOptions();
+        if (options) {
+            deepMerge(this, options);
+        }
+    }
+    enable() {
+        this.enabled = true;
+        return this;
+    }
+    enableVisibleObjects() {
+        this.enabled = true;
+        this.visibleObjects.enable();
+        return this;
+    }
+    enableSetOfMark() {
+        this.enabled = true;
+        this.som.enable();
+        return this;
+    }
+}
+
+class ContextOptions {
+    constructor(options) {
+        this.debugging = false;
+        this.enabled = false;
+        this.scene = new SceneOptions();
+        if (options) {
+            deepMerge(this, options);
+        }
+    }
+    enable() {
+        this.enabled = true;
+        this.scene.enable();
+        this.scene.enableVisibleObjects();
+        this.scene.enableSetOfMark();
+        return this;
+    }
+    enableScene() {
+        this.enabled = true;
+        this.scene.enable();
+        return this;
+    }
+    enableVisibleObjects() {
+        this.enabled = true;
+        this.scene.enableVisibleObjects();
+        return this;
+    }
+    enableSetOfMark() {
+        this.enabled = true;
+        this.scene.enableSetOfMark();
+        return this;
+    }
+}
+
+/**
+ * Tracks elapsed simulation time independently from browser wall time.
+ */
+class SimulationTimer {
+    constructor() {
+        this.elapsedMs = 0;
+    }
+    getElapsedMs() {
+        return this.elapsedMs;
+    }
+    update(frameTimeMs, timescale) {
+        if (this.previousFrameTimeMs !== undefined) {
+            this.elapsedMs +=
+                Math.max(0, frameTimeMs - this.previousFrameTimeMs) * timescale;
+        }
+        this.previousFrameTimeMs = frameTimeMs;
+    }
+    step(dtMs, timescale) {
+        this.elapsedMs += dtMs * timescale;
+        this.previousFrameTimeMs = undefined;
+    }
+    pause() {
+        this.previousFrameTimeMs = undefined;
+    }
+}
+
+const CONTEXT_NUMBER_SCALE = 10_000;
+function roundContextNumber(value) {
+    const rounded = Math.round(value * CONTEXT_NUMBER_SCALE) / CONTEXT_NUMBER_SCALE;
+    return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+/**
+ * A node to hold all XR Blocks Systems.
+ */
+class XRSystems extends THREE.Group {
+    constructor() {
+        super(...arguments);
+        this.type = 'XRSystems';
+        this.name = 'XR Blocks Systems';
+    }
+}
+
+const DepthMeshTexturedShader = {
+    vertexShader: /* glsl */ `
+varying vec3 vNormal;
+varying vec3 vViewPosition;
+varying vec2 vUv;
+
+void main() {
+  vUv = uv;
+  vNormal = normal;
+
+  // Computes the view position.
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  vViewPosition = -mvPosition.xyz;
+
+  gl_Position = projectionMatrix * mvPosition;
+}
+`,
+    fragmentShader: /* glsl */ `
+#include <packing>
+
+uniform vec3 uColor;
+uniform sampler2D uDepthTexture;
+uniform sampler2DArray uDepthTextureArray;
+uniform vec3 uLightDirection;
+uniform vec2 uResolution;
+uniform float uRawValueToMeters;
+
+varying vec3 vNormal;
+varying vec3 vViewPosition;
+varying vec2 vUv;
+
+const highp float kMaxDepthInMeters = 8.0;
+const float kInvalidDepthThreshold = 0.01;
+uniform float uMinDepth;
+uniform float uMaxDepth;
+uniform float uDebug;
+uniform float uOpacity;
+uniform bool uUsingFloatDepth;
+uniform bool uIsTextureArray;
+uniform mat4 uNormDepthBufferFromNormView;
+
+float saturate(in float x) {
+  return clamp(x, 0.0, 1.0);
+}
+
+vec3 TurboColormap(in float x) {
+  const vec4 kRedVec4 = vec4(0.55305649, 3.00913185, -5.46192616, -11.11819092);
+  const vec4 kGreenVec4 = vec4(0.16207513, 0.17712472, 15.24091500, -36.50657960);
+  const vec4 kBlueVec4 = vec4(-0.05195877, 5.18000081, -30.94853351, 81.96403246);
+  const vec2 kRedVec2 = vec2(27.81927491, -14.87899417);
+  const vec2 kGreenVec2 = vec2(25.95549545, -5.02738237);
+  const vec2 kBlueVec2 = vec2(-86.53476570, 30.23299484);
+
+  // Adjusts color space via 6 degree poly interpolation to avoid pure red.
+  vec4 v4 = vec4( 1.0, x, x * x, x * x * x);
+  vec2 v2 = v4.zw * v4.z;
+  return vec3(
+    dot(v4, kRedVec4)   + dot(v2, kRedVec2),
+    dot(v4, kGreenVec4) + dot(v2, kGreenVec2),
+    dot(v4, kBlueVec4)  + dot(v2, kBlueVec2)
+  );
+}
+
+// Depth is packed into the luminance and alpha components of its texture.
+// The texture is in a normalized format, storing raw values that need to be
+// converted to meters.
+float DepthGetMeters(in sampler2D depth_texture, in vec2 depth_uv) {
+  if (uUsingFloatDepth) {
+    return texture2D(depth_texture, depth_uv).r * uRawValueToMeters;
+  }
+  vec2 packedDepthAndVisibility = texture2D(depth_texture, depth_uv).rg;
+  return dot(packedDepthAndVisibility, vec2(255.0, 256.0 * 255.0)) * uRawValueToMeters;
+}
+
+float DepthArrayGetMeters(in sampler2DArray depth_texture, in vec2 depth_uv) {
+  return uRawValueToMeters * texture(uDepthTextureArray, vec3 (depth_uv.x, depth_uv.y, 0)).r;
+}
+
+vec3 DepthGetColorVisualization(in float x) {
+  return step(kInvalidDepthThreshold, x) * TurboColormap(x);
+}
+
+void main() {
+  vec3 lightDirection = normalize(uLightDirection);
+
+  // Compute UV coordinates relative to resolution
+  // vec2 uv = gl_FragCoord.xy / uResolution;
+  vec2 uv = vUv;
+
+  // Ambient, diffuse, and specular terms
+  vec3 ambient = 0.1 * uColor;
+  float diff = max(dot(vNormal, lightDirection), 0.0);
+  vec3 diffuse = diff * uColor;
+
+  vec3 viewDir = normalize(vViewPosition);
+  vec3 reflectDir = reflect(-lightDirection, vNormal);
+  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
+  vec3 specular = vec3(0.5) * spec; // Adjust specular color/strength
+
+  // Combine Phong lighting
+  vec3 finalColor = ambient + diffuse + specular;
+  // finalColor = vec3(vNormal);
+
+  // Output color
+  gl_FragColor = uOpacity * vec4(finalColor, 1.0);
+
+  if (uDebug > 0.5) {
+    return;
+  }
+
+  vec2 view_uv = vec2(uv.x, 1.0 - uv.y);
+  vec2 depth_uv = (uNormDepthBufferFromNormView * vec4(view_uv, 0.0, 1.0)).xy;
+
+  float depth = (uIsTextureArray ? DepthArrayGetMeters(uDepthTextureArray, depth_uv) : DepthGetMeters(uDepthTexture, depth_uv)) * 8.0;
+  float normalized_depth =
+    saturate((depth - uMinDepth) / (uMaxDepth - uMinDepth));
+  gl_FragColor =  vec4(TurboColormap(normalized_depth), 1.0);
+}
+`,
+};
+
+class DepthMesh extends MeshScript {
+    static { this.dependencies = {
+        renderer: THREE.WebGLRenderer,
+    }; }
+    static { this.isDepthMesh = true; }
+    constructor(depthOptions, width, height, depthTextures) {
+        const options = depthOptions.depthMesh;
+        const depthResolution = options.depthFullResolution;
+        const ignoreEdgePixels = options.ignoreEdgePixels;
+        const activeRes = Math.max(2, depthResolution - 2 * ignoreEdgePixels);
+        const geometry = new THREE.PlaneGeometry(1, 1, activeRes - 1, activeRes - 1);
+        const minU = ignoreEdgePixels / (depthResolution - 1);
+        const maxU = (depthResolution - 1 - ignoreEdgePixels) / (depthResolution - 1);
+        const minV = ignoreEdgePixels / (depthResolution - 1);
+        const maxV = (depthResolution - 1 - ignoreEdgePixels) / (depthResolution - 1);
+        const uvs = geometry.attributes.uv.array;
+        for (let i = 0; i < uvs.length; i += 2) {
+            uvs[i] = minU + uvs[i] * (maxU - minU);
+            uvs[i + 1] = minV + uvs[i + 1] * (maxV - minV);
+        }
+        let material;
+        let uniforms;
+        if (options.useDepthTexture || options.showDebugTexture) {
+            uniforms = {
+                uDepthTexture: { value: null },
+                uDepthTextureArray: { value: null },
+                uIsTextureArray: { value: 0.0 },
+                uColor: { value: new THREE.Color(0xaaaaaa) },
+                uResolution: { value: new THREE.Vector2(width, height) },
+                uRawValueToMeters: { value: 1.0 },
+                uMinDepth: { value: 0.0 },
+                uMaxDepth: { value: 8.0 },
+                uOpacity: { value: options.opacity },
+                uDebug: { value: options.showDebugTexture ? 1.0 : 0.0 },
+                uLightDirection: { value: new THREE.Vector3(1.0, 1.0, 1.0).normalize() },
+                uUsingFloatDepth: {
+                    value: depthOptions.dataFormatPreference[0] === 'float32',
+                },
+                uNormDepthBufferFromNormView: { value: new THREE.Matrix4() },
+            };
+            material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: DepthMeshTexturedShader.vertexShader,
+                fragmentShader: DepthMeshTexturedShader.fragmentShader,
+                side: THREE.DoubleSide,
+                transparent: true,
+            });
+        }
+        else {
+            material = new THREE.ShadowMaterial({ opacity: options.shadowOpacity });
+            material.depthWrite = false;
+        }
+        super(geometry, material);
+        this.depthOptions = depthOptions;
+        this.depthTextures = depthTextures;
+        this.ignoreReticleRaycast = false;
+        this.worldPosition = new THREE.Vector3();
+        this.worldQuaternion = new THREE.Quaternion();
+        this.updateVertexNormals = false;
+        this.minDepth = 8;
+        this.maxDepth = 0;
+        this.minDepthPrev = 8;
+        this.maxDepthPrev = 0;
+        this.colliders = [];
+        this.projectionMatrixInverse = new THREE.Matrix4();
+        this.lastColliderUpdateTime = 0;
+        this.colliderId = 0;
+        this.visible = options.showDebugTexture || options.renderShadow;
+        this.options = options;
+        this.lastColliderUpdateTime = performance.now();
+        this.updateVertexNormals = options.updateVertexNormals;
+        this.colliderUpdateFps = options.colliderUpdateFps;
+        this.depthTextureMaterialUniforms = uniforms;
+        if (options.renderShadow) {
+            this.receiveShadow = true;
+            this.castShadow = false;
+        }
+        // Create a downsampled geometry for raycasts and physics.
+        if (options.useDownsampledGeometry) {
+            this.downsampledGeometry = new THREE.PlaneGeometry(1, 1, 39, 39);
+            const dsUvs = this.downsampledGeometry.attributes.uv.array;
+            for (let i = 0; i < dsUvs.length; i += 2) {
+                dsUvs[i] = minU + dsUvs[i] * (maxU - minU);
+                dsUvs[i + 1] = minV + dsUvs[i + 1] * (maxV - minV);
+            }
+            this.downsampledMesh = new THREE.Mesh(this.downsampledGeometry, material);
+            this.downsampledMesh.visible = false;
+        }
+    }
+    /**
+     * Initialize the depth mesh.
+     */
+    init({ renderer }) {
+        this.renderer = renderer;
+    }
+    /**
+     * Updates the depth data and geometry positions based on the provided camera
+     * and depth data.
+     */
+    updateDepth(depthData, projectionMatrixInverse, depthDataFormat) {
+        this.projectionMatrixInverse = projectionMatrixInverse;
+        this.minDepth = 8;
+        this.maxDepth = 0;
+        if (this.options.updateFullResolutionGeometry) {
+            this.updateFullResolutionGeometry(depthData, depthDataFormat);
+        }
+        if (this.downsampledGeometry) {
+            this.updateGeometry(depthData, this.downsampledGeometry, depthDataFormat);
+            // The downsampled geometry's positions just changed, so bump its
+            // version. Consumers that cache work keyed on the position attribute's
+            // version (e.g. FaceRecognizer's depth-mesh snapshot + BVH) rely on this
+            // to invalidate; without it they reuse a stale clone from the first
+            // detection and every raycast misses.
+            this.downsampledGeometry.attributes.position.needsUpdate = true;
+        }
+        this.minDepthPrev = this.minDepth;
+        this.maxDepthPrev = this.maxDepth;
+        this.geometry.attributes.position.needsUpdate = true;
+        const depthTextureLeft = this.depthTextures?.get(0);
+        if (depthTextureLeft && this.depthTextureMaterialUniforms) {
+            this.depthTextureMaterialUniforms.uUsingFloatDepth.value =
+                depthDataFormat === 'float32';
+            if (depthData.normDepthBufferFromNormView) {
+                this.depthTextureMaterialUniforms.uNormDepthBufferFromNormView.value.fromArray(depthData.normDepthBufferFromNormView.matrix);
+            }
+            else {
+                this.depthTextureMaterialUniforms.uNormDepthBufferFromNormView.value.identity();
+            }
+            const isTextureArray = depthTextureLeft instanceof THREE.ExternalTexture;
+            this.depthTextureMaterialUniforms.uIsTextureArray.value = isTextureArray
+                ? 1.0
+                : 0;
+            if (isTextureArray)
+                this.depthTextureMaterialUniforms.uDepthTextureArray.value =
+                    depthTextureLeft;
+            else
+                this.depthTextureMaterialUniforms.uDepthTexture.value =
+                    depthTextureLeft;
+            this.depthTextureMaterialUniforms.uMinDepth.value = this.minDepth;
+            this.depthTextureMaterialUniforms.uMaxDepth.value = this.maxDepth;
+            this.depthTextureMaterialUniforms.uRawValueToMeters.value = this
+                .depthTextures.depthData.length
+                ? this.depthTextures.depthData[0].rawValueToMeters
+                : 1.0;
+        }
+        if (this.options.updateVertexNormals) {
+            this.geometry.computeVertexNormals();
+        }
+        this.updateColliderIfNeeded();
+    }
+    updatePose(translation, quaternion) {
+        this.position.copy(translation);
+        this.quaternion.copy(quaternion);
+        if (this.downsampledMesh) {
+            this.downsampledMesh.position.copy(translation);
+            this.downsampledMesh.quaternion.copy(quaternion);
+            this.downsampledMesh.updateMatrixWorld();
+        }
+    }
+    /**
+     * Method to manually update the full resolution geometry.
+     * Only needed if options.updateFullResolutionGeometry is false.
+     */
+    updateFullResolutionGeometry(depthData, depthDataFormat) {
+        this.updateGeometry(depthData, this.geometry, depthDataFormat);
+    }
+    /**
+     * Internal method to update the geometry of the depth mesh.
+     */
+    updateGeometry(depthData, geometry, depthDataFormat) {
+        const width = depthData.width;
+        const height = depthData.height;
+        const depthArray = depthDataFormat === 'float32'
+            ? new Float32Array(depthData.data)
+            : new Uint16Array(depthData.data);
+        const vertexPosition = new THREE.Vector3();
+        const normViewCoord = new THREE.Vector3();
+        const normDepthBufferFromNormView = depthData.normDepthBufferFromNormView
+            ? new THREE.Matrix4().fromArray(depthData.normDepthBufferFromNormView.matrix)
+            : new THREE.Matrix4().identity();
+        for (let i = 0; i < geometry.attributes.position.count; ++i) {
+            const u = geometry.attributes.uv.array[2 * i];
+            const v = geometry.attributes.uv.array[2 * i + 1];
+            let sampleU = u;
+            let sampleV = v;
+            if (depthData.normDepthBufferFromNormView) {
+                normViewCoord.set(u, 1.0 - v, 0);
+                normViewCoord.applyMatrix4(normDepthBufferFromNormView);
+                sampleU = normViewCoord.x;
+                sampleV = normViewCoord.y;
+            }
+            else {
+                sampleV = 1.0 - v;
+            }
+            // Grabs the nearest for now.
+            const depthX = Math.round(clamp$1(sampleU * (width - 1), 0, width - 1));
+            const depthY = Math.round(clamp$1(sampleV * (height - 1), 0, height - 1));
+            const rawDepth = depthArray[depthY * width + depthX];
+            let depth = depthData.rawValueToMeters * rawDepth;
+            // Finds global min/max.
+            if (depth > 0) {
+                if (depth < this.minDepth) {
+                    this.minDepth = depth;
+                }
+                else if (depth > this.maxDepth) {
+                    this.maxDepth = depth;
+                }
+            }
+            // This is a wrong algorithm to patch holes but working amazingly well.
+            // Per-row maximum may work better but haven't tried here.
+            // A proper local maximum takes another pass.
+            if (depth == 0 && this.options.patchHoles) {
+                depth = this.maxDepthPrev;
+            }
+            if (this.options.patchHolesUpper && v > 0.9) {
+                depth = this.minDepthPrev;
+            }
+            vertexPosition.set(2.0 * (u - 0.5), 2.0 * (v - 0.5), -1);
+            // This relates to camera.near
+            vertexPosition.applyMatrix4(this.projectionMatrixInverse);
+            vertexPosition.multiplyScalar(-depth / vertexPosition.z);
+            geometry.attributes.position.array[3 * i + 0] = vertexPosition.x;
+            geometry.attributes.position.array[3 * i + 1] = vertexPosition.y;
+            geometry.attributes.position.array[3 * i + 2] = vertexPosition.z;
+        }
+    }
+    /**
+     * Optimizes collider updates to run periodically based on the specified FPS.
+     */
+    updateColliderIfNeeded() {
+        const timeSinceLastUpdate = performance.now() - this.lastColliderUpdateTime;
+        if (this.RAPIER && timeSinceLastUpdate > 1000 / this.colliderUpdateFps) {
+            this.getWorldPosition(this.worldPosition);
+            this.getWorldQuaternion(this.worldQuaternion);
+            this.rigidBody.setTranslation(this.worldPosition, false);
+            this.rigidBody.setRotation(this.worldQuaternion, false);
+            const geometry = this.downsampledGeometry
+                ? this.downsampledGeometry
+                : this.geometry;
+            const vertices = geometry.attributes.position.array;
+            const indices = geometry.getIndex().array;
+            // Changing the density does not fix the issue.
+            const shape = this.RAPIER.ColliderDesc.trimesh(vertices, indices).setDensity(1.0);
+            // const convextHull = this.RAPIER.ColliderDesc.convexHull(vertices);
+            if (this.options.useDualCollider) {
+                this.colliderId = (this.colliderId + 1) % 2;
+                this.blendedWorld.removeCollider(this.colliders[this.colliderId], false);
+                this.colliders[this.colliderId] = this.blendedWorld.createCollider(shape, this.rigidBody);
+            }
+            else {
+                const newCollider = this.blendedWorld.createCollider(shape, this.rigidBody);
+                this.blendedWorld.removeCollider(this.collider, /*wakeUp=*/ false);
+                this.collider = newCollider;
+            }
+            this.lastColliderUpdateTime = performance.now();
+        }
+    }
+    initRapierPhysics(RAPIER, blendedWorld) {
+        this.getWorldPosition(this.worldPosition);
+        this.getWorldQuaternion(this.worldQuaternion);
+        const desc = RAPIER.RigidBodyDesc.fixed()
+            .setTranslation(this.worldPosition.x, this.worldPosition.y, this.worldPosition.z)
+            .setRotation(this.worldQuaternion);
+        this.rigidBody = blendedWorld.createRigidBody(desc);
+        const vertices = this.geometry.attributes.position.array;
+        const indices = this.geometry.getIndex().array;
+        const shape = RAPIER.ColliderDesc.trimesh(vertices, indices);
+        if (this.options.useDualCollider) {
+            this.colliders = [];
+            this.colliders.push(blendedWorld.createCollider(shape, this.rigidBody), blendedWorld.createCollider(shape, this.rigidBody));
+            this.colliderId = 0;
+        }
+        else {
+            this.collider = blendedWorld.createCollider(shape, this.rigidBody);
+        }
+        this.RAPIER = RAPIER;
+        this.blendedWorld = blendedWorld;
+        this.lastColliderUpdateTime = performance.now();
+    }
+    /**
+     * Customizes raycasting to compute normals for intersections.
+     * @param raycaster - The raycaster object.
+     * @param intersects - Array to store intersections.
+     * @returns - True if intersections are found.
+     */
+    raycast(raycaster, intersects) {
+        const intersections = [];
+        if (this.downsampledMesh) {
+            this.downsampledMesh.raycast(raycaster, intersections);
+        }
+        else {
+            super.raycast(raycaster, intersections);
+        }
+        intersections.forEach((intersect) => {
+            intersect.object = this;
+        });
+        if (!this.updateVertexNormals) {
+            // Use the face normals instead of attribute normals.
+            intersections.forEach((intersect) => {
+                if (intersect.normal && intersect.face) {
+                    intersect.normal.copy(intersect.face.normal);
+                }
+            });
+        }
+        intersects.push(...intersections);
+        return true;
+    }
+    getColliderFromHandle(handle) {
+        if (this.collider?.handle == handle) {
+            return this.collider;
+        }
+        for (const collider of this.colliders) {
+            if (collider?.handle == handle) {
+                return collider;
+            }
+        }
+        return undefined;
+    }
+}
+
+const boundsBox = new THREE.Box3();
+const boundsCorner = new THREE.Vector3();
+function isSemanticInternalObject(object) {
+    if (isInternalRoot(object)) {
+        return true;
+    }
+    let parent = object.parent;
+    while (parent) {
+        if (isInternalRoot(parent)) {
+            return true;
+        }
+        parent = parent.parent;
+    }
+    return false;
+}
+function isObjectVisible(object) {
+    let current = object;
+    while (current) {
+        if (!current.visible)
+            return false;
+        current = current.parent;
+    }
+    return true;
+}
+function hasRenderableDescendant(object) {
+    const stack = [...object.children];
+    while (stack.length > 0) {
+        const child = stack.pop();
+        if (isSemanticInternalObject(child)) {
+            continue;
+        }
+        if (child instanceof THREE.Mesh) {
+            return true;
+        }
+        stack.push(...child.children);
+    }
+    return false;
+}
+function isDescendantOf$1(object, ancestor) {
+    let current = object;
+    while (current) {
+        if (current === ancestor) {
+            return true;
+        }
+        current = current.parent;
+    }
+    return false;
+}
+function getObjectBounds(object, target) {
+    const uiBounds = getUIObjectBounds(object, target);
+    if (uiBounds) {
+        return uiBounds;
+    }
+    try {
+        boundsBox.setFromObject(object);
+    }
+    catch (_error) {
+        return null;
+    }
+    if (boundsBox.isEmpty()) {
+        return null;
+    }
+    return target ? target.copy(boundsBox) : boundsBox.clone();
+}
+function isInternalRoot(object) {
+    return (object instanceof XRSystems ||
+        object instanceof DepthMesh ||
+        object.constructor.isDepthMesh === true);
+}
+function getUIObjectBounds(object, target) {
+    const uiObject = object;
+    if (uiObject.isUI !== true ||
+        typeof uiObject.baseSizeX !== 'number' ||
+        typeof uiObject.baseSizeY !== 'number') {
+        return null;
+    }
+    object.updateMatrixWorld(true);
+    const halfWidth = uiObject.baseSizeX / 2;
+    const halfHeight = uiObject.baseSizeY / 2;
+    boundsBox.makeEmpty();
+    for (const x of [-halfWidth, halfWidth]) {
+        for (const y of [-halfHeight, halfHeight]) {
+            boundsCorner.set(x, y, 0).applyMatrix4(object.matrixWorld);
+            boundsBox.expandByPoint(boundsCorner);
+        }
+    }
+    return target ? target.copy(boundsBox) : boundsBox.clone();
+}
+
+const tempPosition = new THREE.Vector3();
+const tempBoundsCenter = new THREE.Vector3();
+const tempBoundsSize = new THREE.Vector3();
+const tempBoundsBox$2 = new THREE.Box3();
+let snapshotCounter = 0;
+function buildSemanticTree({ scene, registry, capturedAt, }) {
+    scene.updateMatrixWorld(true);
+    const nodes = {};
+    const rootIds = [];
+    const nodeObjects = new Map();
+    const objectNodeIds = new WeakMap();
+    const roundedCapturedAt = roundContextNumber(capturedAt);
+    const snapshotId = `ctx_snapshot_${Math.round(roundedCapturedAt)}_${snapshotCounter++}`;
+    const visit = (object, semanticParentId) => {
+        if (shouldPruneObject(object)) {
+            return;
+        }
+        const semantic = describeSemanticObject(object);
+        let nextSemanticParentId = semanticParentId;
+        if (semantic) {
+            const id = registry.getNodeId(object);
+            const node = createSemanticNode(object, id, semantic, semanticParentId);
+            nodes[id] = node;
+            nodeObjects.set(id, object);
+            objectNodeIds.set(object, id);
+            if (semanticParentId) {
+                nodes[semanticParentId]?.children.push(id);
+            }
+            else {
+                rootIds.push(id);
+            }
+            nextSemanticParentId = id;
+        }
+        for (const child of object.children) {
+            visit(child, nextSemanticParentId);
+        }
+    };
+    for (const child of scene.children) {
+        visit(child, undefined);
+    }
+    return {
+        tree: {
+            snapshotId,
+            capturedAt: roundedCapturedAt,
+            rootIds,
+            nodes,
+        },
+        nodeObjects,
+        objectNodeIds,
+    };
+}
+function shouldPruneObject(object) {
+    const maybeSemantic = object.userData.semantic;
+    if (maybeSemantic?.hidden) {
+        return true;
+    }
+    return isSemanticInternalObject(object);
+}
+function describeSemanticObject(object) {
+    const semanticObject = object;
+    const override = semanticObject.userData.semantic;
+    const className = object.constructor.name;
+    if (override?.role || override?.name) {
+        return {
+            role: override.role ?? inferRole(object),
+            name: override.name ?? inferName(object),
+            source: override.source ?? 'app',
+            text: override.text ?? inferText(object),
+            traits: override.traits ?? inferTraits(object),
+            disabled: override.disabled ?? inferDisabled(object),
+        };
+    }
+    const role = inferRole(object);
+    if (!role) {
+        return null;
+    }
+    const isImplementationMesh = object instanceof THREE.Mesh && hasSemanticAncestor(object);
+    if (isImplementationMesh) {
+        return null;
+    }
+    if (isLayoutOnlyContainer(object, role)) {
+        return null;
+    }
+    return {
+        role,
+        name: inferName(object),
+        source: inferSource(object, className),
+        text: inferText(object),
+        traits: inferTraits(object),
+        disabled: inferDisabled(object),
+    };
+}
+function hasSemanticAncestor(object) {
+    let parent = object.parent;
+    while (parent) {
+        const role = inferRole(parent);
+        if (role && !isLayoutOnlyContainer(parent, role)) {
+            return true;
+        }
+        parent = parent.parent;
+    }
+    return false;
+}
+function inferRole(object) {
+    const semanticObject = object;
+    const className = object.constructor.name;
+    if (semanticObject.userData.semantic?.role) {
+        return semanticObject.userData.semantic.role;
+    }
+    if (className === 'SpatialPanel' || className === 'Panel')
+        return 'panel';
+    if (className === 'UICard' ||
+        className === 'AdditiveUICard' ||
+        isUiblocksCard(semanticObject)) {
+        return 'panel';
+    }
+    if (className === 'UIPanel') {
+        return typeof semanticObject.onClick === 'function'
+            ? 'button'
+            : 'panel';
+    }
+    if (semanticObject.isUI &&
+        typeof semanticObject.onClick === 'function') {
+        return 'button';
+    }
+    if (className === 'TextButton' || className === 'IconButton') {
+        return 'button';
+    }
+    if (className === 'TextView' ||
+        className === 'LabelView' ||
+        className === 'UIText' ||
+        className === 'ScrollingTroikaTextView' ||
+        (semanticObject.isUI && typeof semanticObject.text === 'string')) {
+        return 'text';
+    }
+    if (className === 'ImageView' || className === 'UIImage')
+        return 'image';
+    if (className === 'IconView' ||
+        className === 'MaterialSymbolsView' ||
+        className === 'UIIcon') {
+        return 'icon';
+    }
+    if (semanticObject.isPanel || semanticObject.isUI)
+        return 'panel';
+    if (semanticObject.isView)
+        return 'group';
+    if (object instanceof THREE.Mesh)
+        return 'object';
+    if (object instanceof THREE.Group && hasRenderableDescendant(object)) {
+        return object.name ? 'group' : '';
+    }
+    return '';
+}
+function isUiblocksCard(object) {
+    return (object.name === 'UICard' ||
+        object.name.endsWith(' Card') ||
+        (object.isUI === true &&
+            (typeof object.baseSizeX === 'number' ||
+                typeof object.baseSizeY === 'number' ||
+                Array.isArray(object.behaviors))));
+}
+function inferName(object) {
+    const semanticObject = object;
+    return (semanticObject.userData.semantic?.name ??
+        inferText(object) ??
+        object.name ??
+        `${object.type}_${object.id}`);
+}
+function inferText(object) {
+    const semanticObject = object;
+    return semanticObject.userData.semantic?.text ?? semanticObject.text;
+}
+function inferSource(object, className = object.constructor.name) {
+    if (object.userData.semantic?.source) {
+        return object.userData.semantic.source;
+    }
+    if (object.isUI ||
+        className.startsWith('UI') ||
+        className === 'UICard' ||
+        className === 'AdditiveUICard') {
+        return 'uiblocks';
+    }
+    if (object.isView || object.isPanel) {
+        return 'xrblocks';
+    }
+    return 'three';
+}
+function inferTraits(object) {
+    const semanticObject = object;
+    const traits = new Set(semanticObject.userData.semantic?.traits ?? []);
+    if (semanticObject.selectable)
+        traits.add('selectable');
+    if (semanticObject.draggable)
+        traits.add('draggable');
+    if (typeof semanticObject.onClick === 'function') {
+        traits.add('selectable');
+    }
+    return traits.size ? [...traits] : undefined;
+}
+function inferDisabled(object) {
+    const semanticObject = object;
+    return semanticObject.userData.semantic?.disabled ?? semanticObject.disabled;
+}
+function isLayoutOnlyContainer(object, role) {
+    const className = object.constructor.name;
+    if (role !== 'group') {
+        return false;
+    }
+    return (!object.name &&
+        (className === 'Row' ||
+            className === 'Col' ||
+            className === 'Grid' ||
+            className === 'Object3D' ||
+            className === 'Group'));
+}
+function createSemanticNode(object, id, semantic, parentId) {
+    object.updateMatrixWorld(true);
+    object.getWorldPosition(tempPosition);
+    const node = {
+        id,
+        role: semantic.role,
+        name: semantic.name,
+        visible: object.visible,
+        position: [
+            roundContextNumber(tempPosition.x),
+            roundContextNumber(tempPosition.y),
+            roundContextNumber(tempPosition.z),
+        ],
+        children: [],
+        objectId: object.id,
+        source: semantic.source,
+        type: object.constructor.name || object.type,
+    };
+    if (parentId)
+        node.parentId = parentId;
+    if (semantic.text)
+        node.text = semantic.text;
+    if (semantic.traits?.length)
+        node.traits = semantic.traits;
+    if (semantic.disabled !== undefined)
+        node.disabled = semantic.disabled;
+    const hovered = object.ux?.isHovered?.();
+    const selected = object.ux?.isSelected?.();
+    if (hovered !== undefined)
+        node.hovered = hovered;
+    if (selected !== undefined)
+        node.selected = selected;
+    const bounds = getSemanticBounds(object);
+    if (bounds)
+        node.bounds = bounds;
+    return node;
+}
+function getSemanticBounds(object) {
+    const bounds = getObjectBounds(object, tempBoundsBox$2);
+    if (!bounds) {
+        return undefined;
+    }
+    const center = bounds.getCenter(tempBoundsCenter);
+    const size = bounds.getSize(tempBoundsSize);
+    return {
+        center: [
+            roundContextNumber(center.x),
+            roundContextNumber(center.y),
+            roundContextNumber(center.z),
+        ],
+        size: [
+            roundContextNumber(size.x),
+            roundContextNumber(size.y),
+            roundContextNumber(size.z),
+        ],
+    };
+}
+
+const LABEL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+function formatLabel(index) {
+    let value = index;
+    let label = '';
+    do {
+        label = LABEL_ALPHABET[value % LABEL_ALPHABET.length] + label;
+        value = Math.floor(value / LABEL_ALPHABET.length) - 1;
+    } while (value >= 0);
+    return label;
+}
+class SemanticIdRegistry {
+    constructor() {
+        this.nextNodeIndex = 1;
+        this.nextLabelIndex = 0;
+        this.nodeIds = new WeakMap();
+        this.labels = new WeakMap();
+    }
+    getNodeId(object) {
+        let id = this.nodeIds.get(object);
+        if (!id) {
+            id = `ctx_${this.nextNodeIndex++}`;
+            this.nodeIds.set(object, id);
+        }
+        return id;
+    }
+    getMarkLabel(object) {
+        let label = this.labels.get(object);
+        if (!label) {
+            label = formatLabel(this.nextLabelIndex++);
+            this.labels.set(object, label);
+        }
+        return label;
+    }
+}
+
+const tempCenter$1 = new THREE.Vector3();
+const tempBoundsBox$1 = new THREE.Box3();
+const tempProjection$1 = new THREE.Vector3();
+async function createSetOfMarkContext({ tree, image, nodeObjects, registry, projectionMatrix, matrixWorldInverse, }) {
+    const marks = [];
+    for (const node of Object.values(tree.nodes)) {
+        if (!node.view?.inLineOfSight) {
+            continue;
+        }
+        const object = nodeObjects.get(node.id);
+        if (!object) {
+            continue;
+        }
+        const screenPosition = projectObjectCenter(object, projectionMatrix, matrixWorldInverse);
+        if (!screenPosition) {
+            continue;
+        }
+        marks.push({
+            label: registry.getMarkLabel(object),
+            nodeId: node.id,
+            role: node.role,
+            name: node.name,
+            x: screenPosition.x,
+            y: screenPosition.y,
+        });
+    }
+    return {
+        snapshotId: tree.snapshotId,
+        capturedAt: tree.capturedAt,
+        image: await renderSetOfMarkImage(image, marks),
+        marks,
+    };
+}
+function projectObjectCenter(object, projectionMatrix, matrixWorldInverse) {
+    const box = getObjectBounds(object, tempBoundsBox$1);
+    if (box) {
+        box.getCenter(tempCenter$1);
+    }
+    else {
+        object.getWorldPosition(tempCenter$1);
+    }
+    const projected = tempProjection$1
+        .copy(tempCenter$1)
+        .applyMatrix4(matrixWorldInverse)
+        .applyMatrix4(projectionMatrix);
+    if (projected.x < -1 ||
+        projected.x > 1 ||
+        projected.y < -1 ||
+        projected.y > 1 ||
+        projected.z < -1 ||
+        projected.z > 1) {
+        return null;
+    }
+    return {
+        x: roundContextNumber((projected.x + 1) / 2),
+        y: roundContextNumber((1 - projected.y) / 2),
+    };
+}
+async function renderSetOfMarkImage(image, marks) {
+    if (typeof document === 'undefined' || !image || marks.length === 0) {
+        return image;
+    }
+    const img = new Image();
+    img.src = image;
+    await new Promise((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to load SOM screenshot.'));
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        return image;
+    }
+    ctx.drawImage(img, 0, 0);
+    for (const mark of marks) {
+        const x = mark.x * canvas.width;
+        const y = mark.y * canvas.height;
+        ctx.beginPath();
+        ctx.arc(x, y, 14, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff005599';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(mark.label, x, y);
+    }
+    return canvas.toDataURL('image/png');
+}
+
+const tempCenter = new THREE.Vector3();
+const tempProjection = new THREE.Vector3();
+const tempCameraPosition = new THREE.Vector3();
+const tempDirection = new THREE.Vector3();
+const tempBoundsBox = new THREE.Box3();
+const raycaster = new THREE.Raycaster();
+function createVisibleObjectsContext({ scene, camera, semanticTree, occlusionOpacityThreshold = 0, }) {
+    scene.updateMatrixWorld(true);
+    camera.updateMatrixWorld(true);
+    camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+    const nodes = { ...semanticTree.tree.nodes };
+    const raycastTargets = scene.children.filter((child) => child.visible && !isSemanticInternalObject(child));
+    for (const nodeId of Object.keys(nodes)) {
+        const node = nodes[nodeId];
+        const object = semanticTree.nodeObjects.get(nodeId);
+        nodes[nodeId] = {
+            ...node,
+            view: object
+                ? createSemanticViewData({
+                    camera,
+                    node,
+                    object,
+                    raycastTargets,
+                    occlusionOpacityThreshold,
+                })
+                : createNotRenderedViewData(),
+        };
+    }
+    return {
+        ...semanticTree.tree,
+        nodes,
+    };
+}
+function createSemanticViewData({ camera, node, object, raycastTargets, occlusionOpacityThreshold, }) {
+    if (!node.visible || !isObjectVisible(object)) {
+        return createNotRenderedViewData();
+    }
+    const box = getObjectBounds(object, tempBoundsBox);
+    const center = box?.getCenter(tempCenter) ?? object.getWorldPosition(tempCenter);
+    const projected = projectWorldPoint(center, camera);
+    const inFrame = isProjectedInFrame(projected);
+    if (!inFrame) {
+        return {
+            rendered: true,
+            inFrame: false,
+            inLineOfSight: false,
+            ...projectedToScreenCoordinates(projected),
+        };
+    }
+    const inLineOfSight = isObjectInLineOfSight({
+        camera,
+        object,
+        targetPoint: center,
+        raycastTargets,
+        occlusionOpacityThreshold,
+    });
+    return {
+        rendered: true,
+        inFrame: true,
+        inLineOfSight,
+        ...projectedToScreenCoordinates(projected),
+    };
+}
+function createNotRenderedViewData() {
+    return {
+        rendered: false,
+        inFrame: false,
+        inLineOfSight: false,
+    };
+}
+function projectWorldPoint(point, camera) {
+    return tempProjection
+        .copy(point)
+        .applyMatrix4(camera.matrixWorldInverse)
+        .applyMatrix4(camera.projectionMatrix);
+}
+function isProjectedInFrame(projected) {
+    return (projected.x >= -1 &&
+        projected.x <= 1 &&
+        projected.y >= -1 &&
+        projected.y <= 1 &&
+        projected.z >= -1 &&
+        projected.z <= 1);
+}
+function projectedToScreenCoordinates(projected) {
+    return {
+        x: roundContextNumber((projected.x + 1) / 2),
+        y: roundContextNumber((1 - projected.y) / 2),
+    };
+}
+function isObjectInLineOfSight({ camera, object, targetPoint, raycastTargets, occlusionOpacityThreshold, }) {
+    camera.getWorldPosition(tempCameraPosition);
+    tempDirection.copy(targetPoint).sub(tempCameraPosition);
+    const targetDistance = tempDirection.length();
+    if (targetDistance <= 0) {
+        return true;
+    }
+    raycaster.set(tempCameraPosition, tempDirection.normalize());
+    raycaster.near = 0;
+    raycaster.far = targetDistance;
+    const hits = raycaster.intersectObjects(raycastTargets, true);
+    const occludingHit = hits.find((hit) => {
+        if (hit.distance >= targetDistance - 1e-4) {
+            return false;
+        }
+        if (isSemanticInternalObject(hit.object)) {
+            return false;
+        }
+        if (ignoresReticleRaycast(hit.object)) {
+            return false;
+        }
+        if (isDescendantOf$1(hit.object, object) ||
+            isDescendantOf$1(object, hit.object)) {
+            return false;
+        }
+        if (!isOpacityOccluding(hit.object, occlusionOpacityThreshold)) {
+            return false;
+        }
+        return isObjectVisible(hit.object);
+    });
+    return occludingHit === undefined;
+}
+function ignoresReticleRaycast(object) {
+    let current = object;
+    while (current) {
+        if ('ignoreReticleRaycast' in current &&
+            current.ignoreReticleRaycast === true) {
+            return true;
+        }
+        current = current.parent;
+    }
+    return false;
+}
+function isOpacityOccluding(object, occlusionOpacityThreshold) {
+    if (!(object instanceof THREE.Mesh)) {
+        return true;
+    }
+    return getMaterialOpacity(object.material) > occlusionOpacityThreshold;
+}
+function getMaterialOpacity(material) {
+    const materials = Array.isArray(material) ? material : [material];
+    return Math.max(...materials.map((item) => (item.transparent ? item.opacity : 1)));
+}
+
+class SceneDetector extends Script {
+    constructor() {
+        super(...arguments);
+        this.registry = new SemanticIdRegistry();
+        this.snapshot = null;
+        this.snapshotPromise = null;
+        this.activeClients = new Set();
+        this.currentDetectionPromise = null;
+        this.currentVisibleObjectsPromise = null;
+        this.currentSetOfMarkPromise = null;
+        this.currentContextPromise = null;
+        this.currentContextRequestKey = '';
+        this.lastContinuousDetectionStartedAtMs = -Infinity;
+        this.disposed = false;
+        /**
+         * The latest semantic tree produced by scene context detection.
+         */
+        this.tree = null;
+        /**
+         * The latest semantic tree annotated with user-view visibility.
+         */
+        this.visibleObjects = null;
+        /**
+         * The latest Set-of-Mark context image and label mapping.
+         */
+        this.setOfMark = null;
+    }
+    static { this.dependencies = {
+        options: ContextOptions,
+        scene: THREE.Scene,
+        camera: THREE.Camera,
+        screenshotSynthesizer: ScreenshotSynthesizer,
+        simulationTimer: SimulationTimer,
+    }; }
+    init({ options, scene, camera, screenshotSynthesizer, simulationTimer, deviceCamera, }) {
+        this.options = options;
+        this.scene = scene;
+        this.camera = camera;
+        this.screenshotSynthesizer = screenshotSynthesizer;
+        this.simulationTimer = simulationTimer;
+        this.deviceCamera = deviceCamera ?? this.deviceCamera;
+        this.snapshot = null;
+        this.disposed = false;
+    }
+    setDeviceCamera(deviceCamera) {
+        this.deviceCamera = deviceCamera;
+    }
+    resolveNodeObject(nodeId) {
+        return this.snapshot?.semanticInternal?.nodeObjects.get(nodeId);
+    }
+    start(client) {
+        if (!this.options.enabled || !this.options.scene.enabled) {
+            console.warn('Cannot start scene context detection: scene context is not enabled.');
+            return;
+        }
+        if (this.activeClients.has(client)) {
+            return;
+        }
+        this.activeClients.add(client);
+        if (this.activeClients.size === 1) {
+            this.runContinuousDetection();
+        }
+    }
+    stop(client) {
+        this.activeClients.delete(client);
+    }
+    update() {
+        if (!this.shouldRunContinuous()) {
+            return;
+        }
+        this.runContinuousDetection();
+    }
+    shouldRunContinuous(now = performance.now()) {
+        if (this.activeClients.size === 0 || this.currentDetectionPromise) {
+            return;
+        }
+        const pollingIntervalMs = this.options.scene.pollingIntervalMs;
+        if (pollingIntervalMs > 0 &&
+            now - this.lastContinuousDetectionStartedAtMs < pollingIntervalMs) {
+            return;
+        }
+        return true;
+    }
+    runDetection() {
+        if (this.currentDetectionPromise) {
+            return this.currentDetectionPromise;
+        }
+        if (this.activeClients.size > 0) {
+            this.runContinuousDetection();
+            return this.currentDetectionPromise;
+        }
+        this.currentDetectionPromise = this.runContextDetection({
+            semanticTree: true,
+        })
+            .then((result) => result.semanticTree)
+            .finally(() => {
+            this.currentDetectionPromise = null;
+        });
+        return this.currentDetectionPromise;
+    }
+    runVisibleObjectsDetection() {
+        if (this.currentVisibleObjectsPromise) {
+            return this.currentVisibleObjectsPromise;
+        }
+        this.currentVisibleObjectsPromise = this.runContextDetection({
+            semanticTree: false,
+            visibleObjects: true,
+        })
+            .then((result) => result.visibleObjects)
+            .finally(() => {
+            this.currentVisibleObjectsPromise = null;
+        });
+        return this.currentVisibleObjectsPromise;
+    }
+    runSetOfMarkDetection() {
+        if (this.currentSetOfMarkPromise) {
+            return this.currentSetOfMarkPromise;
+        }
+        this.currentSetOfMarkPromise = this.runContextDetection({
+            semanticTree: false,
+            visibleObjects: true,
+            setOfMark: true,
+        }, { preserveVisibleObjects: true })
+            .then((result) => result.setOfMark)
+            .finally(() => {
+            this.currentSetOfMarkPromise = null;
+        });
+        return this.currentSetOfMarkPromise;
+    }
+    runContextDetection(options = {
+        semanticTree: true,
+        visibleObjects: true,
+        setOfMark: true,
+    }, snapshotOptions = {}) {
+        const request = {
+            semanticTree: options.semanticTree !== false,
+            visibleObjects: options.visibleObjects === true,
+            setOfMark: options.setOfMark === true,
+        };
+        const requestKey = JSON.stringify({
+            ...request,
+            preserveVisibleObjects: snapshotOptions.preserveVisibleObjects === true,
+        });
+        if (this.currentContextPromise &&
+            this.currentContextRequestKey === requestKey) {
+            return this.currentContextPromise;
+        }
+        this.beginSnapshot(snapshotOptions);
+        this.currentContextRequestKey = requestKey;
+        this.currentContextPromise = this.detectSceneContext(request).finally(() => {
+            this.currentContextPromise = null;
+            this.currentContextRequestKey = '';
+        });
+        return this.currentContextPromise;
+    }
+    runContinuousDetection() {
+        if (this.currentDetectionPromise) {
+            return this.currentDetectionPromise;
+        }
+        this.lastContinuousDetectionStartedAtMs = performance.now();
+        this.currentDetectionPromise = this.runContextDetection({
+            semanticTree: true,
+            visibleObjects: this.options.scene.visibleObjects.enabled,
+            setOfMark: this.options.scene.som.enabled,
+        })
+            .then((result) => result.semanticTree)
+            .then((result) => {
+            this.tree = result;
+            return result;
+        })
+            .finally(() => {
+            this.currentDetectionPromise = null;
+        });
+        return this.currentDetectionPromise;
+    }
+    async detectSceneContext(options) {
+        if (this.disposed) {
+            return {};
+        }
+        const result = {};
+        if (options.semanticTree) {
+            result.semanticTree = await this.getSemanticTree();
+            if (this.disposed) {
+                return {};
+            }
+            this.tree = result.semanticTree;
+        }
+        if (options.visibleObjects || options.setOfMark) {
+            result.visibleObjects = await this.getVisibleObjectsContext();
+            if (this.disposed) {
+                return {};
+            }
+        }
+        if (options.setOfMark) {
+            result.setOfMark = await this.getSetOfMarkContext();
+            if (this.disposed) {
+                return {};
+            }
+        }
+        return this.disposed ? {} : result;
+    }
+    beginSnapshot(options = {}) {
+        if (options.preserveVisibleObjects && this.snapshot?.visibleObjects) {
+            this.snapshot.som = undefined;
+            return;
+        }
+        this.snapshot = {};
+    }
+    async getSemanticTree() {
+        const snapshot = await this.getSnapshot();
+        return snapshot.semanticInternal.tree;
+    }
+    async getVisibleObjectsContext(camera = this.camera) {
+        const snapshot = await this.getSnapshot();
+        if (!snapshot.visibleObjects) {
+            snapshot.visibleObjects = createVisibleObjectsContext({
+                scene: this.scene,
+                camera,
+                semanticTree: snapshot.semanticInternal,
+                occlusionOpacityThreshold: this.options.scene.visibleObjects.occlusionOpacityThreshold,
+            });
+        }
+        if (!this.disposed) {
+            this.visibleObjects = snapshot.visibleObjects;
+        }
+        return snapshot.visibleObjects;
+    }
+    async getSetOfMarkContext() {
+        const snapshot = await this.getSnapshot();
+        if (!snapshot.som) {
+            const camera = this.camera;
+            camera.updateMatrixWorld(true);
+            camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+            const projectionMatrix = camera.projectionMatrix.clone();
+            const matrixWorldInverse = camera.matrixWorldInverse.clone();
+            const visibleObjects = await this.getVisibleObjectsContext(camera);
+            const overlayOnCamera = this.deviceCamera?.loaded === true;
+            const screenshot = await this.screenshotSynthesizer.getScreenshot(overlayOnCamera);
+            snapshot.som = await createSetOfMarkContext({
+                tree: visibleObjects,
+                image: screenshot,
+                nodeObjects: snapshot.semanticInternal.nodeObjects,
+                registry: this.registry,
+                projectionMatrix,
+                matrixWorldInverse,
+            });
+        }
+        if (!this.disposed) {
+            this.setOfMark = snapshot.som;
+        }
+        return snapshot.som;
+    }
+    async getSnapshot() {
+        if (this.snapshot?.semanticInternal) {
+            return this.snapshot;
+        }
+        if (this.snapshotPromise) {
+            return this.snapshotPromise;
+        }
+        this.snapshotPromise = Promise.resolve()
+            .then(() => {
+            const snapshot = this.snapshot ?? {};
+            snapshot.semanticInternal = buildSemanticTree({
+                scene: this.scene,
+                registry: this.registry,
+                capturedAt: this.getCaptureTimeMs(),
+            });
+            this.snapshot = snapshot;
+            return snapshot;
+        })
+            .finally(() => {
+            this.snapshotPromise = null;
+        });
+        return this.snapshotPromise;
+    }
+    dispose() {
+        this.disposed = true;
+        this.activeClients.clear();
+        this.snapshot = null;
+        this.snapshotPromise = null;
+        this.currentDetectionPromise = null;
+        this.currentVisibleObjectsPromise = null;
+        this.currentSetOfMarkPromise = null;
+        this.currentContextPromise = null;
+        this.currentContextRequestKey = '';
+        this.tree = null;
+        this.visibleObjects = null;
+        this.setOfMark = null;
+    }
+    getCaptureTimeMs() {
+        return this.simulationTimer?.getElapsedMs() ?? performance.now();
+    }
+}
+
+class Context extends Script {
+    constructor() {
+        super(...arguments);
+        this.editorIcon = 'account_tree';
+    }
+    static { this.dependencies = {
+        options: ContextOptions,
+        scene: THREE.Scene,
+        camera: THREE.Camera,
+        screenshotSynthesizer: ScreenshotSynthesizer,
+    }; }
+    init({ options, deviceCamera, }) {
+        this.options = options;
+        this.removeDetectors();
+        this.deviceCamera = deviceCamera ?? this.deviceCamera;
+        if (!options.enabled) {
+            return;
+        }
+        if (options.scene.enabled) {
+            this.scene = new SceneDetector();
+            this.scene.setDeviceCamera(this.deviceCamera);
+            this.add(this.scene);
+        }
+    }
+    setDeviceCamera(deviceCamera) {
+        this.deviceCamera = deviceCamera;
+        this.scene?.setDeviceCamera(deviceCamera);
+    }
+    dispose() {
+        this.removeDetectors();
+    }
+    removeDetectors() {
+        if (this.scene) {
+            this.scene.dispose();
+            this.remove(this.scene);
+        }
+        this.scene = undefined;
+    }
+}
+
 // Sorting function which uses the render order to try to find which element is on top.
 function defaultSortFunction(a, b) {
     // 1. Primary: Distance (Ascending).
@@ -2816,197 +4685,6 @@ class Registry {
      */
     unregister(type) {
         this.instances.delete(type);
-    }
-}
-
-// Use a small canvas since a full size canvas can consume a lot of memory and
-// cause toDataUrl to be slow.
-const DEFAULT_CANVAS_WIDTH = 640;
-function flipBufferVertically(buffer, width, height) {
-    const bytesPerRow = width * 4;
-    const tempRow = new Uint8Array(bytesPerRow);
-    for (let y = 0; y < height / 2; y++) {
-        const topRowY = y;
-        const bottomRowY = height - 1 - y;
-        const topRowOffset = topRowY * bytesPerRow;
-        const bottomRowOffset = bottomRowY * bytesPerRow;
-        tempRow.set(buffer.subarray(topRowOffset, topRowOffset + bytesPerRow));
-        buffer.set(buffer.subarray(bottomRowOffset, bottomRowOffset + bytesPerRow), topRowOffset);
-        buffer.set(tempRow, bottomRowOffset);
-    }
-}
-class PendingScreenshotRequest {
-    constructor(resolve, reject, overlayOnCamera) {
-        this.resolve = resolve;
-        this.reject = reject;
-        this.overlayOnCamera = overlayOnCamera;
-    }
-}
-class ScreenshotSynthesizer {
-    constructor() {
-        this.pendingScreenshotRequests = [];
-        this.virtualBuffer = new Uint8Array();
-        this.virtualRealBuffer = new Uint8Array();
-        this.renderTargetWidth = DEFAULT_CANVAS_WIDTH;
-    }
-    async onAfterRender(renderer, renderSceneFn, deviceCamera) {
-        if (this.pendingScreenshotRequests.length == 0) {
-            return;
-        }
-        const haveVirtualOnlyRequests = this.pendingScreenshotRequests.every((request) => !request.overlayOnCamera);
-        if (haveVirtualOnlyRequests) {
-            this.createVirtualImageDataURL(renderer, renderSceneFn).then((virtualImageDataUrl) => {
-                this.resolveVirtualOnlyRequests(virtualImageDataUrl);
-            });
-        }
-        const haveVirtualAndRealReqeusts = this.pendingScreenshotRequests.some((request) => request.overlayOnCamera);
-        if (haveVirtualAndRealReqeusts && deviceCamera) {
-            this.createVirtualRealImageDataURL(renderer, renderSceneFn, deviceCamera).then((virtualRealImageDataUrl) => {
-                if (virtualRealImageDataUrl) {
-                    this.resolveVirtualRealRequests(virtualRealImageDataUrl);
-                }
-            });
-        }
-        else if (haveVirtualAndRealReqeusts) {
-            throw new Error('No device camera provided');
-        }
-    }
-    async createVirtualImageDataURL(renderer, renderSceneFn) {
-        const mainRenderTarget = renderer.getRenderTarget();
-        const isRenderingStereo = renderer.xr.isPresenting && renderer.xr.getCamera().cameras.length == 2;
-        const mainRenderTargetSingleViewWidth = isRenderingStereo
-            ? mainRenderTarget.width / 2
-            : mainRenderTarget.width;
-        const scaledHeight = Math.round(mainRenderTarget.height *
-            (this.renderTargetWidth / mainRenderTargetSingleViewWidth));
-        if (!this.virtualRenderTarget ||
-            this.virtualRenderTarget.width != this.renderTargetWidth) {
-            this.virtualRenderTarget?.dispose();
-            this.virtualRenderTarget = new THREE.WebGLRenderTarget(this.renderTargetWidth, scaledHeight, { colorSpace: THREE.SRGBColorSpace });
-        }
-        const xrIsPresenting = renderer.xr.isPresenting;
-        renderer.xr.isPresenting = false;
-        const virtualRenderTarget = this.virtualRenderTarget;
-        renderer.setRenderTarget(virtualRenderTarget);
-        renderer.clearColor();
-        renderer.clearDepth();
-        renderSceneFn();
-        renderer.setRenderTarget(mainRenderTarget);
-        renderer.xr.isPresenting = xrIsPresenting;
-        const expectedBufferLength = virtualRenderTarget.width * virtualRenderTarget.height * 4;
-        if (this.virtualBuffer.length != expectedBufferLength) {
-            this.virtualBuffer = new Uint8Array(expectedBufferLength);
-        }
-        const buffer = this.virtualBuffer;
-        await renderer.readRenderTargetPixelsAsync(virtualRenderTarget, 0, 0, virtualRenderTarget.width, virtualRenderTarget.height, buffer);
-        flipBufferVertically(buffer, virtualRenderTarget.width, virtualRenderTarget.height);
-        const canvas = this.virtualCanvas ||
-            (this.virtualCanvas = document.createElement('canvas'));
-        canvas.width = virtualRenderTarget.width;
-        canvas.height = virtualRenderTarget.height;
-        const context = canvas.getContext('2d');
-        if (!context) {
-            throw new Error('Failed to get 2D context');
-        }
-        const imageData = new ImageData(new Uint8ClampedArray(buffer), virtualRenderTarget.width, virtualRenderTarget.height);
-        context.putImageData(imageData, 0, 0);
-        return canvas.toDataURL();
-    }
-    resolveVirtualOnlyRequests(virtualImageDataUrl) {
-        let remainingRequests = 0;
-        for (let i = 0; i < this.pendingScreenshotRequests.length; i++) {
-            const request = this.pendingScreenshotRequests[i];
-            if (!request.overlayOnCamera) {
-                request.resolve(virtualImageDataUrl);
-            }
-            else {
-                this.pendingScreenshotRequests[remainingRequests++] = request;
-            }
-        }
-        this.pendingScreenshotRequests.length = remainingRequests;
-    }
-    async createVirtualRealImageDataURL(renderer, renderSceneFn, deviceCamera) {
-        if (!deviceCamera.loaded) {
-            console.debug('Waiting for device camera to be loaded');
-            return null;
-        }
-        const mainRenderTarget = renderer.getRenderTarget();
-        const isRenderingStereo = renderer.xr.isPresenting && renderer.xr.getCamera().cameras.length == 2;
-        const mainRenderTargetSize = new THREE.Vector2();
-        if (mainRenderTarget) {
-            mainRenderTargetSize.set(mainRenderTarget.width, mainRenderTarget.height);
-        }
-        else {
-            renderer.getSize(mainRenderTargetSize);
-        }
-        const mainRenderTargetSingleViewWidth = isRenderingStereo
-            ? mainRenderTargetSize.x / 2
-            : mainRenderTargetSize.y;
-        const scaledHeight = Math.round(mainRenderTargetSize.y *
-            (this.renderTargetWidth / mainRenderTargetSingleViewWidth));
-        if (!this.virtualRealRenderTarget ||
-            this.virtualRealRenderTarget.height != scaledHeight) {
-            this.virtualRealRenderTarget?.dispose();
-            this.virtualRealRenderTarget = new THREE.WebGLRenderTarget(this.renderTargetWidth, scaledHeight, { colorSpace: THREE.SRGBColorSpace });
-        }
-        const renderTarget = this.virtualRealRenderTarget;
-        renderer.setRenderTarget(renderTarget);
-        const xrIsPresenting = renderer.xr.isPresenting;
-        renderer.xr.isPresenting = false;
-        const quad = this.getFullScreenQuad();
-        quad.material.map = deviceCamera.texture;
-        quad.render(renderer);
-        renderSceneFn();
-        renderer.xr.isPresenting = xrIsPresenting;
-        renderer.setRenderTarget(mainRenderTarget);
-        if (this.virtualRealBuffer.length !=
-            renderTarget.width * renderTarget.height * 4) {
-            this.virtualRealBuffer = new Uint8Array(renderTarget.width * renderTarget.height * 4);
-        }
-        const buffer = this.virtualRealBuffer;
-        await renderer.readRenderTargetPixelsAsync(renderTarget, 0, 0, renderTarget.width, renderTarget.height, buffer);
-        flipBufferVertically(buffer, renderTarget.width, renderTarget.height);
-        const canvas = this.virtualRealCanvas ||
-            (this.virtualRealCanvas = document.createElement('canvas'));
-        canvas.width = renderTarget.width;
-        canvas.height = renderTarget.height;
-        const context = canvas.getContext('2d');
-        if (!context) {
-            throw new Error('Failed to get 2D context');
-        }
-        const imageData = new ImageData(new Uint8ClampedArray(buffer), renderTarget.width, renderTarget.height);
-        context.putImageData(imageData, 0, 0);
-        return canvas.toDataURL();
-    }
-    resolveVirtualRealRequests(virtualRealImageDataUrl) {
-        let remainingRequests = 0;
-        for (let i = 0; i < this.pendingScreenshotRequests.length; i++) {
-            const request = this.pendingScreenshotRequests[i];
-            if (request.overlayOnCamera) {
-                request.resolve(virtualRealImageDataUrl);
-            }
-            else {
-                this.pendingScreenshotRequests[remainingRequests++] = request;
-            }
-        }
-        this.pendingScreenshotRequests.length = remainingRequests;
-    }
-    getFullScreenQuad() {
-        if (!this.fullScreenQuad) {
-            this.fullScreenQuad = new FullScreenQuad(new THREE.MeshBasicMaterial({ transparent: true }));
-        }
-        return this.fullScreenQuad;
-    }
-    /**
-     * Requests a screenshot from the scene as a DataURL.
-     * @param overlayOnCamera - If true, overlays the image on a camera image
-     *     without any projection or aspect ratio correction.
-     * @returns Promise which returns the screenshot as a data uri.
-     */
-    async getScreenshot(overlayOnCamera = false) {
-        return new Promise((resolve, reject) => {
-            this.pendingScreenshotRequests.push(new PendingScreenshotRequest(resolve, reject, overlayOnCamera));
-        });
     }
 }
 
@@ -3764,439 +5442,50 @@ class XREffects {
     }
 }
 
-const DepthMeshTexturedShader = {
-    vertexShader: /* glsl */ `
-varying vec3 vNormal;
-varying vec3 vViewPosition;
-varying vec2 vUv;
-
-void main() {
-  vUv = uv;
-  vNormal = normal;
-
-  // Computes the view position.
-  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-  vViewPosition = -mvPosition.xyz;
-
-  gl_Position = projectionMatrix * mvPosition;
+let lifecycle;
+function registerDebugGlobals(sdk) {
+    if (!debugRequestedByUrl() || typeof window === 'undefined')
+        return;
+    const debugWindow = window;
+    if ('xb' in debugWindow || 'xbReady' in debugWindow) {
+        console.warn('XR Blocks debug globals were not installed because window.xb or ' +
+            'window.xbReady is already defined.');
+        return;
+    }
+    let resolveReady;
+    let rejectReady;
+    const ready = new Promise((resolve, reject) => {
+        resolveReady = resolve;
+        rejectReady = reject;
+    });
+    // Keep initialization failures observable without creating an unhandled
+    // rejection before a browser driver awaits the readiness promise.
+    void ready.catch(() => undefined);
+    debugWindow.xb = sdk;
+    debugWindow.xbReady = ready;
+    lifecycle = {
+        core: sdk.core,
+        resolve: resolveReady,
+        reject: rejectReady,
+    };
 }
-`,
-    fragmentShader: /* glsl */ `
-#include <packing>
-
-uniform vec3 uColor;
-uniform sampler2D uDepthTexture;
-uniform sampler2DArray uDepthTextureArray;
-uniform vec3 uLightDirection;
-uniform vec2 uResolution;
-uniform float uRawValueToMeters;
-
-varying vec3 vNormal;
-varying vec3 vViewPosition;
-varying vec2 vUv;
-
-const highp float kMaxDepthInMeters = 8.0;
-const float kInvalidDepthThreshold = 0.01;
-uniform float uMinDepth;
-uniform float uMaxDepth;
-uniform float uDebug;
-uniform float uOpacity;
-uniform bool uUsingFloatDepth;
-uniform bool uIsTextureArray;
-uniform mat4 uNormDepthBufferFromNormView;
-
-float saturate(in float x) {
-  return clamp(x, 0.0, 1.0);
+function markDebugReady(core) {
+    if (lifecycle?.core === core) {
+        lifecycle.resolve();
+    }
 }
-
-vec3 TurboColormap(in float x) {
-  const vec4 kRedVec4 = vec4(0.55305649, 3.00913185, -5.46192616, -11.11819092);
-  const vec4 kGreenVec4 = vec4(0.16207513, 0.17712472, 15.24091500, -36.50657960);
-  const vec4 kBlueVec4 = vec4(-0.05195877, 5.18000081, -30.94853351, 81.96403246);
-  const vec2 kRedVec2 = vec2(27.81927491, -14.87899417);
-  const vec2 kGreenVec2 = vec2(25.95549545, -5.02738237);
-  const vec2 kBlueVec2 = vec2(-86.53476570, 30.23299484);
-
-  // Adjusts color space via 6 degree poly interpolation to avoid pure red.
-  vec4 v4 = vec4( 1.0, x, x * x, x * x * x);
-  vec2 v2 = v4.zw * v4.z;
-  return vec3(
-    dot(v4, kRedVec4)   + dot(v2, kRedVec2),
-    dot(v4, kGreenVec4) + dot(v2, kGreenVec2),
-    dot(v4, kBlueVec4)  + dot(v2, kBlueVec2)
-  );
+function markDebugFailed(core, error) {
+    if (lifecycle?.core === core) {
+        lifecycle.reject(error);
+    }
 }
-
-// Depth is packed into the luminance and alpha components of its texture.
-// The texture is in a normalized format, storing raw values that need to be
-// converted to meters.
-float DepthGetMeters(in sampler2D depth_texture, in vec2 depth_uv) {
-  if (uUsingFloatDepth) {
-    return texture2D(depth_texture, depth_uv).r * uRawValueToMeters;
-  }
-  vec2 packedDepthAndVisibility = texture2D(depth_texture, depth_uv).rg;
-  return dot(packedDepthAndVisibility, vec2(255.0, 256.0 * 255.0)) * uRawValueToMeters;
-}
-
-float DepthArrayGetMeters(in sampler2DArray depth_texture, in vec2 depth_uv) {
-  return uRawValueToMeters * texture(uDepthTextureArray, vec3 (depth_uv.x, depth_uv.y, 0)).r;
-}
-
-vec3 DepthGetColorVisualization(in float x) {
-  return step(kInvalidDepthThreshold, x) * TurboColormap(x);
-}
-
-void main() {
-  vec3 lightDirection = normalize(uLightDirection);
-
-  // Compute UV coordinates relative to resolution
-  // vec2 uv = gl_FragCoord.xy / uResolution;
-  vec2 uv = vUv;
-
-  // Ambient, diffuse, and specular terms
-  vec3 ambient = 0.1 * uColor;
-  float diff = max(dot(vNormal, lightDirection), 0.0);
-  vec3 diffuse = diff * uColor;
-
-  vec3 viewDir = normalize(vViewPosition);
-  vec3 reflectDir = reflect(-lightDirection, vNormal);
-  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
-  vec3 specular = vec3(0.5) * spec; // Adjust specular color/strength
-
-  // Combine Phong lighting
-  vec3 finalColor = ambient + diffuse + specular;
-  // finalColor = vec3(vNormal);
-
-  // Output color
-  gl_FragColor = uOpacity * vec4(finalColor, 1.0);
-
-  if (uDebug > 0.5) {
-    return;
-  }
-
-  vec2 view_uv = vec2(uv.x, 1.0 - uv.y);
-  vec2 depth_uv = (uNormDepthBufferFromNormView * vec4(view_uv, 0.0, 1.0)).xy;
-
-  float depth = (uIsTextureArray ? DepthArrayGetMeters(uDepthTextureArray, depth_uv) : DepthGetMeters(uDepthTexture, depth_uv)) * 8.0;
-  float normalized_depth =
-    saturate((depth - uMinDepth) / (uMaxDepth - uMinDepth));
-  gl_FragColor =  vec4(TurboColormap(normalized_depth), 1.0);
-}
-`,
-};
-
-class DepthMesh extends MeshScript {
-    static { this.dependencies = {
-        renderer: THREE.WebGLRenderer,
-    }; }
-    static { this.isDepthMesh = true; }
-    constructor(depthOptions, width, height, depthTextures) {
-        const options = depthOptions.depthMesh;
-        const depthResolution = options.depthFullResolution;
-        const ignoreEdgePixels = options.ignoreEdgePixels;
-        const activeRes = Math.max(2, depthResolution - 2 * ignoreEdgePixels);
-        const geometry = new THREE.PlaneGeometry(1, 1, activeRes - 1, activeRes - 1);
-        const minU = ignoreEdgePixels / (depthResolution - 1);
-        const maxU = (depthResolution - 1 - ignoreEdgePixels) / (depthResolution - 1);
-        const minV = ignoreEdgePixels / (depthResolution - 1);
-        const maxV = (depthResolution - 1 - ignoreEdgePixels) / (depthResolution - 1);
-        const uvs = geometry.attributes.uv.array;
-        for (let i = 0; i < uvs.length; i += 2) {
-            uvs[i] = minU + uvs[i] * (maxU - minU);
-            uvs[i + 1] = minV + uvs[i + 1] * (maxV - minV);
-        }
-        let material;
-        let uniforms;
-        if (options.useDepthTexture || options.showDebugTexture) {
-            uniforms = {
-                uDepthTexture: { value: null },
-                uDepthTextureArray: { value: null },
-                uIsTextureArray: { value: 0.0 },
-                uColor: { value: new THREE.Color(0xaaaaaa) },
-                uResolution: { value: new THREE.Vector2(width, height) },
-                uRawValueToMeters: { value: 1.0 },
-                uMinDepth: { value: 0.0 },
-                uMaxDepth: { value: 8.0 },
-                uOpacity: { value: options.opacity },
-                uDebug: { value: options.showDebugTexture ? 1.0 : 0.0 },
-                uLightDirection: { value: new THREE.Vector3(1.0, 1.0, 1.0).normalize() },
-                uUsingFloatDepth: {
-                    value: depthOptions.dataFormatPreference[0] === 'float32',
-                },
-                uNormDepthBufferFromNormView: { value: new THREE.Matrix4() },
-            };
-            material = new THREE.ShaderMaterial({
-                uniforms: uniforms,
-                vertexShader: DepthMeshTexturedShader.vertexShader,
-                fragmentShader: DepthMeshTexturedShader.fragmentShader,
-                side: THREE.DoubleSide,
-                transparent: true,
-            });
-        }
-        else {
-            material = new THREE.ShadowMaterial({ opacity: options.shadowOpacity });
-            material.depthWrite = false;
-        }
-        super(geometry, material);
-        this.depthOptions = depthOptions;
-        this.depthTextures = depthTextures;
-        this.ignoreReticleRaycast = false;
-        this.worldPosition = new THREE.Vector3();
-        this.worldQuaternion = new THREE.Quaternion();
-        this.updateVertexNormals = false;
-        this.minDepth = 8;
-        this.maxDepth = 0;
-        this.minDepthPrev = 8;
-        this.maxDepthPrev = 0;
-        this.colliders = [];
-        this.projectionMatrixInverse = new THREE.Matrix4();
-        this.lastColliderUpdateTime = 0;
-        this.colliderId = 0;
-        this.visible = options.showDebugTexture || options.renderShadow;
-        this.options = options;
-        this.lastColliderUpdateTime = performance.now();
-        this.updateVertexNormals = options.updateVertexNormals;
-        this.colliderUpdateFps = options.colliderUpdateFps;
-        this.depthTextureMaterialUniforms = uniforms;
-        if (options.renderShadow) {
-            this.receiveShadow = true;
-            this.castShadow = false;
-        }
-        // Create a downsampled geometry for raycasts and physics.
-        if (options.useDownsampledGeometry) {
-            this.downsampledGeometry = new THREE.PlaneGeometry(1, 1, 39, 39);
-            const dsUvs = this.downsampledGeometry.attributes.uv.array;
-            for (let i = 0; i < dsUvs.length; i += 2) {
-                dsUvs[i] = minU + dsUvs[i] * (maxU - minU);
-                dsUvs[i + 1] = minV + dsUvs[i + 1] * (maxV - minV);
-            }
-            this.downsampledMesh = new THREE.Mesh(this.downsampledGeometry, material);
-            this.downsampledMesh.visible = false;
-        }
-    }
-    /**
-     * Initialize the depth mesh.
-     */
-    init({ renderer }) {
-        this.renderer = renderer;
-    }
-    /**
-     * Updates the depth data and geometry positions based on the provided camera
-     * and depth data.
-     */
-    updateDepth(depthData, projectionMatrixInverse, depthDataFormat) {
-        this.projectionMatrixInverse = projectionMatrixInverse;
-        this.minDepth = 8;
-        this.maxDepth = 0;
-        if (this.options.updateFullResolutionGeometry) {
-            this.updateFullResolutionGeometry(depthData, depthDataFormat);
-        }
-        if (this.downsampledGeometry) {
-            this.updateGeometry(depthData, this.downsampledGeometry, depthDataFormat);
-        }
-        this.minDepthPrev = this.minDepth;
-        this.maxDepthPrev = this.maxDepth;
-        this.geometry.attributes.position.needsUpdate = true;
-        const depthTextureLeft = this.depthTextures?.get(0);
-        if (depthTextureLeft && this.depthTextureMaterialUniforms) {
-            this.depthTextureMaterialUniforms.uUsingFloatDepth.value =
-                depthDataFormat === 'float32';
-            if (depthData.normDepthBufferFromNormView) {
-                this.depthTextureMaterialUniforms.uNormDepthBufferFromNormView.value.fromArray(depthData.normDepthBufferFromNormView.matrix);
-            }
-            else {
-                this.depthTextureMaterialUniforms.uNormDepthBufferFromNormView.value.identity();
-            }
-            const isTextureArray = depthTextureLeft instanceof THREE.ExternalTexture;
-            this.depthTextureMaterialUniforms.uIsTextureArray.value = isTextureArray
-                ? 1.0
-                : 0;
-            if (isTextureArray)
-                this.depthTextureMaterialUniforms.uDepthTextureArray.value =
-                    depthTextureLeft;
-            else
-                this.depthTextureMaterialUniforms.uDepthTexture.value =
-                    depthTextureLeft;
-            this.depthTextureMaterialUniforms.uMinDepth.value = this.minDepth;
-            this.depthTextureMaterialUniforms.uMaxDepth.value = this.maxDepth;
-            this.depthTextureMaterialUniforms.uRawValueToMeters.value = this
-                .depthTextures.depthData.length
-                ? this.depthTextures.depthData[0].rawValueToMeters
-                : 1.0;
-        }
-        if (this.options.updateVertexNormals) {
-            this.geometry.computeVertexNormals();
-        }
-        this.updateColliderIfNeeded();
-    }
-    updatePose(translation, quaternion) {
-        this.position.copy(translation);
-        this.quaternion.copy(quaternion);
-        if (this.downsampledMesh) {
-            this.downsampledMesh.position.copy(translation);
-            this.downsampledMesh.quaternion.copy(quaternion);
-            this.downsampledMesh.updateMatrixWorld();
-        }
-    }
-    /**
-     * Method to manually update the full resolution geometry.
-     * Only needed if options.updateFullResolutionGeometry is false.
-     */
-    updateFullResolutionGeometry(depthData, depthDataFormat) {
-        this.updateGeometry(depthData, this.geometry, depthDataFormat);
-    }
-    /**
-     * Internal method to update the geometry of the depth mesh.
-     */
-    updateGeometry(depthData, geometry, depthDataFormat) {
-        const width = depthData.width;
-        const height = depthData.height;
-        const depthArray = depthDataFormat === 'float32'
-            ? new Float32Array(depthData.data)
-            : new Uint16Array(depthData.data);
-        const vertexPosition = new THREE.Vector3();
-        const normViewCoord = new THREE.Vector3();
-        const normDepthBufferFromNormView = depthData.normDepthBufferFromNormView
-            ? new THREE.Matrix4().fromArray(depthData.normDepthBufferFromNormView.matrix)
-            : new THREE.Matrix4().identity();
-        for (let i = 0; i < geometry.attributes.position.count; ++i) {
-            const u = geometry.attributes.uv.array[2 * i];
-            const v = geometry.attributes.uv.array[2 * i + 1];
-            let sampleU = u;
-            let sampleV = v;
-            if (depthData.normDepthBufferFromNormView) {
-                normViewCoord.set(u, 1.0 - v, 0);
-                normViewCoord.applyMatrix4(normDepthBufferFromNormView);
-                sampleU = normViewCoord.x;
-                sampleV = normViewCoord.y;
-            }
-            else {
-                sampleV = 1.0 - v;
-            }
-            // Grabs the nearest for now.
-            const depthX = Math.round(clamp$1(sampleU * (width - 1), 0, width - 1));
-            const depthY = Math.round(clamp$1(sampleV * (height - 1), 0, height - 1));
-            const rawDepth = depthArray[depthY * width + depthX];
-            let depth = depthData.rawValueToMeters * rawDepth;
-            // Finds global min/max.
-            if (depth > 0) {
-                if (depth < this.minDepth) {
-                    this.minDepth = depth;
-                }
-                else if (depth > this.maxDepth) {
-                    this.maxDepth = depth;
-                }
-            }
-            // This is a wrong algorithm to patch holes but working amazingly well.
-            // Per-row maximum may work better but haven't tried here.
-            // A proper local maximum takes another pass.
-            if (depth == 0 && this.options.patchHoles) {
-                depth = this.maxDepthPrev;
-            }
-            if (this.options.patchHolesUpper && v > 0.9) {
-                depth = this.minDepthPrev;
-            }
-            vertexPosition.set(2.0 * (u - 0.5), 2.0 * (v - 0.5), -1);
-            // This relates to camera.near
-            vertexPosition.applyMatrix4(this.projectionMatrixInverse);
-            vertexPosition.multiplyScalar(-depth / vertexPosition.z);
-            geometry.attributes.position.array[3 * i + 0] = vertexPosition.x;
-            geometry.attributes.position.array[3 * i + 1] = vertexPosition.y;
-            geometry.attributes.position.array[3 * i + 2] = vertexPosition.z;
-        }
-    }
-    /**
-     * Optimizes collider updates to run periodically based on the specified FPS.
-     */
-    updateColliderIfNeeded() {
-        const timeSinceLastUpdate = performance.now() - this.lastColliderUpdateTime;
-        if (this.RAPIER && timeSinceLastUpdate > 1000 / this.colliderUpdateFps) {
-            this.getWorldPosition(this.worldPosition);
-            this.getWorldQuaternion(this.worldQuaternion);
-            this.rigidBody.setTranslation(this.worldPosition, false);
-            this.rigidBody.setRotation(this.worldQuaternion, false);
-            const geometry = this.downsampledGeometry
-                ? this.downsampledGeometry
-                : this.geometry;
-            const vertices = geometry.attributes.position.array;
-            const indices = geometry.getIndex().array;
-            // Changing the density does not fix the issue.
-            const shape = this.RAPIER.ColliderDesc.trimesh(vertices, indices).setDensity(1.0);
-            // const convextHull = this.RAPIER.ColliderDesc.convexHull(vertices);
-            if (this.options.useDualCollider) {
-                this.colliderId = (this.colliderId + 1) % 2;
-                this.blendedWorld.removeCollider(this.colliders[this.colliderId], false);
-                this.colliders[this.colliderId] = this.blendedWorld.createCollider(shape, this.rigidBody);
-            }
-            else {
-                const newCollider = this.blendedWorld.createCollider(shape, this.rigidBody);
-                this.blendedWorld.removeCollider(this.collider, /*wakeUp=*/ false);
-                this.collider = newCollider;
-            }
-            this.lastColliderUpdateTime = performance.now();
-        }
-    }
-    initRapierPhysics(RAPIER, blendedWorld) {
-        this.getWorldPosition(this.worldPosition);
-        this.getWorldQuaternion(this.worldQuaternion);
-        const desc = RAPIER.RigidBodyDesc.fixed()
-            .setTranslation(this.worldPosition.x, this.worldPosition.y, this.worldPosition.z)
-            .setRotation(this.worldQuaternion);
-        this.rigidBody = blendedWorld.createRigidBody(desc);
-        const vertices = this.geometry.attributes.position.array;
-        const indices = this.geometry.getIndex().array;
-        const shape = RAPIER.ColliderDesc.trimesh(vertices, indices);
-        if (this.options.useDualCollider) {
-            this.colliders = [];
-            this.colliders.push(blendedWorld.createCollider(shape, this.rigidBody), blendedWorld.createCollider(shape, this.rigidBody));
-            this.colliderId = 0;
-        }
-        else {
-            this.collider = blendedWorld.createCollider(shape, this.rigidBody);
-        }
-        this.RAPIER = RAPIER;
-        this.blendedWorld = blendedWorld;
-        this.lastColliderUpdateTime = performance.now();
-    }
-    /**
-     * Customizes raycasting to compute normals for intersections.
-     * @param raycaster - The raycaster object.
-     * @param intersects - Array to store intersections.
-     * @returns - True if intersections are found.
-     */
-    raycast(raycaster, intersects) {
-        const intersections = [];
-        if (this.downsampledMesh) {
-            this.downsampledMesh.raycast(raycaster, intersections);
-        }
-        else {
-            super.raycast(raycaster, intersections);
-        }
-        intersections.forEach((intersect) => {
-            intersect.object = this;
-        });
-        if (!this.updateVertexNormals) {
-            // Use the face normals instead of attribute normals.
-            intersections.forEach((intersect) => {
-                if (intersect.normal && intersect.face) {
-                    intersect.normal.copy(intersect.face.normal);
-                }
-            });
-        }
-        intersects.push(...intersections);
-        return true;
-    }
-    getColliderFromHandle(handle) {
-        if (this.collider?.handle == handle) {
-            return this.collider;
-        }
-        for (const collider of this.colliders) {
-            if (collider?.handle == handle) {
-                return collider;
-            }
-        }
-        return undefined;
-    }
+function debugRequestedByUrl() {
+    if (typeof window === 'undefined')
+        return false;
+    const value = new URLSearchParams(window.location.search)
+        .get('debug')
+        ?.toLowerCase();
+    return value === '1' || value === 'true';
 }
 
 class DepthMeshOptions {
@@ -4737,6 +6026,13 @@ class OcclusionPass extends Pass {
         this.occludableItemsLayer = occludableItemsLayer;
         this.depthTextures = [];
         this.depthNear = [];
+        // Cached dimensions of the render targets so we only call setSize()
+        // when they actually changed. setSize() forces a GPU texture
+        // reallocation even when called with the same dimensions, which
+        // showed up as ~150 ms in a portals trace from a steady-state frame
+        // loop (renderer drawing-buffer size never changes mid-session).
+        this.lastOcclusionMapSize = new THREE.Vector2(0, 0);
+        this.lastKawaseBlurSize = new THREE.Vector2(0, 0);
         this.occlusionMeshMaterial = new OcclusionMapMeshMaterial(camera, useFloatDepth);
         this.occlusionMapUniforms = {
             uDepthTexture: { value: null },
@@ -4847,7 +6143,7 @@ class OcclusionPass extends Pass {
         }
         this.scene.overrideMaterial = this.occlusionMeshMaterial;
         renderer.getDrawingBufferSize(dimensions);
-        this.occlusionMapTexture.setSize(dimensions.x, dimensions.y);
+        this.resizeOcclusionMap(dimensions);
         const renderTarget = this.occlusionMapTexture;
         renderer.setRenderTarget(renderTarget);
         const camera = renderer.xr.getCamera().cameras[viewId] || this.camera;
@@ -4881,14 +6177,12 @@ class OcclusionPass extends Pass {
         }
         // First render the occlusion map to an intermediate buffer.
         renderer.getDrawingBufferSize(dimensions);
-        this.occlusionMapTexture.setSize(dimensions.x, dimensions.y);
+        this.resizeOcclusionMap(dimensions);
         renderer.setRenderTarget(this.occlusionMapTexture);
         this.occlusionMapQuad.render(renderer);
     }
     blurOcclusionMap(renderer, dimensions) {
-        for (let i = 0; i < 3; i++) {
-            this.kawaseBlurTargets[i].setSize(dimensions.x / 2 ** i, dimensions.y / 2 ** i);
-        }
+        this.resizeKawaseBlur(dimensions);
         for (let i = 0; i < 3; i++) {
             this.kawaseBlurQuads[i].material.uniforms.uTexelSize.value.set(1 / (dimensions.x / 2 ** i), 1 / (dimensions.y / 2 ** i));
             this.kawaseBlurQuads[this.kawaseBlurQuads.length - 1 - i]
@@ -4906,6 +6200,28 @@ class OcclusionPass extends Pass {
         this.kawaseBlurQuads[4].render(renderer);
         renderer.setRenderTarget(this.occlusionMapTexture);
         this.kawaseBlurQuads[5].render(renderer);
+    }
+    // Only call setSize() when the cached dimensions have actually
+    // changed. setSize triggers a render-target reallocation on every
+    // call (no internal short-circuit), and getDrawingBufferSize returns
+    // the same value frame after frame in a steady session.
+    resizeOcclusionMap(dimensions) {
+        if (this.lastOcclusionMapSize.x === dimensions.x &&
+            this.lastOcclusionMapSize.y === dimensions.y) {
+            return;
+        }
+        this.lastOcclusionMapSize.copy(dimensions);
+        this.occlusionMapTexture.setSize(dimensions.x, dimensions.y);
+    }
+    resizeKawaseBlur(dimensions) {
+        if (this.lastKawaseBlurSize.x === dimensions.x &&
+            this.lastKawaseBlurSize.y === dimensions.y) {
+            return;
+        }
+        this.lastKawaseBlurSize.copy(dimensions);
+        for (let i = 0; i < 3; i++) {
+            this.kawaseBlurTargets[i].setSize(dimensions.x / 2 ** i, dimensions.y / 2 ** i);
+        }
     }
     applyOcclusionMapToRenderedImage(renderer, readBuffer, writeBuffer) {
         if (readBuffer && (this.renderToScreen || writeBuffer)) {
@@ -6146,6 +7462,471 @@ class GazeController extends Script {
     }
 }
 
+const RELATIVE_ORIENTATION = new THREE.Quaternion();
+const INVERSE_BASELINE = new THREE.Quaternion();
+const EULER = new THREE.Euler(0, 0, 0, 'YXZ');
+function detectNod(context, config, options) {
+    const threshold = config.threshold ?? THREE.MathUtils.degToRad(12);
+    const series = buildMotionSeries(context, options);
+    if (!series)
+        return;
+    return findSingleExcursion(series, 'pitch', threshold, options, (value) => value >= 0 ? 'up' : 'down');
+}
+function detectShake(context, config, options) {
+    const threshold = config.threshold ?? THREE.MathUtils.degToRad(10);
+    const series = buildMotionSeries(context, options);
+    if (!series)
+        return;
+    return findSingleExcursion(series, 'yaw', threshold, options, (value) => value >= 0 ? 'left' : 'right');
+}
+function findSingleExcursion(series, axis, threshold, options, directionLabel) {
+    const tolerance = threshold * options.returnToleranceFactor;
+    const extrema = findExtrema(series, axis, threshold);
+    let best;
+    for (const peakIndex of extrema) {
+        const peakValue = series[peakIndex][axis];
+        const startIndex = findLastNearBaseline(series, axis, peakIndex, tolerance);
+        const endIndex = findFirstNearBaseline(series, axis, peakIndex, tolerance);
+        if (startIndex === undefined || endIndex === undefined)
+            continue;
+        const durationMs = series[endIndex].timestamp - series[startIndex].timestamp;
+        if (!validDuration(durationMs, options))
+            continue;
+        if (series.at(-1).timestamp - series[endIndex].timestamp >
+            options.detectionHoldMs) {
+            continue;
+        }
+        const amplitude = Math.abs(peakValue);
+        const offAxis = maximumAbsoluteValue(series, startIndex, endIndex, axis === 'pitch' ? ['yaw', 'roll'] : ['pitch', 'roll']);
+        const offAxisRatio = offAxis / amplitude;
+        if (offAxisRatio > options.maximumOffAxisRatio)
+            continue;
+        const expectedVariation = Math.abs(peakValue - series[startIndex][axis]) +
+            Math.abs(series[endIndex][axis] - peakValue);
+        const actualVariation = totalVariation(series, axis, startIndex, endIndex);
+        const pathEfficiency = expectedVariation / Math.max(actualVariation, 1e-6);
+        if (pathEfficiency < options.minimumPathEfficiency)
+            continue;
+        const peakAngularSpeed = getPeakAngularSpeed(series, axis, startIndex, endIndex);
+        if (peakAngularSpeed < options.minimumPeakAngularSpeed)
+            continue;
+        const confidence = scoreCandidate({
+            amplitude,
+            threshold,
+            durationMs,
+            returnError: Math.abs(series[endIndex][axis]),
+            returnTolerance: tolerance,
+            offAxisRatio,
+            pathEfficiency,
+            peakAngularSpeed,
+            options,
+        });
+        const completedAt = series[endIndex].timestamp;
+        const result = {
+            confidence,
+            data: {
+                amplitudeRadians: amplitude,
+                durationMs,
+                peakAngularSpeed,
+                initialDirection: directionLabel(peakValue),
+            },
+        };
+        if (!best || completedAt > best.completedAt) {
+            best = { result, completedAt };
+        }
+    }
+    return best?.result;
+}
+function buildMotionSeries(context, options) {
+    const samples = context.samples;
+    if (samples.length < 5)
+        return;
+    const totalDuration = samples.at(-1).timestamp - samples[0].timestamp;
+    if (totalDuration <
+        options.quietPrefixDurationMs + options.minimumGestureDurationMs) {
+        return;
+    }
+    const quietEnd = samples[0].timestamp + options.quietPrefixDurationMs;
+    const quietSamples = samples.filter((sample) => sample.timestamp <= quietEnd);
+    if (quietSamples.length < 2)
+        return;
+    const baseline = quietSamples[0].orientation.clone();
+    for (let i = 1; i < quietSamples.length; i++) {
+        baseline.slerp(quietSamples[i].orientation, 1 / (i + 1));
+    }
+    INVERSE_BASELINE.copy(baseline).invert();
+    const series = [];
+    let previous;
+    for (const sample of samples) {
+        RELATIVE_ORIENTATION.copy(INVERSE_BASELINE).multiply(sample.orientation);
+        EULER.setFromQuaternion(RELATIVE_ORIENTATION, 'YXZ');
+        const point = {
+            timestamp: sample.timestamp,
+            pitch: EULER.x,
+            yaw: EULER.y,
+            roll: EULER.z,
+        };
+        if (previous) {
+            const elapsed = Math.max(0, point.timestamp - previous.timestamp);
+            const alpha = elapsed / (options.smoothingTimeConstantMs + elapsed || 1);
+            point.pitch = THREE.MathUtils.lerp(previous.pitch, point.pitch, alpha);
+            point.yaw = THREE.MathUtils.lerp(previous.yaw, point.yaw, alpha);
+            point.roll = THREE.MathUtils.lerp(previous.roll, point.roll, alpha);
+        }
+        series.push(point);
+        previous = point;
+    }
+    return series;
+}
+function findExtrema(series, axis, threshold) {
+    const extrema = [];
+    for (let i = 1; i < series.length - 1; i++) {
+        const previous = series[i - 1][axis];
+        const current = series[i][axis];
+        const next = series[i + 1][axis];
+        const isMaximum = current >= previous && current > next;
+        const isMinimum = current <= previous && current < next;
+        if ((isMaximum || isMinimum) && Math.abs(current) >= threshold) {
+            extrema.push(i);
+        }
+    }
+    return extrema;
+}
+function findLastNearBaseline(series, axis, before, tolerance) {
+    for (let i = before - 1; i >= 0; i--) {
+        if (Math.abs(series[i][axis]) <= tolerance)
+            return i;
+    }
+}
+function findFirstNearBaseline(series, axis, after, tolerance) {
+    for (let i = after + 1; i < series.length; i++) {
+        if (Math.abs(series[i][axis]) <= tolerance)
+            return i;
+    }
+}
+function validDuration(durationMs, options) {
+    return (durationMs >= options.minimumGestureDurationMs &&
+        durationMs <= options.maximumGestureDurationMs);
+}
+function maximumAbsoluteValue(series, start, end, axes) {
+    let maximum = 0;
+    for (let i = start; i <= end; i++) {
+        for (const axis of axes) {
+            maximum = Math.max(maximum, Math.abs(series[i][axis]));
+        }
+    }
+    return maximum;
+}
+function totalVariation(series, axis, start, end) {
+    let variation = 0;
+    for (let i = start + 1; i <= end; i++) {
+        variation += Math.abs(series[i][axis] - series[i - 1][axis]);
+    }
+    return variation;
+}
+function getPeakAngularSpeed(series, axis, start, end) {
+    let peak = 0;
+    for (let i = start + 1; i <= end; i++) {
+        const elapsedSeconds = (series[i].timestamp - series[i - 1].timestamp) / 1000;
+        if (elapsedSeconds <= 0)
+            continue;
+        peak = Math.max(peak, Math.abs(series[i][axis] - series[i - 1][axis]) / elapsedSeconds);
+    }
+    return peak;
+}
+function scoreCandidate({ amplitude, threshold, durationMs, returnError, returnTolerance, offAxisRatio, pathEfficiency, peakAngularSpeed, options, }) {
+    const midpoint = (options.minimumGestureDurationMs + options.maximumGestureDurationMs) / 2;
+    const halfRange = (options.maximumGestureDurationMs - options.minimumGestureDurationMs) / 2;
+    const scores = [
+        quality((amplitude - threshold) / Math.max(threshold, 1e-6)),
+        quality(1 - Math.abs(durationMs - midpoint) / Math.max(halfRange, 1)),
+        quality(1 - returnError / Math.max(returnTolerance, 1e-6)),
+        quality(1 - offAxisRatio / options.maximumOffAxisRatio),
+        quality((pathEfficiency - options.minimumPathEfficiency) /
+            (1 - options.minimumPathEfficiency)),
+        quality((peakAngularSpeed - options.minimumPeakAngularSpeed) /
+            options.minimumPeakAngularSpeed),
+    ];
+    const product = scores.reduce((value, score) => value * score, 1);
+    return THREE.MathUtils.clamp(product ** (1 / scores.length), 0, 1);
+}
+function quality(value) {
+    return 0.6 + 0.4 * THREE.MathUtils.clamp(value, 0, 1);
+}
+
+const DEFAULT_OPTIONS = {
+    minimumGestureDurationMs: 200,
+    maximumGestureDurationMs: 750,
+    maximumOffAxisRatio: 0.5,
+    quietPrefixDurationMs: 200,
+    detectionHoldMs: 180,
+    returnToleranceFactor: 0.55,
+    smoothingTimeConstantMs: 35,
+    minimumPathEfficiency: 0.65,
+    minimumPeakAngularSpeed: 0.6,
+};
+class HeuristicHeadGestureRecognizer {
+    constructor(initBuiltInGestures = true, options = {}) {
+        this.gestures = new Map();
+        this.options = { ...DEFAULT_OPTIONS, ...options };
+        if (initBuiltInGestures) {
+            this.registerBuiltInGestures();
+        }
+    }
+    registerGesture(name, detector, config = {}) {
+        this.gestures.set(name, {
+            detector,
+            config: {
+                enabled: true,
+                ...config,
+            },
+        });
+        return this;
+    }
+    unregisterGesture(name) {
+        this.gestures.delete(name);
+        return this;
+    }
+    getGestureConfigurations() {
+        const configs = {};
+        for (const [name, gesture] of this.gestures.entries()) {
+            configs[name] = { ...gesture.config };
+        }
+        return configs;
+    }
+    setGestureConfig(name, config) {
+        const gesture = this.gestures.get(name);
+        if (gesture) {
+            gesture.config = { ...config };
+        }
+        return this;
+    }
+    recognize(context) {
+        const scores = {};
+        for (const [name, gesture] of this.gestures.entries()) {
+            scores[name] = gesture.detector(context, gesture.config);
+        }
+        return scores;
+    }
+    registerBuiltInGestures() {
+        const nodThreshold = (12 * Math.PI) / 180;
+        const shakeThreshold = (10 * Math.PI) / 180;
+        this.registerGesture('nod', (context, config) => detectNod(context, config, this.options), { enabled: true, threshold: nodThreshold });
+        this.registerGesture('shake', (context, config) => detectShake(context, config, this.options), { enabled: true, threshold: shakeThreshold });
+        this.registerGesture('nod-up', this.detectDirection(detectNod, 'up'), {
+            enabled: true,
+            threshold: nodThreshold,
+        });
+        this.registerGesture('nod-down', this.detectDirection(detectNod, 'down'), {
+            enabled: true,
+            threshold: nodThreshold,
+        });
+        this.registerGesture('shake-left', this.detectDirection(detectShake, 'left'), { enabled: true, threshold: shakeThreshold });
+        this.registerGesture('shake-right', this.detectDirection(detectShake, 'right'), { enabled: true, threshold: shakeThreshold });
+    }
+    detectDirection(detector, direction) {
+        return (context, config) => {
+            const result = detector(context, config, this.options);
+            return result?.data?.initialDirection === direction ? result : undefined;
+        };
+    }
+}
+
+class HeadGestureRecognitionOptions {
+    constructor(options) {
+        this.enabled = false;
+        this.minimumConfidence = 0.6;
+        this.releaseConfidence = 0.4;
+        this.updateIntervalMs = 16;
+        this.historyDurationMs = 1500;
+        this.warmupDurationMs = 200;
+        this.maximumSampleGapMs = 250;
+        this.maximumSampleAngleRadians = Math.PI / 3;
+        this.gestureRecognizer = new HeuristicHeadGestureRecognizer();
+        this.gestures = {};
+        if (options) {
+            const { gestureRecognizer, gestures, ...baseOptions } = options;
+            deepMerge(this, baseOptions);
+            if (gestureRecognizer) {
+                this.gestureRecognizer = gestureRecognizer;
+            }
+            this.applyGestureRecognizerConfigurations();
+            if (gestures) {
+                for (const [name, config] of Object.entries(gestures)) {
+                    this.setGestureConfig(name, config);
+                }
+            }
+            return;
+        }
+        this.applyGestureRecognizerConfigurations();
+    }
+    enable() {
+        this.enabled = true;
+        return this;
+    }
+    setGestureEnabled(name, enabled) {
+        return this.setGestureConfig(name, { enabled });
+    }
+    setGestureRecognizer(gestureRecognizer) {
+        this.gestureRecognizer = gestureRecognizer;
+        this.gestures = {};
+        this.applyGestureRecognizerConfigurations();
+        return this;
+    }
+    setGestureConfig(name, config) {
+        const mergedConfig = {
+            ...this.gestures[name],
+            enabled: this.gestures[name]?.enabled ?? true,
+        };
+        deepMerge(mergedConfig, config);
+        this.gestures[name] = mergedConfig;
+        this.gestureRecognizer.setGestureConfig?.(name, mergedConfig);
+        return this;
+    }
+    applyGestureRecognizerConfigurations() {
+        const configs = this.gestureRecognizer.getGestureConfigurations?.() ?? {};
+        for (const [name, config] of Object.entries(configs)) {
+            this.setGestureConfig(name, config);
+        }
+    }
+}
+
+class HeadGestureRecognition extends Script {
+    constructor() {
+        super(...arguments);
+        this.samples = [];
+        this.latchedGestures = new Set();
+        this.lastEvaluation = -Infinity;
+        this.latestTimestamp = -Infinity;
+        this.pendingRecognition = false;
+        this.generation = 0;
+    }
+    static { this.dependencies = {
+        camera: THREE.Camera,
+        options: HeadGestureRecognitionOptions,
+    }; }
+    async init({ camera, options, }) {
+        this.camera = camera;
+        this.options = options;
+        await this.options.gestureRecognizer.init?.();
+    }
+    update(time = performance.now()) {
+        if (!this.options.enabled)
+            return;
+        const timestamp = Number.isFinite(time) ? time : performance.now();
+        this.latestTimestamp = timestamp;
+        const sample = this.captureSample(timestamp);
+        const previous = this.samples.at(-1);
+        if (previous && this.isDiscontinuity(previous, sample)) {
+            this.resetRecognitionState();
+        }
+        this.samples.push(sample);
+        this.pruneSamples(timestamp);
+        const historyDuration = timestamp - (this.samples[0]?.timestamp ?? timestamp);
+        if (historyDuration < this.options.warmupDurationMs) {
+            return;
+        }
+        if (timestamp - this.lastEvaluation < this.options.updateIntervalMs ||
+            this.pendingRecognition) {
+            return;
+        }
+        this.lastEvaluation = timestamp;
+        this.evaluate({ samples: this.samples.slice() }, timestamp);
+    }
+    captureSample(timestamp) {
+        return {
+            timestamp,
+            position: this.camera.getWorldPosition(new THREE.Vector3()),
+            orientation: this.camera.getWorldQuaternion(new THREE.Quaternion()),
+        };
+    }
+    isDiscontinuity(previous, next) {
+        return (next.timestamp - previous.timestamp > this.options.maximumSampleGapMs ||
+            previous.orientation.angleTo(next.orientation) >
+                this.options.maximumSampleAngleRadians);
+    }
+    pruneSamples(timestamp) {
+        const oldestTimestamp = timestamp - this.options.historyDurationMs;
+        let firstRetained = 0;
+        while (firstRetained < this.samples.length &&
+            this.samples[firstRetained].timestamp < oldestTimestamp) {
+            firstRetained++;
+        }
+        if (firstRetained > 0) {
+            this.samples.splice(0, firstRetained);
+        }
+    }
+    evaluate(context, requestedAt) {
+        const generation = this.generation;
+        let result;
+        try {
+            result = this.options.gestureRecognizer.recognize(context);
+        }
+        catch (error) {
+            console.error('HeadGestureRecognition recognizer failed:', error);
+            return;
+        }
+        if (result instanceof Promise) {
+            this.pendingRecognition = true;
+            result
+                .then((scores) => {
+                if (generation === this.generation &&
+                    this.latestTimestamp - requestedAt <= this.options.historyDurationMs) {
+                    this.emitFromScores(scores);
+                }
+            })
+                .catch((error) => {
+                console.error('HeadGestureRecognition recognizer failed:', error);
+            })
+                .finally(() => {
+                if (generation === this.generation) {
+                    this.pendingRecognition = false;
+                }
+            });
+            return;
+        }
+        this.emitFromScores(result);
+    }
+    emitFromScores(scores) {
+        for (const [name, config] of Object.entries(this.options.gestures)) {
+            if (!config.enabled) {
+                this.latchedGestures.delete(name);
+                continue;
+            }
+            const result = scores[name];
+            const confidence = THREE.MathUtils.clamp(result?.confidence ?? 0, 0, 1);
+            if (this.latchedGestures.has(name)) {
+                if (confidence <= this.options.releaseConfidence) {
+                    this.latchedGestures.delete(name);
+                }
+                continue;
+            }
+            if (result && confidence >= this.options.minimumConfidence) {
+                this.latchedGestures.add(name);
+                this.emitGesture({
+                    name,
+                    confidence,
+                    data: result.data,
+                });
+            }
+        }
+    }
+    emitGesture(detail) {
+        this.dispatchEvent({ type: 'gesture', detail, target: this });
+    }
+    resetRecognitionState() {
+        this.samples.length = 0;
+        this.latchedGestures.clear();
+        this.lastEvaluation = -Infinity;
+        this.generation++;
+        this.pendingRecognition = false;
+    }
+    dispose() {
+        this.resetRecognitionState();
+        this.options.gestureRecognizer.dispose?.();
+    }
+}
+
 /**
  * Simulates an XR controller using the mouse for desktop
  * environments. This class translates 2D mouse movements on the screen into a
@@ -6292,6 +8073,13 @@ class Input {
         systemsGroup.add(this.activeControllers, this.reticles);
         this.controllersEnabled = options.controllers.enabled;
         this.options = options;
+        if (options.headGestures.enabled) {
+            this.headGestures = new HeadGestureRecognition();
+            systemsGroup.add(this.headGestures);
+        }
+        if (!options.controllers.enabled) {
+            return;
+        }
         const controllers = this.controllers;
         const controllerGrips = this.controllerGrips;
         for (let i = 0; i < NUM_HANDS; ++i) {
@@ -8925,6 +10713,8 @@ class SimulatorOptions {
                     'simulator/scenes/XREmulatorsceneV5_livingRoom.glb',
                 scenePlanesPath: XR_BLOCKS_ASSETS_PATH +
                     'simulator/scenes/XREmulatorsceneV5_livingRoom_planes.json',
+                navMeshPath: XR_BLOCKS_ASSETS_PATH +
+                    'simulator/scenes/XREmulatorsceneV5_livingRoom_navmesh.glb',
             },
         ];
         this.activeEnvironmentIndex = 0;
@@ -8957,6 +10747,10 @@ class SimulatorOptions {
         this.stereo = {
             enabled: false,
         };
+        this.navMesh = {
+            enabled: false,
+            eyeHeight: 1.5,
+        };
         this.deviceCamera = {
             // Whether to enable the simulator camera feed.
             // If disabled, the actual device camera will be used instead.
@@ -8967,6 +10761,22 @@ class SimulatorOptions {
         this.renderToRenderTexture = true;
         // Blending mode when rendering the virtual scene.
         this.blendingMode = 'normal';
+        /** Limits how far each hand controller can travel from the user's shoulder origin. */
+        this.reachDistance = {
+            enabled: false,
+            /** The maximum distance in meters a controller can move from its origin point. */
+            radius: 0.75,
+            /** The shoulder/chest origin point for the left hand in local camera space. */
+            leftHandOrigin: { x: -0.2, y: -0.2, z: 0 },
+            /** The shoulder/chest origin point for the right hand in local camera space. */
+            rightHandOrigin: { x: 0.2, y: -0.2, z: 0 },
+        };
+        /** Limits the angular cone in front of the user within which controllers can move. */
+        this.reachAngle = {
+            enabled: false,
+            /** The maximum full cone angle in radians around the camera's forward direction (default is Math.PI, a front hemisphere). */
+            angle: Math.PI,
+        };
         deepMerge(this, options);
     }
 }
@@ -9049,6 +10859,11 @@ class ObjectsOptions {
         this.enabled = false;
         this.showDebugVisualizations = false;
         /**
+         * Minimum delay in milliseconds between continuous object detection runs.
+         * A value of 0 runs again as soon as the previous detection finishes.
+         */
+        this.pollingIntervalMs = 0;
+        /**
          * Margin to add when cropping the object image, as a percentage of image
          * size.
          */
@@ -9061,6 +10876,12 @@ class ObjectsOptions {
             activeBackend: 'gemini',
             gemini: {
                 systemInstruction: `Please provide me with the bounding box coordinates for the primary objects in the given image, prioritizing objects that are nearby. For each bounding box, include ymin, xmin, ymax, and xmax. These coordinates should be absolute values ranging from 0 to 1000, corresponding to the image as if it were resized to 1000x1000 pixels. The origin (xmin:0; ymin:0) is the top-left corner of the image, and (xmax:1000; ymax:1000) is the bottom-right corner. List a maximum of 5 objects. Ignore hands and other human body parts, as well as any UI elements attached to them (e.g., a blue circle attached to a finger).`,
+                /**
+                 * Extra Gemini generation config merged into the per-call config (over
+                 * the SDK defaults). Use to pin sampling parameters such as
+                 * `temperature: 0` for deterministic detections.
+                 */
+                generationConfig: {},
                 responseSchema: {
                     type: 'ARRAY',
                     items: {
@@ -9147,6 +10968,11 @@ class HumansOptions {
     constructor(options) {
         this.enabled = false;
         /**
+         * Minimum delay in milliseconds between continuous pose detection runs.
+         * A value of 0 runs again as soon as the previous detection finishes.
+         */
+        this.pollingIntervalMs = 0;
+        /**
          * Configuration options for the active pose detection backend.
          */
         this.backendConfig = {
@@ -9182,6 +11008,110 @@ class HumansOptions {
     }
 }
 
+/**
+ * Configuration options for the Face Landmark Detection system.
+ */
+class FacesOptions {
+    constructor(options) {
+        this.enabled = false;
+        /**
+         * Minimum delay in milliseconds between continuous face detection runs.
+         * A value of 0 runs again as soon as the previous detection finishes.
+         */
+        this.pollingIntervalMs = 0;
+        /**
+         * Configuration options for the active face detection backend.
+         */
+        this.backendConfig = {
+            activeBackend: 'mediapipe',
+            mediapipe: {
+                wasmFilesUrl: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm',
+                modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task',
+                /**
+                 * The maximum number of simultaneous faces to track.
+                 */
+                numFaces: 1,
+                /**
+                 * The minimum confidence score [0.0, 1.0] required for a face to be
+                 * detected.
+                 */
+                minFaceDetectionConfidence: 0.5,
+                /**
+                 * The minimum confidence score [0.0, 1.0] required to confirm a face is
+                 * still present.
+                 */
+                minFacePresenceConfidence: 0.5,
+                /**
+                 * The minimum confidence score [0.0, 1.0] required for tracking
+                 * landmarks between frames.
+                 */
+                minTrackingConfidence: 0.5,
+                /**
+                 * Whether to compute and emit per-face blendshape weights (52
+                 * ARKit-compatible categories). Required for facial expression
+                 * mirroring, lipsync feeds, and avatar animation.
+                 */
+                outputFaceBlendshapes: true,
+                /**
+                 * Whether to compute and emit the 4x4 facial transformation matrix
+                 * for each face. Provides a stable rigid head pose for parenting
+                 * objects to the head (glasses, masks, hats).
+                 */
+                outputFacialTransformationMatrixes: true,
+            },
+        };
+        if (options) {
+            deepMerge(this, options);
+        }
+    }
+    enable() {
+        this.enabled = true;
+        return this;
+    }
+}
+
+/**
+ * Configuration options for the semantic segmentation system. Mirrors the
+ * other `world/*` perception options (humans, faces, objects).
+ */
+class SegmentationOptions {
+    constructor(options) {
+        this.enabled = false;
+        /**
+         * Minimum delay in milliseconds between continuous segmentation runs.
+         * A value of 0 runs again as soon as the previous inference finishes.
+         * Defaults to 66 (~15 fps), the rate the magic_window grab loop used before
+         * segmentation moved onto its own polling loop.
+         */
+        this.pollingIntervalMs = 66;
+        /**
+         * Configuration options for the active segmentation backend.
+         */
+        this.backendConfig = {
+            activeBackend: 'mediapipe',
+            mediapipe: {
+                wasmFilesUrl: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm',
+                // Selfie multiclass model: 0=background, 1=hair, 2=body-skin,
+                // 3=face-skin, 4=clothes, 5=others (see SegmentCategory).
+                modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/' +
+                    'selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite',
+                /**
+                 * Output the per-pixel category mask. Required to produce a
+                 * {@link SegmentationMask}.
+                 */
+                outputCategoryMask: true,
+            },
+        };
+        if (options) {
+            deepMerge(this, options);
+        }
+    }
+    enable() {
+        this.enabled = true;
+        return this;
+    }
+}
+
 class WorldOptions {
     constructor(options) {
         this.debugging = false;
@@ -9192,6 +11122,8 @@ class WorldOptions {
         this.meshes = new MeshDetectionOptions();
         this.sounds = new SoundsOptions();
         this.humans = new HumansOptions();
+        this.faces = new FacesOptions();
+        this.segmentation = new SegmentationOptions();
         if (options) {
             deepMerge(this, options);
         }
@@ -9234,6 +11166,22 @@ class WorldOptions {
     enableHumanDetection() {
         this.enabled = true;
         this.humans.enable();
+        return this;
+    }
+    /**
+     * Enables face landmark detection.
+     */
+    enableFaceDetection() {
+        this.enabled = true;
+        this.faces.enable();
+        return this;
+    }
+    /**
+     * Enables semantic segmentation (person / background category masks).
+     */
+    enableSegmentation() {
+        this.enabled = true;
+        this.segmentation.enable();
         return this;
     }
 }
@@ -9337,6 +11285,10 @@ class Options {
          * Any additional required features when initializing webxr.
          */
         this.webxrRequiredFeatures = [];
+        /**
+         * Any additional optional features when initializing webxr.
+         */
+        this.webxrOptionalFeatures = [];
         // "local-floor" sets the scene origin at the user's feet,
         // "local" sets the scene origin near their head.
         this.referenceSpaceType = 'local-floor';
@@ -9346,12 +11298,14 @@ class Options {
         this.deviceCamera = new DeviceCameraOptions();
         this.hands = new HandsOptions();
         this.gestures = new GestureRecognitionOptions();
+        this.headGestures = new HeadGestureRecognitionOptions();
         this.strokes = new StrokeRecognitionOptions();
         this.reticles = new ReticleOptions();
         this.sound = new SoundOptions();
         this.ai = new AIOptions();
         this.simulator = new SimulatorOptions();
         this.world = new WorldOptions();
+        this.context = new ContextOptions();
         this.uikit = new UIKitOptions();
         this.physics = new PhysicsOptions();
         this.transition = new XRTransitionOptions();
@@ -9404,6 +11358,9 @@ class Options {
             FORM_FACTORS.includes(formFactorUrlParam)) {
             this.formFactor = formFactorUrlParam;
         }
+        if (getUrlParamBool('xrAutomation')) {
+            this.enableAutomationMode();
+        }
     }
     /**
      * Sets the session mode to VR and disables the simulator passthrough scene.
@@ -9423,6 +11380,32 @@ class Options {
     enableUI() {
         this.antialias = true;
         this.reticles.enabled = true;
+        return this;
+    }
+    /**
+     * Enables a standard simulator-driven setup for automation and external test
+     * harnesses.
+     * @returns The instance for chaining.
+     */
+    enableAutomationMode(config = {}) {
+        const { hideSimulatorUi = true, defaultHand = Handedness.RIGHT, defaultMode = SimulatorMode.POSE, enableHands = true, enableCamera = true, } = config;
+        this.formFactor = 'desktop';
+        this.xrButton.enabled = false;
+        this.xrButton.alwaysAutostartSimulator = true;
+        if (enableHands) {
+            this.enableHands();
+        }
+        if (enableCamera) {
+            this.enableCamera();
+        }
+        this.enableContext();
+        this.simulator.defaultMode = defaultMode;
+        this.simulator.defaultHand = defaultHand;
+        if (hideSimulatorUi) {
+            this.simulator.simulatorSettingsPanel.enabled = false;
+            this.simulator.instructions.enabled = false;
+            this.simulator.handPosePanel.enabled = false;
+        }
         return this;
     }
     /**
@@ -9470,6 +11453,31 @@ class Options {
         return this;
     }
     /**
+     * Enables face landmark detection. Provides 478 per-face landmarks in
+     * world space, optional 52 ARKit-style blendshape weights, and an
+     * optional rigid 4x4 facial transformation matrix per detected face.
+     * @returns The instance for chaining.
+     */
+    enableFaceDetection() {
+        this.permissions.camera = true;
+        this.enableCamera();
+        this.enableDepth();
+        this.world.enableFaceDetection();
+        return this;
+    }
+    /**
+     * Enables semantic segmentation. Produces per-pixel person / background
+     * category masks from the device camera (MediaPipe, on-device). Unlike face
+     * and human detection it does not require depth.
+     * @returns The instance for chaining.
+     */
+    enableSegmentation() {
+        this.permissions.camera = true;
+        this.enableCamera();
+        this.world.enableSegmentation();
+        return this;
+    }
+    /**
      * Enables device camera (passthrough) with a specific facing mode.
      * @param facingMode - The desired camera facing mode, either 'environment' or
      *     'user'.
@@ -9500,6 +11508,14 @@ class Options {
         return this;
     }
     /**
+     * Enables completed nod and shake recognition from the user's head pose.
+     * @returns The instance for chaining.
+     */
+    enableHeadGestures() {
+        this.headGestures.enable();
+        return this;
+    }
+    /**
      * Enables the stroke recognition block and ensures gestures are available.
      * @returns The instance for chaining.
      */
@@ -9523,6 +11539,39 @@ class Options {
     enableAI() {
         this.ai.enabled = true;
         this.ai.gemini.enabled = true;
+        return this;
+    }
+    /**
+     * Enables agent-facing context detectors such as semantic trees,
+     * view visibility, and Set-of-Mark observations.
+     * @returns The instance for chaining.
+     */
+    enableContext() {
+        this.context.enable();
+        return this;
+    }
+    /**
+     * Enables agent-facing scene context.
+     * @returns The instance for chaining.
+     */
+    enableSceneContext() {
+        this.context.enableScene();
+        return this;
+    }
+    /**
+     * Enables agent-facing visible objects context.
+     * @returns The instance for chaining.
+     */
+    enableVisibleObjectsContext() {
+        this.context.enableVisibleObjects();
+        return this;
+    }
+    /**
+     * Enables agent-facing Set-of-Mark context.
+     * @returns The instance for chaining.
+     */
+    enableSetOfMarkContext() {
+        this.context.enableSetOfMark();
         return this;
     }
     /**
@@ -9763,16 +11812,26 @@ const SIMULATOR_HAND_POSE_NAMES = Object.freeze({
 
 const { A_CODE: A_CODE$1, D_CODE: D_CODE$1, E_CODE: E_CODE$1, Q_CODE: Q_CODE$1, S_CODE: S_CODE$1, W_CODE: W_CODE$1 } = Keycodes;
 const vector3$6 = new THREE.Vector3();
+const desiredCameraPosition = new THREE.Vector3();
+const originVec = new THREE.Vector3();
+const forwardVec = new THREE.Vector3(0, 0, -1);
+const offsetVec = new THREE.Vector3();
+const axisVec = new THREE.Vector3();
+const currentOffsetVec = new THREE.Vector3();
+const newOffsetVec = new THREE.Vector3();
 const euler$2 = new THREE.Euler();
+const yawEuler = new THREE.Euler();
+const yawQuaternion = new THREE.Quaternion();
 const HAND_POSES = Object.values(SimulatorHandPose);
 class SimulatorControlMode {
     /**
      * Create a SimulatorControlMode
      */
-    constructor(simulatorControllerState, downKeys, hands, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode = () => { }) {
+    constructor(simulatorControllerState, downKeys, hands, navMesh, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode = () => { }) {
         this.simulatorControllerState = simulatorControllerState;
         this.downKeys = downKeys;
         this.hands = hands;
+        this.navMesh = navMesh;
         this.setStereoRenderMode = setStereoRenderMode;
         this.toggleUserInterface = toggleUserInterface;
         this.cycleSimulatorMode = cycleSimulatorMode;
@@ -9780,16 +11839,20 @@ class SimulatorControlMode {
     /**
      * Initialize the simulator control mode.
      */
-    init({ camera, input, timer, domElement, }) {
+    init({ camera, input, timer, domElement, simulatorOptions, }) {
         this.camera = camera;
         this.input = input;
         this.timer = timer;
         this.domElement = domElement;
+        this.simulatorOptions = simulatorOptions;
         input.gamepadController.init({ camera });
     }
     onPointerDown(_) { }
     onPointerUp(_) { }
     onPointerMove(_) { }
+    onWheel(_) {
+        return false;
+    }
     onKeyDown(event) {
         if (event.code == Keycodes.DIGIT_1) {
             this.setStereoRenderMode(SimulatorRenderMode.STEREO_LEFT);
@@ -9825,13 +11888,10 @@ class SimulatorControlMode {
             return;
         const deltaTime = this.timer.getDelta();
         const cameraRotation = this.camera.quaternion;
-        const cameraPosition = this.camera.position;
         const downKeys = this.downKeys;
-        vector3$6
-            .set(Number(downKeys.has(D_CODE$1)) - Number(downKeys.has(A_CODE$1)), Number(downKeys.has(Q_CODE$1)) - Number(downKeys.has(E_CODE$1)), Number(downKeys.has(S_CODE$1)) - Number(downKeys.has(W_CODE$1)))
-            .multiplyScalar(deltaTime)
-            .applyQuaternion(cameraRotation);
-        cameraPosition.add(vector3$6);
+        this.applyYawRelativeMovement(Number(downKeys.has(D_CODE$1)) - Number(downKeys.has(A_CODE$1)), this.navMesh.constrained
+            ? 0
+            : Number(downKeys.has(Q_CODE$1)) - Number(downKeys.has(E_CODE$1)), Number(downKeys.has(S_CODE$1)) - Number(downKeys.has(W_CODE$1)), deltaTime);
         // Gamepad stick input (if connected). Skip while the tab isn't
         // focused — the Gamepad API delivers state to every tab, so without
         // this guard the camera moves in background tabs whenever the user
@@ -9840,11 +11900,7 @@ class SimulatorControlMode {
             const [lx, ly, rx, ry] = gp.getAxes();
             // Left stick → move camera.
             if (lx !== 0 || ly !== 0) {
-                vector3$6
-                    .set(lx, 0, ly)
-                    .multiplyScalar(deltaTime)
-                    .applyQuaternion(cameraRotation);
-                cameraPosition.add(vector3$6);
+                this.applyYawRelativeMovement(lx, 0, ly, deltaTime);
             }
             // Right stick → look (yaw + pitch).
             if (rx !== 0 || ry !== 0) {
@@ -9857,13 +11913,29 @@ class SimulatorControlMode {
                 cameraRotation.setFromEuler(euler$2);
             }
             // Configurable vertical movement bindings (defaults LT/RT, analog).
-            const downVal = gp.getButtonValue(gp.bindings.getBinding('moveDown'));
-            const upVal = gp.getButtonValue(gp.bindings.getBinding('moveUp'));
-            const verticalDelta = (upVal - downVal) * deltaTime;
-            if (verticalDelta !== 0) {
-                cameraPosition.y += verticalDelta;
+            if (!this.navMesh.constrained) {
+                const downVal = gp.getButtonValue(gp.bindings.getBinding('moveDown'));
+                const upVal = gp.getButtonValue(gp.bindings.getBinding('moveUp'));
+                const verticalDelta = (upVal - downVal) * deltaTime;
+                if (verticalDelta !== 0) {
+                    desiredCameraPosition.copy(this.camera.position);
+                    desiredCameraPosition.y += verticalDelta;
+                    this.navMesh.applyUserMovement(this.camera, desiredCameraPosition);
+                }
             }
         }
+    }
+    applyYawRelativeMovement(localX, localY, localZ, deltaTime) {
+        euler$2.setFromQuaternion(this.camera.quaternion, 'YXZ');
+        yawEuler.set(0, euler$2.y, 0, 'YXZ');
+        yawQuaternion.setFromEuler(yawEuler);
+        vector3$6
+            .set(localX, 0, localZ)
+            .multiplyScalar(deltaTime)
+            .applyQuaternion(yawQuaternion);
+        vector3$6.y += localY * deltaTime;
+        desiredCameraPosition.copy(this.camera.position).add(vector3$6);
+        this.navMesh.applyUserMovement(this.camera, desiredCameraPosition);
     }
     /**
      * Handle gamepad buttons for simulator UI using configurable bindings.
@@ -9905,7 +11977,81 @@ class SimulatorControlMode {
             this.hands.setRightHandLerpPose(nextPose);
         }
     }
+    getHandOrigin(idx, target) {
+        const distOpt = this.simulatorOptions?.reachDistance;
+        const angleOpt = this.simulatorOptions?.reachAngle;
+        if (!distOpt?.enabled && !angleOpt?.enabled)
+            return false;
+        const originObj = idx === 0 ? distOpt.leftHandOrigin : distOpt.rightHandOrigin;
+        target.set(originObj.x, originObj.y, originObj.z);
+        return true;
+    }
+    limitMovementAtReachEdge(idx, localPos, delta) {
+        if (!this.getHandOrigin(idx, originVec))
+            return;
+        const distOpt = this.simulatorOptions.reachDistance;
+        const angleOpt = this.simulatorOptions.reachAngle;
+        currentOffsetVec.copy(localPos).sub(originVec);
+        newOffsetVec.copy(currentOffsetVec).add(delta);
+        if (distOpt.enabled) {
+            const curDistSq = currentOffsetVec.lengthSq();
+            const radSq = distOpt.radius * distOpt.radius;
+            if (curDistSq >= radSq && newOffsetVec.lengthSq() >= curDistSq) {
+                delta.set(0, 0, 0);
+                return;
+            }
+        }
+        if (angleOpt.enabled) {
+            const maxAngle = angleOpt.angle * 0.5;
+            const curAngle = currentOffsetVec.angleTo(forwardVec);
+            if (curAngle >= maxAngle &&
+                newOffsetVec.angleTo(forwardVec) >= curAngle) {
+                delta.set(0, 0, 0);
+            }
+        }
+    }
     updateControllerPositions() {
+        const distOpt = this.simulatorOptions?.reachDistance;
+        const angleOpt = this.simulatorOptions?.reachAngle;
+        const distEnabled = !!distOpt?.enabled;
+        const angleEnabled = !!angleOpt?.enabled;
+        if (distEnabled || angleEnabled) {
+            const radius = distOpt.radius;
+            const maxAngle = angleOpt.angle * 0.5;
+            for (let i = 0; i < 2; i++) {
+                this.getHandOrigin(i, originVec);
+                const localPos = this.simulatorControllerState.localControllerPositions[i];
+                offsetVec.copy(localPos).sub(originVec);
+                const dist = offsetVec.length();
+                const angle = offsetVec.angleTo(forwardVec);
+                const atMax = (distEnabled && dist >= radius) ||
+                    (angleEnabled && angle >= maxAngle);
+                if (i === 0) {
+                    this.hands.leftHandAtMaxRange = atMax;
+                }
+                else {
+                    this.hands.rightHandAtMaxRange = atMax;
+                }
+                if (angleEnabled && angle > maxAngle) {
+                    axisVec.copy(offsetVec).cross(forwardVec);
+                    if (axisVec.lengthSq() < 1e-6) {
+                        axisVec.set(0, 1, 0);
+                    }
+                    else {
+                        axisVec.normalize();
+                    }
+                    offsetVec.applyAxisAngle(axisVec, angle - maxAngle);
+                }
+                if (distEnabled && offsetVec.lengthSq() > radius * radius) {
+                    offsetVec.clampLength(0, radius);
+                }
+                localPos.copy(originVec).add(offsetVec);
+            }
+        }
+        else {
+            this.hands.leftHandAtMaxRange = false;
+            this.hands.rightHandAtMaxRange = false;
+        }
         this.camera.updateMatrixWorld();
         for (let i = 0; i < 2 && i < this.input.controllers.length; i++) {
             const controller = this.input.controllers[i];
@@ -9978,10 +12124,12 @@ class SimulatorControllerMode extends SimulatorControlMode {
     updateControllerPositions() {
         const deltaTime = this.timer.getDelta();
         const downKeys = this.downKeys;
-        const localPos = this.simulatorControllerState.localControllerPositions[this.simulatorControllerState.currentControllerIndex];
+        const idx = this.simulatorControllerState.currentControllerIndex;
+        const localPos = this.simulatorControllerState.localControllerPositions[idx];
         vector3$5
             .set(Number(downKeys.has(D_CODE)) - Number(downKeys.has(A_CODE)), Number(downKeys.has(Q_CODE)) - Number(downKeys.has(E_CODE)), Number(downKeys.has(S_CODE)) - Number(downKeys.has(W_CODE)))
             .multiplyScalar(deltaTime);
+        this.limitMovementAtReachEdge(idx, localPos, vector3$5);
         localPos.add(vector3$5);
         // Gamepad: left stick moves hand on XZ; configurable buttons on Y.
         // Skip when the tab isn't focused so background tabs don't react to
@@ -9992,6 +12140,7 @@ class SimulatorControllerMode extends SimulatorControlMode {
             const downVal = gp.getButtonValue(gp.bindings.getBinding('moveDown'));
             const upVal = gp.getButtonValue(gp.bindings.getBinding('moveUp'));
             vector3$5.set(lx, upVal - downVal, ly).multiplyScalar(deltaTime);
+            this.limitMovementAtReachEdge(idx, localPos, vector3$5);
             localPos.add(vector3$5);
         }
         super.updateControllerPositions();
@@ -10114,6 +12263,990 @@ class SimulatorPointerLockMode extends SimulatorControlMode {
     }
 }
 
+class OcclusionUtils {
+    /**
+     * Creates a simple material used for rendering objects into the occlusion
+     * map. This material is intended to be used with `renderer.overrideMaterial`.
+     * @returns A new instance of THREE.MeshBasicMaterial.
+     */
+    static createOcclusionMapOverrideMaterial() {
+        return new THREE.MeshBasicMaterial();
+    }
+    /**
+     * Modifies a material's shader in-place to incorporate distance-based
+     * alpha occlusion. This is designed to be used with a material's
+     * `onBeforeCompile` property. This only works with built-in three.js
+     * materials.
+     * @param shader - The shader object provided by onBeforeCompile.
+     */
+    static addOcclusionToShader(shader) {
+        shader.uniforms.occlusionEnabled = { value: true };
+        shader.uniforms.tOcclusionMap = { value: null };
+        shader.uniforms.uOcclusionClipFromWorld = { value: new THREE.Matrix4() };
+        shader.defines = { USE_UV: true, DISTANCE: true };
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', [
+            'uniform mat4 uOcclusionClipFromWorld;',
+            'varying vec4 vOcclusionScreenCoord;',
+            '#include <common>',
+        ].join('\n'))
+            .replace('#include <fog_vertex>', [
+            '#include <fog_vertex>',
+            'vOcclusionScreenCoord = uOcclusionClipFromWorld * worldPosition;',
+        ].join('\n'));
+        shader.fragmentShader = shader.fragmentShader
+            .replace('uniform vec3 diffuse;', [
+            'uniform vec3 diffuse;',
+            'uniform bool occlusionEnabled;',
+            'uniform sampler2D tOcclusionMap;',
+            'varying vec4 vOcclusionScreenCoord;',
+        ].join('\n'))
+            .replace('vec4 diffuseColor = vec4( diffuse, opacity );', [
+            'vec4 diffuseColor = vec4( diffuse, opacity );',
+            'vec2 occlusion_coordinates = 0.5 + 0.5 * vOcclusionScreenCoord.xy / vOcclusionScreenCoord.w;',
+            'vec2 occlusion_sample = texture2D(tOcclusionMap, occlusion_coordinates.xy).rg;',
+            'occlusion_sample = occlusion_sample / max(0.0001, occlusion_sample.g);',
+            'float occlusion_value = clamp(occlusion_sample.r, 0.0, 1.0);',
+            'diffuseColor.a *= occlusionEnabled ? occlusion_value : 1.0;',
+        ].join('\n'));
+    }
+}
+
+const DOWN = Object.freeze(new THREE.Vector3(0, -1, 0));
+const UP = Object.freeze(new THREE.Vector3(0, 1, 0));
+const FORWARD = Object.freeze(new THREE.Vector3(0, 0, -1));
+const BACK = Object.freeze(new THREE.Vector3(0, 0, 1));
+const LEFT = Object.freeze(new THREE.Vector3(-1, 0, 0));
+const RIGHT = Object.freeze(new THREE.Vector3(1, 0, 0));
+const ZERO_VECTOR3 = Object.freeze(new THREE.Vector3(0, 0, 0));
+
+/**
+ * The base URL for Three.js JSM examples, used for DRACO and KTX2 decoders.
+ */
+const jsmUrl = `https://cdn.jsdelivr.net/npm/three@0.${THREE.REVISION}.0/examples/jsm/`;
+/**
+ * The configured GLTFLoader instance.
+ */
+let gltfLoaderInstance;
+function getGLTFLoader(renderer, manager) {
+    if (gltfLoaderInstance) {
+        return gltfLoaderInstance;
+    }
+    const dracoLoader = new DRACOLoader(manager);
+    dracoLoader.setDecoderPath(jsmUrl + 'libs/draco/');
+    dracoLoader.setDecoderConfig({ type: 'js' });
+    const ktx2Loader = new KTX2Loader(manager);
+    ktx2Loader.setTranscoderPath(jsmUrl + 'libs/basis/');
+    if (renderer) {
+        ktx2Loader.detectSupport(renderer);
+    }
+    gltfLoaderInstance = new GLTFLoader(manager);
+    gltfLoaderInstance.setDRACOLoader(dracoLoader);
+    gltfLoaderInstance.setKTX2Loader(ktx2Loader);
+    return gltfLoaderInstance;
+}
+/**
+ * Manages the loading of 3D models, automatically handling dependencies
+ * like DRACO and KTX2 loaders.
+ */
+class ModelLoader {
+    /**
+     * Creates an instance of ModelLoader.
+     * @param manager - The
+     *     loading manager to use,
+     * required for KTX2 texture support.
+     */
+    constructor(manager = THREE.DefaultLoadingManager) {
+        this.manager = manager;
+    }
+    /**
+     * Loads a model based on its file extension. Supports .gltf, .glb,
+     * .ply, .spz, .splat, and .ksplat.
+     * @returns A promise that resolves with the loaded model data (e.g., a glTF
+     *     scene or a SplatMesh).
+     */
+    async load({ path, url = '', renderer = undefined, onProgress = undefined, }) {
+        if (onProgress) {
+            console.warn('ModelLoader: An onProgress callback was provided to load(), ' +
+                'but a LoadingManager is in use. Progress will be reported via the ' +
+                "LoadingManager's onProgress callback. The provided callback will be ignored.");
+        }
+        const extension = url.split('.').pop()?.toLowerCase() || '';
+        const splatExtensions = ['ply', 'spz', 'splat', 'ksplat'];
+        const gltfExtensions = ['gltf', 'glb'];
+        if (gltfExtensions.includes(extension)) {
+            return await this.loadGLTF({ path, url, renderer });
+        }
+        else if (splatExtensions.includes(extension)) {
+            return await this.loadSplat({ url });
+        }
+        console.error('Unsupported file type: ' + extension);
+        return null;
+    }
+    /**
+     * Loads a 3DGS model (.ply, .spz, .splat, .ksplat).
+     * @param url - The URL of the model file.
+     * @returns A promise that resolves with the loaded
+     * SplatMesh object.
+     */
+    async loadSplat({ url = '' }) {
+        const { SplatMesh } = await import('@sparkjsdev/spark'); // Dynamic import
+        const splatMesh = new SplatMesh({ url });
+        await splatMesh.initialized;
+        return splatMesh;
+    }
+    /**
+     * Loads a GLTF or GLB model.
+     * @param options - The loading options.
+     * @returns A promise that resolves with the loaded glTF object.
+     */
+    async loadGLTF({ path, url = '', renderer = undefined, }) {
+        const loader = getGLTFLoader(renderer, this.manager);
+        if (path) {
+            loader.setPath(path);
+        }
+        return new Promise((resolve, reject) => {
+            loader.load(url, (gltf) => resolve(gltf), undefined, (error) => reject(error));
+        });
+    }
+}
+
+/**
+ * Calculates the bounding box for a group of THREE.Object3D instances.
+ *
+ * @param objects - An array of THREE.Object3D instances.
+ * @returns The computed THREE.Box3.
+ */
+function getGroupBoundingBox(objects) {
+    const bbox = new THREE.Box3();
+    if (objects.length === 0) {
+        return bbox;
+    }
+    const parentReferences = new Map();
+    for (const child of objects) {
+        if (child.parent) {
+            parentReferences.set(child, child.parent);
+            child.removeFromParent();
+        }
+        bbox.expandByObject(child, true);
+    }
+    // Restore parent references
+    for (const [child, parent] of parentReferences.entries()) {
+        parent.add(child);
+    }
+    return bbox;
+}
+
+// Temporary variables.
+const _quaternion = new THREE.Quaternion();
+const _euler = new THREE.Euler();
+const _vector3 = new THREE.Vector3();
+var DragMode;
+(function (DragMode) {
+    DragMode["TRANSLATING"] = "TRANSLATING";
+    DragMode["ROTATING"] = "ROTATING";
+    DragMode["SCALING"] = "SCALING";
+    DragMode["DO_NOT_DRAG"] = "DO_NOT_DRAG";
+})(DragMode || (DragMode = {}));
+class DragManager extends Script {
+    constructor() {
+        super(...arguments);
+        this.mode = DragManager.IDLE;
+        this.originalObjectPosition = new THREE.Vector3();
+        this.originalObjectRotation = new THREE.Quaternion();
+        this.originalObjectScale = new THREE.Vector3();
+        this.originalController1Position = new THREE.Vector3();
+        this.originalController1RotationInverse = new THREE.Quaternion();
+        this.originalController1MatrixInverse = new THREE.Matrix4();
+        this.originalScalingControllerDistance = 0.0;
+        this.originalScalingObjectScale = new THREE.Vector3();
+        this.type = 'DragManager';
+        this.name = 'Drag Manager';
+        this.editorIcon = 'drag_pan';
+    }
+    static { this.dependencies = { input: Input, camera: THREE.Camera }; }
+    static { this.IDLE = 'IDLE'; }
+    static { this.TRANSLATING = DragMode.TRANSLATING; }
+    static { this.ROTATING = DragMode.ROTATING; }
+    static { this.SCALING = DragMode.SCALING; }
+    static { this.DO_NOT_DRAG = DragMode.DO_NOT_DRAG; }
+    init({ input, camera }) {
+        this.input = input;
+        this.camera = camera;
+    }
+    onSelectStart(event) {
+        const controller = event.target;
+        const intersections = this.input.intersectionsForController.get(controller);
+        if (intersections && intersections.length > 0) {
+            this.beginDragging(intersections[0], controller);
+        }
+    }
+    onSelectEnd() {
+        this.mode = DragManager.IDLE;
+        this.intersection = undefined;
+        this.draggableObject = undefined;
+    }
+    update() {
+        for (const controller of this.input.controllers) {
+            this.updateDragging(controller);
+        }
+    }
+    beginDragging(intersection, controller) {
+        const [draggableObject, draggingMode] = this.findDraggableObjectAndDraggingMode(intersection.object);
+        if (draggableObject == null ||
+            draggingMode == null ||
+            draggingMode == DragManager.DO_NOT_DRAG) {
+            return false;
+        }
+        if (this.mode != DragManager.IDLE) {
+            // Already dragging, switch to scaling.
+            return this.beginScaling(controller);
+        }
+        this.draggableObject = draggableObject;
+        this.mode =
+            draggingMode == DragManager.ROTATING
+                ? DragManager.ROTATING
+                : DragManager.TRANSLATING;
+        this.originalController1Position.copy(controller.position);
+        this.originalController1MatrixInverse
+            .compose(controller.position, controller.quaternion, controller.scale)
+            .invert();
+        this.originalController1RotationInverse
+            .copy(controller.quaternion)
+            .invert();
+        this.intersection = intersection;
+        this.controller1 = controller;
+        this.originalObjectRotation.copy(draggableObject.quaternion);
+        this.originalObjectPosition.copy(draggableObject.position);
+        this.originalObjectScale.copy(draggableObject.scale);
+        return true;
+    }
+    // Scaling is a two-handed gesture, based on the distance between the two
+    // hands.
+    beginScaling(controller) {
+        this.controller2 = controller;
+        this.originalScalingControllerDistance = _vector3
+            .subVectors(this.controller1.position, this.controller2.position)
+            .length();
+        this.originalScalingObjectScale.copy(this.intersection.object.scale);
+        this.mode = DragManager.SCALING;
+        return true;
+    }
+    updateDragging(controller) {
+        if (this.mode == DragManager.TRANSLATING) {
+            return this.updateTranslating();
+        }
+        else if (this.mode == DragManager.ROTATING) {
+            return this.updateRotating(controller);
+        }
+        else if (this.mode == DragManager.SCALING) {
+            return this.updateScaling();
+        }
+        // Continue handle controller.
+        return false;
+    }
+    updateTranslating() {
+        const model = this.draggableObject;
+        model.position.copy(this.originalObjectPosition);
+        model.quaternion.copy(this.originalObjectRotation);
+        model.scale.copy(this.originalObjectScale);
+        model.updateMatrix();
+        this.controller1.updateMatrix();
+        model.matrix
+            .premultiply(this.originalController1MatrixInverse)
+            .premultiply(this.controller1.matrix);
+        model.position.setFromMatrixPosition(model.matrix);
+        if (model.dragFacingCamera) {
+            this.turnPanelToFaceTheCamera();
+        }
+        return true;
+    }
+    updateRotating(controller) {
+        if (controller != this.controller1) {
+            return;
+        }
+        if (controller instanceof MouseController) {
+            return this.updateRotatingFromMouseController(controller);
+        }
+        const model = this.draggableObject;
+        const deltaPosition = new THREE.Vector3().subVectors(controller.position, this.originalController1Position);
+        deltaPosition.applyQuaternion(this.originalController1RotationInverse);
+        const offsetRotation = _quaternion.setFromAxisAngle(UP, 10.0 * deltaPosition.x);
+        model.quaternion.multiplyQuaternions(offsetRotation, this.originalObjectRotation);
+        return true;
+    }
+    updateRotatingFromMouseController(controller) {
+        const model = this.draggableObject;
+        const deltaRotation = _quaternion.multiplyQuaternions(controller.quaternion, this.originalController1RotationInverse);
+        const rotationYawAngle = _euler.setFromQuaternion(deltaRotation, 'YXZ');
+        const offsetRotation = _quaternion.setFromAxisAngle(UP, -10 * rotationYawAngle.y);
+        model.quaternion.multiplyQuaternions(offsetRotation, this.originalObjectRotation);
+        return true;
+    }
+    updateScaling() {
+        const newControllerDistance = _vector3
+            .subVectors(this.controller1.position, this.controller2.position)
+            .length();
+        const distanceRatio = newControllerDistance / this.originalScalingControllerDistance;
+        const model = this.draggableObject;
+        model.scale
+            .copy(this.originalScalingObjectScale)
+            .multiplyScalar(distanceRatio);
+        return true;
+    }
+    turnPanelToFaceTheCamera() {
+        const model = this.draggableObject;
+        _vector3.subVectors(model.position, this.camera.position);
+        model.quaternion.setFromAxisAngle(UP, (3 * Math.PI) / 2 - Math.atan2(_vector3.z, _vector3.x));
+    }
+    /**
+     * Seach up the scene graph to find the first draggable object and the first
+     * drag mode at or below the draggable object.
+     * @param target - Child object to search.
+     * @returns Array containing the first draggable object and the first drag
+     *     mode.
+     */
+    findDraggableObjectAndDraggingMode(target) {
+        let currentTarget = target;
+        let draggableObject;
+        let draggingMode;
+        while (currentTarget && !draggableObject) {
+            draggableObject = currentTarget.draggable
+                ? currentTarget
+                : undefined;
+            draggingMode =
+                draggingMode ??
+                    currentTarget.draggingMode;
+            currentTarget = currentTarget.parent;
+        }
+        return [draggableObject, draggingMode];
+    }
+}
+
+/**
+ * A custom `THREE.BufferGeometry` that creates one rounded corner
+ * piece for the `ModelViewerPlatform`. Four of these are instantiated and
+ * rotated to form all corners of the platform.
+ */
+class ModelViewerPlatformCornerGeometry extends THREE.BufferGeometry {
+    constructor(radius = 1, tube = 0.4, radialSegments = 12, tubularSegments = 48) {
+        super();
+        const indices = [];
+        const vertices = [];
+        const normals = [];
+        const uvs = [];
+        const center = new THREE.Vector3();
+        const vertex = new THREE.Vector3();
+        const normal = new THREE.Vector3();
+        for (let j = 0; j <= radialSegments; j++) {
+            for (let i = 0; i <= tubularSegments; i++) {
+                const u = ((i / tubularSegments) * Math.PI) / 2;
+                const v = (j / radialSegments) * Math.PI + (3 * Math.PI) / 2;
+                vertex.x = (radius + tube * Math.cos(v)) * Math.cos(u);
+                vertex.y = (radius + tube * Math.cos(v)) * Math.sin(u);
+                vertex.z = tube * Math.sin(v);
+                vertices.push(vertex.x, vertex.y, vertex.z);
+                center.x = radius * Math.cos(u);
+                center.y = radius * Math.sin(u);
+                normal.subVectors(vertex, center).normalize();
+                normals.push(normal.x, normal.y, normal.z);
+                uvs.push(i / tubularSegments);
+                uvs.push(j / radialSegments);
+            }
+        }
+        for (let j = 1; j <= radialSegments; j++) {
+            for (let i = 1; i <= tubularSegments; i++) {
+                const a = (tubularSegments + 1) * j + i - 1;
+                const b = (tubularSegments + 1) * (j - 1) + i - 1;
+                const c = (tubularSegments + 1) * (j - 1) + i;
+                const d = (tubularSegments + 1) * j + i;
+                indices.push(a, b, d);
+                indices.push(b, c, d);
+            }
+        }
+        this.setIndex(indices);
+        this.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        this.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+        this.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    }
+}
+
+/**
+ * A factory function that constructs the complete geometry for a
+ * `ModelViewerPlatform`. It combines several sub-geometries: four rounded
+ * corners, four straight side tubes, and the flat top and bottom surfaces.
+ * @param width - The total width of the platform.
+ * @param depth - The total depth of the platform.
+ * @param thickness - The thickness of the platform.
+ * @param cornerRadius - The radius of the rounded corners.
+ * @returns A merged `THREE.BufferGeometry` for the entire platform.
+ */
+function createPlatformGeometry(width = 1, depth = 1, thickness = 0.02, cornerRadius = 0.03, cornerWidthSegments = 5, radialSegments = 5) {
+    const sideGeometries = createPlatformSideGeometries(width, depth, thickness, cornerRadius, cornerWidthSegments, radialSegments);
+    const sideGeometriesVertexCount = sideGeometries.reduce((acc, val) => {
+        return acc + val.index.count;
+    }, 0);
+    const flatGeometries = createPlatformFlatGeometries(width, depth, thickness, cornerRadius, cornerWidthSegments);
+    const flatGeometriesVertexCount = flatGeometries.reduce((acc, val) => {
+        return acc + val.index.count;
+    }, 0);
+    const allGeometries = [...sideGeometries, ...flatGeometries];
+    const mergedGeometry = BufferGeometryUtils.mergeGeometries(allGeometries);
+    allGeometries.forEach((geometry) => geometry.dispose());
+    mergedGeometry.addGroup(0, sideGeometriesVertexCount, 0);
+    mergedGeometry.addGroup(sideGeometriesVertexCount, flatGeometriesVertexCount, 1);
+    mergedGeometry.computeBoundingBox();
+    return mergedGeometry;
+}
+function createPlatformSideGeometries(width = 1, depth = 1, thickness = 0.01, cornerRadius = 0.03, cornerWidthSegments = 5, radialSegments = 5) {
+    const cornerGeometry = new ModelViewerPlatformCornerGeometry(cornerRadius, thickness / 2, radialSegments, cornerWidthSegments).rotateX(Math.PI / 2);
+    const cornerGeometry1 = cornerGeometry
+        .clone()
+        .rotateY((2 * Math.PI) / 2)
+        .translate(-(width / 2 - cornerRadius), 0, -(depth / 2 - cornerRadius));
+    const cornerGeometry2 = cornerGeometry
+        .clone()
+        .rotateY((3 * Math.PI) / 2)
+        .translate(-(width / 2 - cornerRadius), 0, depth / 2 - cornerRadius);
+    const cornerGeometry3 = cornerGeometry
+        .clone()
+        .rotateY((4 * Math.PI) / 2)
+        .translate(width / 2 - cornerRadius, 0, depth / 2 - cornerRadius);
+    const cornerGeometry4 = cornerGeometry
+        .rotateY((5 * Math.PI) / 2)
+        .translate(width / 2 - cornerRadius, 0, -(depth / 2 - cornerRadius));
+    const cornerTubes = [
+        cornerGeometry1,
+        cornerGeometry2,
+        cornerGeometry3,
+        cornerGeometry4,
+    ];
+    const widthTube = new THREE.CylinderGeometry(thickness / 2, thickness / 2, width - 2 * cornerRadius, radialSegments, 1, true, 0, Math.PI).rotateZ(Math.PI / 2);
+    const widthTube1 = widthTube
+        .clone()
+        .rotateX(-Math.PI / 2)
+        .translate(0, 0, -depth / 2);
+    const widthTube2 = widthTube.rotateX(Math.PI / 2).translate(0, 0, depth / 2);
+    const depthTube = new THREE.CylinderGeometry(thickness / 2, thickness / 2, depth - 2 * cornerRadius, radialSegments, 1, true, 0, Math.PI).rotateX(-Math.PI / 2);
+    const depthTube1 = depthTube
+        .clone()
+        .rotateY(Math.PI)
+        .translate(-width / 2, 0, 0);
+    const depthTube2 = depthTube.translate(width / 2, 0, 0);
+    const sideTubes = [widthTube1, widthTube2, depthTube1, depthTube2];
+    return [...cornerTubes, ...sideTubes];
+}
+function createPlatformFlatGeometries(width = 1, depth = 1, thickness = 0.01, cornerRadius = 0.03, cornerWidthSegments = 5) {
+    const widthMinusRadius = width - 2 * cornerRadius;
+    const depthMinusRadius = depth - 2 * cornerRadius;
+    const longQuad = new THREE.PlaneGeometry(width, depthMinusRadius).rotateX(-Math.PI / 2);
+    const shortQuad = new THREE.PlaneGeometry(widthMinusRadius, cornerRadius).rotateX(-Math.PI / 2);
+    const shortQuadTranslationZ = depthMinusRadius / 2 + cornerRadius / 2;
+    const shortQuad1 = shortQuad.clone().translate(0, 0, shortQuadTranslationZ);
+    const shortQuad2 = shortQuad.translate(0, 0, -shortQuadTranslationZ);
+    const quadGeometries = [longQuad, shortQuad1, shortQuad2];
+    const cornerCircle = new THREE.CircleGeometry(cornerRadius, cornerWidthSegments, 0, Math.PI / 2).rotateX(-Math.PI / 2);
+    const circleTranslationZ = depthMinusRadius / 2;
+    const circleTranslationX = widthMinusRadius / 2;
+    const cornerCircle1 = cornerCircle
+        .clone()
+        .rotateY((3 * Math.PI) / 2)
+        .translate(circleTranslationX, 0, circleTranslationZ);
+    const cornerCircle2 = cornerCircle
+        .clone()
+        .rotateY((0 * Math.PI) / 2)
+        .translate(circleTranslationX, 0, -circleTranslationZ);
+    const cornerCircle3 = cornerCircle
+        .clone()
+        .rotateY((1 * Math.PI) / 2)
+        .translate(-circleTranslationX, 0, -circleTranslationZ);
+    const cornerCircle4 = cornerCircle
+        .clone()
+        .rotateY((2 * Math.PI) / 2)
+        .translate(-circleTranslationX, 0, circleTranslationZ);
+    const circleGeometries = [
+        cornerCircle1,
+        cornerCircle2,
+        cornerCircle3,
+        cornerCircle4,
+    ];
+    const topGeometries = [...quadGeometries, ...circleGeometries];
+    const bottomGeometries = topGeometries.map((geometry) => {
+        return geometry
+            .clone()
+            .rotateX(Math.PI)
+            .translate(0, -thickness / 2, 0);
+    });
+    topGeometries.forEach((geometry) => geometry.translate(0, thickness / 2, 0));
+    return [...topGeometries, ...bottomGeometries];
+}
+
+/**
+ * A specialized `THREE.Mesh` that serves as the interactive base for
+ * a `ModelViewer`. It has a distinct visual appearance and handles the logic
+ * for fading in and out on hover. Its `draggingMode` is set to `TRANSLATING` to
+ * enable movement.
+ */
+class ModelViewerPlatform extends THREE.Mesh {
+    constructor(width, depth, thickness) {
+        const geometry = createPlatformGeometry(width, depth, thickness);
+        super(geometry, [
+            new THREE.MeshLambertMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.0,
+            }),
+            new THREE.MeshLambertMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.0,
+            }),
+        ]);
+        this.draggingMode = DragManager.TRANSLATING;
+        this.opacity = new AnimatableNumber(0, 0, 0.5, 0);
+    }
+    update(deltaTime) {
+        this.opacity.update(deltaTime);
+        this.material[0].opacity = this.opacity.value;
+        this.material[1].opacity = 0.5 * this.opacity.value;
+        this.visible = this.opacity.value > 0.001;
+    }
+}
+
+// Object which just holds the spark renderer so other classes don't need to import spark.
+class SparkRendererHolder {
+    constructor(renderer) {
+        this.renderer = renderer;
+    }
+}
+
+const defaultPlatformMargin = new THREE.Vector2(0.2, 0.2);
+const vector3$4 = new THREE.Vector3();
+const quaternion$1 = new THREE.Quaternion();
+const quaternion2 = new THREE.Quaternion();
+class SplatAnchor extends THREE.Object3D {
+    constructor() {
+        super(...arguments);
+        this.draggingMode = DragMode.ROTATING;
+    }
+}
+class RotationRaycastMesh extends THREE.Mesh {
+    constructor(geometry, material) {
+        super(geometry, material);
+        this.draggingMode = DragMode.ROTATING;
+    }
+}
+/**
+ * A comprehensive UI component for loading, displaying, and
+ * interacting with 3D models (GLTF and Splats) in an XR scene. It
+ * automatically creates an interactive platform for translation and provides
+ * mechanisms for rotation and scaling in both desktop and XR.
+ */
+class ModelViewer extends Script {
+    static { this.dependencies = {
+        camera: THREE.Camera,
+        depth: Depth,
+        scene: THREE.Scene,
+        renderer: THREE.WebGLRenderer,
+        registry: Registry,
+        timer: THREE.Timer,
+    }; }
+    constructor({ castShadow = true, receiveShadow = true, raycastToChildren = false, }) {
+        super();
+        this.draggable = true;
+        this.rotatable = true;
+        this.scalable = true;
+        this.platformAnimationSpeed = 2;
+        this.platformThickness = 0.02;
+        this.isOneOneScale = false;
+        this.initialScale = new THREE.Vector3().setScalar(1);
+        this.startAnimationOnLoad = true;
+        this.clipActions = [];
+        this.bbox = new THREE.Box3();
+        this.hoveringControllers = new Set();
+        this.occludableShaders = new Set();
+        this.castShadow = castShadow;
+        this.receiveShadow = receiveShadow;
+        this.raycastToChildren = raycastToChildren;
+    }
+    async init({ camera, depth, scene, renderer, registry, timer, }) {
+        this.camera = camera;
+        this.depth = depth;
+        this.scene = scene;
+        this.renderer = renderer;
+        this.registry = registry;
+        this.timer = timer;
+        for (const shader of this.occludableShaders) {
+            this.depth.occludableShaders.add(shader);
+        }
+        if (this.splatMesh) {
+            await this.createSparkRendererIfNeeded();
+            this.scene.add(this.splatMesh);
+        }
+    }
+    async loadSplatModel({ data, onSceneLoaded = (_) => { }, platformMargin = defaultPlatformMargin, setupRaycastCylinder = true, setupRaycastBox = false, setupPlatform = true, }) {
+        this.data = data;
+        if (data.scale) {
+            this.initialScale.copy(data.scale);
+        }
+        const splatMesh = await new ModelLoader().loadSplat({ url: data.model });
+        this.splatMesh = splatMesh;
+        splatMesh.raycast = () => { };
+        this.splatAnchor = new SplatAnchor();
+        this.splatAnchor.add(splatMesh);
+        if (data.scale) {
+            this.splatAnchor.scale.copy(data.scale);
+        }
+        if (data.rotation) {
+            this.splatAnchor.rotation.set(THREE.MathUtils.degToRad(data.rotation.x), THREE.MathUtils.degToRad(data.rotation.y), THREE.MathUtils.degToRad(data.rotation.z));
+        }
+        if (data.position) {
+            this.splatAnchor.position.copy(data.position);
+        }
+        this.add(this.splatAnchor);
+        await this.createSparkRendererIfNeeded();
+        await this.setupBoundingBox(data.verticallyAlignObject !== false, data.horizontallyAlignObject !== false);
+        if (setupRaycastCylinder) {
+            this.setupRaycastCylinder();
+        }
+        else if (setupRaycastBox) {
+            this.setupRaycastBox();
+        }
+        if (setupPlatform) {
+            this.setupPlatform(platformMargin);
+        }
+        this.setCastShadow(this.castShadow);
+        this.setReceiveShadow(this.receiveShadow);
+        // Return the anchor, as it's the interactive object in the scene graph
+        return onSceneLoaded ? onSceneLoaded(this.splatAnchor) : this.splatAnchor;
+    }
+    async loadGLTFModel({ data, onSceneLoaded = () => { }, platformMargin = defaultPlatformMargin, setupRaycastCylinder = true, setupRaycastBox = false, setupPlatform = true, renderer = undefined, addOcclusionToShader = false, }) {
+        this.data = data;
+        if (data.scale) {
+            this.initialScale.copy(data.scale);
+        }
+        const gltf = await new ModelLoader().loadGLTF({
+            path: data.path,
+            url: data.model,
+            renderer: renderer,
+        });
+        const animationMixer = new THREE.AnimationMixer(gltf.scene);
+        gltf.animations.forEach((clip) => {
+            if (this.startAnimationOnLoad) {
+                animationMixer.clipAction(clip).play();
+            }
+            else {
+                this.clipActions.push(animationMixer.clipAction(clip));
+            }
+        });
+        gltf.scene.draggingMode =
+            DragManager.ROTATING;
+        this.gltfMesh = gltf;
+        this.animationMixer = animationMixer;
+        // Set the initial scale
+        if (data.scale) {
+            this.gltfMesh.scene.scale.copy(data.scale);
+        }
+        if (data.rotation) {
+            gltf.scene.rotation.set(THREE.MathUtils.degToRad(data.rotation.x), THREE.MathUtils.degToRad(data.rotation.y), THREE.MathUtils.degToRad(data.rotation.z));
+        }
+        if (data.position) {
+            gltf.scene.position.copy(data.position);
+        }
+        gltf.scene.draggingMode =
+            DragManager.ROTATING;
+        this.add(gltf.scene);
+        await this.setupBoundingBox(data.verticallyAlignObject !== false, data.horizontallyAlignObject !== false);
+        if (setupRaycastCylinder) {
+            this.setupRaycastCylinder();
+        }
+        else if (setupRaycastBox) {
+            this.setupRaycastBox();
+        }
+        if (setupPlatform) {
+            this.setupPlatform(platformMargin);
+        }
+        this.setCastShadow(this.castShadow);
+        this.setReceiveShadow(this.receiveShadow);
+        if (addOcclusionToShader) {
+            for (const material of this.platform?.material || []) {
+                material.onBeforeCompile = (shader) => {
+                    OcclusionUtils.addOcclusionToShader(shader);
+                    shader.uniforms.occlusionEnabled.value = true;
+                    material.userData.shader = shader;
+                    this.occludableShaders.add(shader);
+                    this.depth?.occludableShaders.add(shader);
+                };
+            }
+            this.platform?.layers.enable(OCCLUDABLE_ITEMS_LAYER);
+            gltf.scene.traverse((child) => {
+                if (child.isMesh) {
+                    const mesh = child;
+                    (mesh.material instanceof Array
+                        ? mesh.material
+                        : [mesh.material]).forEach((material) => {
+                        material.transparent = true;
+                        material.onBeforeCompile = (shader) => {
+                            OcclusionUtils.addOcclusionToShader(shader);
+                            shader.uniforms.occlusionEnabled.value = true;
+                            this.occludableShaders.add(shader);
+                            this.depth?.occludableShaders.add(shader);
+                        };
+                    });
+                    child.layers.enable(OCCLUDABLE_ITEMS_LAYER);
+                }
+            });
+        }
+        return onSceneLoaded ? onSceneLoaded(gltf.scene) : gltf.scene;
+    }
+    async setupBoundingBox(verticallyAlignObject = true, horizontallyAlignObject = true) {
+        if (this.splatMesh) {
+            const localBbox = await this.splatMesh.getBoundingBox(false);
+            if (localBbox.isEmpty()) {
+                this.bbox = localBbox;
+                return;
+            }
+            this.splatAnchor.updateMatrix();
+            const localBboxOfTransformedMesh = localBbox
+                .clone()
+                .applyMatrix4(this.splatAnchor.matrix);
+            const translationAmount = new THREE.Vector3();
+            localBboxOfTransformedMesh
+                .getCenter(translationAmount)
+                .multiplyScalar(-1);
+            if (verticallyAlignObject) {
+                translationAmount.y = -localBboxOfTransformedMesh.min.y;
+            }
+            else {
+                translationAmount.y = 0;
+            }
+            if (!horizontallyAlignObject) {
+                translationAmount.x = 0;
+                translationAmount.z = 0;
+            }
+            this.splatAnchor.position.add(translationAmount);
+            this.bbox = localBboxOfTransformedMesh.translate(translationAmount);
+        }
+        else {
+            const contentChildren = this.children.filter((c) => c !== this.platform &&
+                c !== this.rotationRaycastMesh &&
+                c !== this.controlBar);
+            this.bbox = getGroupBoundingBox(contentChildren);
+            if (this.bbox.isEmpty()) {
+                return;
+            }
+            const translationAmount = new THREE.Vector3();
+            this.bbox.getCenter(translationAmount).multiplyScalar(-1);
+            if (verticallyAlignObject) {
+                translationAmount.y = -this.bbox.min.y;
+            }
+            else {
+                translationAmount.y = 0;
+            }
+            if (!horizontallyAlignObject) {
+                translationAmount.x = 0;
+                translationAmount.z = 0;
+            }
+            for (const child of contentChildren) {
+                child.position.add(translationAmount);
+            }
+            this.bbox.translate(translationAmount);
+        }
+    }
+    setupRaycastCylinder() {
+        const bboxSize = new THREE.Vector3();
+        this.bbox.getSize(bboxSize);
+        const radius = 0.05 + 0.5 * Math.min(bboxSize.x, bboxSize.z);
+        const rotationRaycastMesh = new RotationRaycastMesh(new THREE.CylinderGeometry(radius, radius, bboxSize.y), new THREE.MeshBasicMaterial({ color: 0x990000, wireframe: true }));
+        this.bbox.getCenter(rotationRaycastMesh.position);
+        this.rotationRaycastMesh = rotationRaycastMesh;
+        this.rotationRaycastMesh.visible = false;
+        this.add(this.rotationRaycastMesh);
+    }
+    setupRaycastBox() {
+        if (this.rotationRaycastMesh) {
+            this.rotationRaycastMesh.removeFromParent();
+            this.rotationRaycastMesh.geometry.dispose();
+            this.rotationRaycastMesh.material.dispose();
+        }
+        const bboxSize = new THREE.Vector3();
+        this.bbox.getSize(bboxSize);
+        const rotationRaycastMesh = new RotationRaycastMesh(new THREE.BoxGeometry(bboxSize.x, bboxSize.y, bboxSize.z), new THREE.MeshBasicMaterial({ color: 0x990000, wireframe: true }));
+        this.bbox.getCenter(rotationRaycastMesh.position);
+        this.rotationRaycastMesh = rotationRaycastMesh;
+        this.rotationRaycastMesh.visible = false;
+        this.add(this.rotationRaycastMesh);
+    }
+    setupPlatform(platformMargin = defaultPlatformMargin) {
+        const bboxSize = new THREE.Vector3();
+        this.bbox.getSize(bboxSize);
+        const width = bboxSize.x + platformMargin.x;
+        const depth = bboxSize.z + platformMargin.y;
+        this.platform = new ModelViewerPlatform(width, depth, this.platformThickness);
+        const center = new THREE.Vector3();
+        this.bbox.getCenter(center);
+        this.platform.position.set(center.x, -this.platformThickness / 2, center.z);
+        this.add(this.platform);
+    }
+    update() {
+        const delta = this.timer.getDelta();
+        if (this.animationMixer) {
+            this.animationMixer.update(delta);
+        }
+        if (this.platform) {
+            this.platform.update(delta);
+        }
+        const camera = this.camera;
+        if (this.controlBar != null &&
+            this.controlBar.parent == this &&
+            camera != null) {
+            const directionToCamera = vector3$4
+                .copy(camera.position)
+                .sub(this.position);
+            const distanceToCamera = directionToCamera.length();
+            const pitchAngleRadians = Math.asin(directionToCamera.normalize().y);
+            directionToCamera.y = 0;
+            directionToCamera.normalize();
+            // Make the button face the camera.
+            quaternion$1.copy(this.quaternion).invert();
+            this.controlBar.quaternion
+                .setFromAxisAngle(LEFT, pitchAngleRadians)
+                .premultiply(quaternion2.setFromUnitVectors(BACK, directionToCamera))
+                .premultiply(quaternion$1);
+            this.controlBar.position
+                .setScalar(0)
+                .addScaledVector(directionToCamera, 0.5)
+                .applyQuaternion(quaternion$1);
+            this.controlBar.position.y = 0.0;
+            this.controlBar.scale.set(distanceToCamera / this.scale.x, distanceToCamera / this.scale.y, distanceToCamera / this.scale.z);
+        }
+    }
+    onObjectSelectStart() {
+        return this.draggable || this.rotatable || this.scalable;
+    }
+    onObjectSelectEnd() {
+        return this.draggable || this.rotatable || this.scalable;
+    }
+    onHoverEnter(controller) {
+        this.hoveringControllers.add(controller);
+        if (this.platform) {
+            this.platform.opacity.speed = this.platformAnimationSpeed;
+        }
+    }
+    onHoverExit(controller) {
+        this.hoveringControllers.delete(controller);
+        if (this.platform && this.hoveringControllers.size == 0) {
+            this.platform.opacity.speed = -this.platformAnimationSpeed;
+        }
+    }
+    /**
+     * {@inheritDoc}
+     */
+    raycast(raycaster, intersects) {
+        const content = this.gltfMesh?.scene ?? this.splatMesh;
+        if (this.raycastToChildren && content) {
+            const childRaycasts = [];
+            for (const child of this.children) {
+                if (child != this.rotationRaycastMesh &&
+                    child != this.platform &&
+                    child != this.controlBar) {
+                    raycaster.intersectObject(child, true, childRaycasts);
+                }
+            }
+            intersects.push(...childRaycasts);
+        }
+        if (this.rotationRaycastMesh) {
+            const rotationIntersects = [];
+            this.rotationRaycastMesh.raycast(raycaster, rotationIntersects);
+            for (const intersect of rotationIntersects) {
+                intersects.push(intersect);
+            }
+        }
+        if (this.platform) {
+            const platformIntersects = [];
+            this.platform.raycast(raycaster, platformIntersects);
+            for (const intersect of platformIntersects) {
+                intersects.push(intersect);
+            }
+        }
+        if (this.controlBar != null && this.controlBar.parent == this) {
+            const controlButtonIntersects = [];
+            this.controlBar.raycast(raycaster, controlButtonIntersects);
+            for (const intersect of controlButtonIntersects) {
+                intersects.push(intersect);
+            }
+        }
+        return false;
+    }
+    onScaleButtonClick() {
+        this.scale.setScalar(1.0);
+    }
+    setCastShadow(castShadow) {
+        this.castShadow = castShadow;
+        if (this.gltfMesh) {
+            this.gltfMesh.scene.traverse(function (child) {
+                child.castShadow = castShadow;
+            });
+        }
+        if (this.platform) {
+            this.platform.castShadow = false;
+        }
+    }
+    setReceiveShadow(receiveShadow) {
+        this.receiveShadow = receiveShadow;
+        if (this.gltfMesh) {
+            this.gltfMesh.scene.traverse(function (child) {
+                child.receiveShadow = receiveShadow;
+            });
+        }
+        if (this.platform) {
+            this.platform.receiveShadow = receiveShadow;
+        }
+    }
+    getOcclusionEnabled() {
+        for (const shader of this.occludableShaders) {
+            return shader.uniforms.occlusionEnabled.value;
+        }
+        return false;
+    }
+    setOcclusionEnabled(enabled) {
+        for (const shader of this.occludableShaders) {
+            shader.uniforms.occlusionEnabled.value = enabled;
+        }
+    }
+    playClipAnimationOnce() {
+        if (this.startAnimationOnLoad || this.clipActions.length === 0) {
+            return;
+        }
+        this.clipActions.forEach((clip) => {
+            clip.reset();
+            clip.clampWhenFinished = true;
+            clip.loop = THREE.LoopOnce;
+            clip.play();
+        });
+    }
+    async createSparkRendererIfNeeded() {
+        // We insert our own SparkRenderer configured to show Gaussians up to
+        // Math.sqrt(4) standard deviations from the center, recommended for XR.
+        const { SparkRenderer } = await import('@sparkjsdev/spark');
+        let sparkRendererExists = false;
+        this.scene.traverse((child) => {
+            sparkRendererExists ||= child instanceof SparkRenderer;
+        });
+        if (!sparkRendererExists) {
+            const sparkRenderer = new SparkRenderer({
+                renderer: this.renderer,
+                maxStdDev: Math.sqrt(4),
+            });
+            this.registry.register(new SparkRendererHolder(sparkRenderer));
+            this.scene.add(sparkRenderer);
+        }
+    }
+}
+
+const WHEEL_SCALE_SPEED = 0.001;
+// Approximate one line-mode wheel unit as 16 CSS pixels.
+const WHEEL_LINE_HEIGHT = 16;
 class SimulatorUserMode extends SimulatorControlMode {
     onModeActivated() {
         this.disableSimulatorHands();
@@ -10149,6 +13282,33 @@ class SimulatorUserMode extends SimulatorControlMode {
             this.rotateOnPointerMove(event, this.camera.quaternion);
         }
     }
+    onWheel(event) {
+        let deltaY = event.deltaY;
+        if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+            deltaY *= WHEEL_LINE_HEIGHT;
+        }
+        else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+            deltaY *= this.domElement?.clientHeight || window.innerHeight;
+        }
+        if (deltaY === 0) {
+            return false;
+        }
+        const mouseController = this.input.mouseController;
+        mouseController.updateMousePositionFromEvent(event);
+        if (!mouseController.userData.connected) {
+            return false;
+        }
+        this.input.updateController(mouseController);
+        let target = this.input.intersectionsForController.get(mouseController)?.[0]?.object;
+        while (target && !(target instanceof ModelViewer)) {
+            target = target.parent ?? undefined;
+        }
+        if (!(target instanceof ModelViewer) || !target.scalable) {
+            return false;
+        }
+        target.scale.multiplyScalar(Math.exp(-deltaY * WHEEL_SCALE_SPEED));
+        return true;
+    }
 }
 
 class SetSimulatorModeEvent extends Event {
@@ -10176,9 +13336,10 @@ class SimulatorControls {
      * @param setStereoRenderMode - A function to set the stereo mode.
      * @param userInterface - The simulator user interface manager.
      */
-    constructor(simulatorControllerState, hands, setStereoRenderMode, userInterface) {
+    constructor(simulatorControllerState, hands, navMesh, setStereoRenderMode, userInterface) {
         this.simulatorControllerState = simulatorControllerState;
         this.hands = hands;
+        this.navMesh = navMesh;
         this.userInterface = userInterface;
         this.pointerDown = false;
         this.downKeys = new Set();
@@ -10200,6 +13361,13 @@ class SimulatorControls {
                 return;
             this.simulatorModeControls.onPointerUp(event);
             this.pointerDown = false;
+        };
+        this.onWheel = (event) => {
+            if (!this.enabled)
+                return;
+            if (this.simulatorModeControls.onWheel(event)) {
+                event.preventDefault();
+            }
         };
         this.onKeyDown = (event) => {
             if (!this.enabled)
@@ -10236,10 +13404,10 @@ class SimulatorControls {
             this.setSimulatorMode(this.simulatorOptions.modeToggle.toggleOrder[this.simulatorMode]);
         };
         this.simulatorModes = {
-            [SimulatorMode.USER]: new SimulatorUserMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
-            [SimulatorMode.POSE]: new SimulatorPoseMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
-            [SimulatorMode.CONTROLLER]: new SimulatorControllerMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
-            [SimulatorMode.POINTER_LOCK]: new SimulatorPointerLockMode(this.simulatorControllerState, this.downKeys, hands, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
+            [SimulatorMode.USER]: new SimulatorUserMode(this.simulatorControllerState, this.downKeys, hands, navMesh, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
+            [SimulatorMode.POSE]: new SimulatorPoseMode(this.simulatorControllerState, this.downKeys, hands, navMesh, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
+            [SimulatorMode.CONTROLLER]: new SimulatorControllerMode(this.simulatorControllerState, this.downKeys, hands, navMesh, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
+            [SimulatorMode.POINTER_LOCK]: new SimulatorPointerLockMode(this.simulatorControllerState, this.downKeys, hands, navMesh, setStereoRenderMode, toggleUserInterface, cycleSimulatorMode),
         };
         this.simulatorModeControls = this.simulatorModes[this.simulatorMode];
     }
@@ -10253,6 +13421,7 @@ class SimulatorControls {
                 input,
                 timer,
                 domElement: renderer.domElement,
+                simulatorOptions,
             });
         }
         this.renderer = renderer;
@@ -10269,6 +13438,7 @@ class SimulatorControls {
         domElement.addEventListener('pointermove', this.onPointerMove);
         domElement.addEventListener('pointerdown', this.onPointerDown);
         domElement.addEventListener('pointerup', this.onPointerUp);
+        domElement.addEventListener('wheel', this.onWheel, { passive: false });
         domElement.addEventListener('contextmenu', preventDefault);
         window.addEventListener('blur', this.onBlur);
         document.addEventListener('visibilitychange', this.onBlur);
@@ -10340,6 +13510,13 @@ class SimulatorDepth {
          */
         this.autoUpdateDepthCameraTransform = true;
         this.projectionMatrixArray = new Float32Array(16);
+        // Don't queue a new updateDepth while the previous async pass is
+        // still in flight. simulatorUpdate fires once per frame, but
+        // updateDepth() resolves via a WebGL fence poll that typically takes
+        // longer than a frame on desktop. Without this guard the
+        // setTimeout-based fence polling chains stack up and dominate the
+        // main thread.
+        this.updateInFlight = false;
     }
     /**
      * Initialize Simulator Depth.
@@ -10370,8 +13547,17 @@ class SimulatorDepth {
     }
     update() {
         this.updateDepthCamera();
+        // Skip if an earlier updateDepth() is still resolving its readback
+        // fence. We'd just race ourselves and stack up promises (the
+        // setTimeout-based fence poll inside readRenderTargetPixelsAsync
+        // was a dominant main-thread cost in perf traces before this).
+        if (this.updateInFlight)
+            return;
         this.renderDepthScene();
-        this.updateDepth();
+        this.updateInFlight = true;
+        this.updateDepth().finally(() => {
+            this.updateInFlight = false;
+        });
     }
     updateDepthCamera() {
         const renderingCamera = this.camera;
@@ -10922,7 +14108,6 @@ function getHandednessRotation(handedness, rotation) {
     }
     return [rotation[0], -rotation[1], -rotation[2]];
 }
-// apply constraints applies a biomechanical constraint onto hand pose rotations
 function resolveHandPoseRotations(handedness, restJoints, rotations, applyConstraints = false) {
     const finalPositions = new Map();
     const finalRotations = new Map();
@@ -10970,6 +14155,106 @@ function resolveHandPoseRotations(handedness, restJoints, rotations, applyConstr
 }
 function resolveSimulatorHandPoseRotations(handedness, rotations, applyConstraints = false) {
     return resolveHandPoseRotations(handedness, handedness === Handedness.LEFT ? LEFT_REST_JOINTS : RIGHT_REST_JOINTS, rotations, applyConstraints);
+}
+function resolveSimulatorRotationsFromKeypoints(handedness, joints, applyConstraints = false) {
+    const positions = new Map();
+    HAND_JOINT_NAMES.forEach((name, index) => {
+        const t = joints[index].t;
+        positions.set(name, new THREE.Vector3(t[0], t[1], t[2]));
+    });
+    const restJoints = handedness === Handedness.LEFT ? LEFT_REST_JOINTS : RIGHT_REST_JOINTS;
+    const computedRotations = {};
+    const finalRotations = new Map();
+    function getPalmBasis(wristPos, indexMcpPos, middleMcpPos) {
+        const yAxis = new THREE.Vector3()
+            .subVectors(middleMcpPos, wristPos)
+            .normalize();
+        const temp = new THREE.Vector3()
+            .subVectors(indexMcpPos, wristPos)
+            .normalize();
+        if (yAxis.lengthSq() < 1e-8 || temp.lengthSq() < 1e-8) {
+            return new THREE.Quaternion();
+        }
+        const zAxis = new THREE.Vector3().crossVectors(yAxis, temp);
+        if (zAxis.lengthSq() < 1e-8) {
+            return new THREE.Quaternion();
+        }
+        zAxis.normalize();
+        const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
+        const matrix = new THREE.Matrix4();
+        matrix.makeBasis(xAxis, yAxis, zAxis);
+        return new THREE.Quaternion().setFromRotationMatrix(matrix);
+    }
+    const restWrist = restJoints.get('wrist');
+    const restIndexMcp = restJoints.get('index-finger-metacarpal');
+    const restMiddleMcp = restJoints.get('middle-finger-metacarpal');
+    const Q_rest = getPalmBasis(restWrist.position, restIndexMcp.position, restMiddleMcp.position);
+    const Q_actual = getPalmBasis(positions.get('wrist'), positions.get('index-finger-metacarpal'), positions.get('middle-finger-metacarpal'));
+    const offsetRotationWristBasis = Q_actual.clone().multiply(Q_rest.clone().invert());
+    const Q_wrist = offsetRotationWristBasis.clone().multiply(restWrist.rotation);
+    finalRotations.set('wrist', Q_wrist);
+    const offsetRotationWrist = restWrist.rotation
+        .clone()
+        .invert()
+        .multiply(offsetRotationWristBasis)
+        .multiply(restWrist.rotation);
+    const eulerWrist = new THREE.Euler().setFromQuaternion(offsetRotationWrist, 'XYZ');
+    const rawEulerWrist = getHandednessRotation(handedness, [
+        eulerWrist.x,
+        eulerWrist.y,
+        eulerWrist.z,
+    ]);
+    computedRotations['wrist'] = getRawFKRotation('wrist', rawEulerWrist);
+    // Pre-build child mapping for fast lookup (non-wrist, non-tip joints).
+    const HAND_JOINT_CHILD = {};
+    for (const [child, parent] of Object.entries(HAND_JOINT_PARENT)) {
+        if (parent !== 'wrist') {
+            HAND_JOINT_CHILD[parent] = child;
+        }
+    }
+    // Iterate remaining joints in hierarchical order.
+    for (const jointName of HAND_JOINT_NAMES) {
+        if (jointName === 'wrist' || jointName.endsWith('-tip')) {
+            continue;
+        }
+        const parentName = HAND_JOINT_PARENT[jointName];
+        const parentRotation = finalRotations.get(parentName);
+        const restJoint = restJoints.get(jointName);
+        const R_base = parentRotation.clone().multiply(restJoint.localRotation);
+        // Get the child to define the bone direction.
+        const childName = HAND_JOINT_CHILD[jointName];
+        if (!childName)
+            continue;
+        const restChild = restJoints.get(childName);
+        const v_rest = restChild.localOffset;
+        const pos_joint = positions.get(jointName);
+        const pos_child = positions.get(childName);
+        const v_actual = pos_child.clone().sub(pos_joint);
+        const v_target = v_actual.clone().applyQuaternion(R_base.clone().invert());
+        const lenSq = v_actual.lengthSq();
+        const offsetRotation = new THREE.Quaternion();
+        if (lenSq > 1e-8) {
+            offsetRotation.setFromUnitVectors(v_rest.clone().normalize(), v_target.clone().normalize());
+        }
+        const euler = new THREE.Euler().setFromQuaternion(offsetRotation, 'XYZ');
+        const rawEuler = getHandednessRotation(handedness, [
+            euler.x,
+            euler.y,
+            euler.z,
+        ]);
+        const biomechanical = getRawFKRotation(jointName, rawEuler);
+        const resolved = applyConstraints
+            ? applySimulatorHandPoseRotationConstraints({ [jointName]: biomechanical })
+            : { [jointName]: biomechanical };
+        const finalBiomechanical = resolved[jointName];
+        computedRotations[jointName] = finalBiomechanical;
+        // Save final orientation for children propagation.
+        const rawRotation = getRawFKRotation(jointName, finalBiomechanical);
+        const rotation = getHandednessRotation(handedness, rawRotation);
+        const finalOffsetRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2], 'XYZ'));
+        finalRotations.set(jointName, R_base.clone().multiply(finalOffsetRotation));
+    }
+    return computedRotations;
 }
 
 const SIMULATOR_HAND_POSE_ROTATIONS = Object.freeze({
@@ -11177,8 +14462,8 @@ class SimulatorXRHand {
 }
 
 const DEFAULT_HAND_PROFILE_PATH = 'https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/';
-const vector3$4 = new THREE.Vector3();
-const quaternion$1 = new THREE.Quaternion();
+const vector3$3 = new THREE.Vector3();
+const quaternion = new THREE.Quaternion();
 const ROTATION_JOINT_NAMES = HAND_JOINT_NAMES.filter((jointName) => !jointName.endsWith('-tip'));
 function cloneHandPoseRotations(rotations) {
     const clonedRotations = {};
@@ -11216,10 +14501,10 @@ function lerpHandJoints(bones, joints, lerpSpeed) {
         const targetJoint = joints[i];
         if (!bone || !targetJoint)
             continue;
-        vector3$4.fromArray(targetJoint.t);
-        quaternion$1.fromArray(targetJoint.r);
-        bone.position.lerp(vector3$4, lerpSpeed);
-        bone.quaternion.slerp(quaternion$1, lerpSpeed);
+        vector3$3.fromArray(targetJoint.t);
+        quaternion.fromArray(targetJoint.r);
+        bone.position.lerp(vector3$3, lerpSpeed);
+        bone.quaternion.slerp(quaternion, lerpSpeed);
     }
 }
 class SimulatorHands {
@@ -11232,6 +14517,8 @@ class SimulatorHands {
         this.rightHandBones = [];
         this.leftHandPose = SimulatorHandPose.RELAXED;
         this.rightHandPose = SimulatorHandPose.RELAXED;
+        this.leftHandAtMaxRange = false;
+        this.rightHandAtMaxRange = false;
         this.leftHandCurrentRotations = cloneHandPoseRotations(SIMULATOR_HAND_POSE_ROTATIONS[SimulatorHandPose.RELAXED]);
         this.rightHandCurrentRotations = cloneHandPoseRotations(SIMULATOR_HAND_POSE_ROTATIONS[SimulatorHandPose.RELAXED]);
         this.leftHandTargetRotations = cloneHandPoseRotations(SIMULATOR_HAND_POSE_ROTATIONS[SimulatorHandPose.RELAXED]);
@@ -11254,50 +14541,56 @@ class SimulatorHands {
     /**
      * Initialize Simulator Hands.
      */
-    init({ input }) {
+    async init({ input }) {
         this.input = input;
-        this.loadMeshes();
+        await this.loadMeshes();
         this.simulatorScene.add(this.leftController);
         this.simulatorScene.add(this.rightController);
     }
     loadMeshes() {
         this.loader = new GLTFLoader();
         this.loader.setPath(DEFAULT_HAND_PROFILE_PATH);
-        this.loader.load('left.glb', (gltf) => {
-            this.leftHand = gltf.scene;
-            this.leftController.add(this.leftHand);
-            HAND_JOINT_NAMES.forEach((jointName) => {
-                const bone = gltf.scene.getObjectByName(jointName);
-                if (bone) {
-                    this.leftHandBones.push(bone);
+        return Promise.all([
+            this.loadHandMesh('left.glb', Handedness.LEFT),
+            this.loadHandMesh('right.glb', Handedness.RIGHT),
+        ]);
+    }
+    loadHandMesh(path, handedness) {
+        return new Promise((resolve, reject) => {
+            this.loader.load(path, (gltf) => {
+                const isLeft = handedness === Handedness.LEFT;
+                const handednessName = isLeft ? 'left' : 'right';
+                const bones = isLeft ? this.leftHandBones : this.rightHandBones;
+                bones.length = 0;
+                if (isLeft) {
+                    this.leftHand = gltf.scene;
+                    this.leftController.add(this.leftHand);
                 }
                 else {
-                    console.warn(`Couldn't find ${jointName} in left hand mesh`);
+                    this.rightHand = gltf.scene;
+                    this.rightController.add(this.rightHand);
                 }
-            });
-            applyHandJoints(this.leftHandBones, resolveSimulatorHandPoseRotations(Handedness.LEFT, this.leftHandCurrentRotations));
-            this.input.hands[0]?.dispatchEvent?.({
-                type: 'connected',
-                data: { hand: this.leftXRHand, handedness: 'left' },
-            });
-        });
-        this.loader.load('right.glb', (gltf) => {
-            this.rightHand = gltf.scene;
-            this.rightController.add(this.rightHand);
-            HAND_JOINT_NAMES.forEach((jointName) => {
-                const bone = gltf.scene.getObjectByName(jointName);
-                if (bone) {
-                    this.rightHandBones.push(bone);
-                }
-                else {
-                    console.warn(`Couldn't find ${jointName} in right hand mesh`);
-                }
-            });
-            applyHandJoints(this.rightHandBones, resolveSimulatorHandPoseRotations(Handedness.RIGHT, this.rightHandCurrentRotations));
-            this.input.hands[1]?.dispatchEvent?.({
-                type: 'connected',
-                data: { hand: this.rightXRHand, handedness: 'right' },
-            });
+                HAND_JOINT_NAMES.forEach((jointName) => {
+                    const bone = gltf.scene.getObjectByName(jointName);
+                    if (bone) {
+                        bones.push(bone);
+                    }
+                    else {
+                        console.warn(`Couldn't find ${jointName} in ${handednessName} hand mesh`);
+                    }
+                });
+                applyHandJoints(bones, resolveSimulatorHandPoseRotations(handedness, isLeft
+                    ? this.leftHandCurrentRotations
+                    : this.rightHandCurrentRotations));
+                this.input.hands[isLeft ? 0 : 1]?.dispatchEvent?.({
+                    type: 'connected',
+                    data: {
+                        hand: isLeft ? this.leftXRHand : this.rightXRHand,
+                        handedness: handednessName,
+                    },
+                });
+                resolve();
+            }, () => { }, (error) => reject(error));
         });
     }
     setLeftHandLerpPose(pose) {
@@ -11393,7 +14686,7 @@ class SimulatorHands {
         if (this.leftHandPose === SimulatorHandPose.PINCHING) {
             this.input.dispatchEvent({
                 type: 'selectend',
-                target: this.input.controllers[1],
+                target: this.input.controllers[0],
                 data: {
                     handedness: 'left',
                 },
@@ -11573,9 +14866,9 @@ class SimulatorInterface {
     /**
      * Initialize the simulator interface.
      */
-    init(simulatorOptions, simulatorControls, simulatorHands, input, simulatorScene) {
+    init(simulatorOptions, simulatorControls, simulatorHands, input, simulatorScene, simulatorNavMesh) {
         if (simulatorScene) {
-            this.createSimulatorSettingsPanel(simulatorOptions, simulatorControls, simulatorScene);
+            this.createSimulatorSettingsPanel(simulatorOptions, simulatorControls, simulatorScene, simulatorNavMesh);
         }
         this.showGeminiLivePanel(simulatorOptions);
         this.createHandPosePanel(simulatorOptions, simulatorHands);
@@ -11588,7 +14881,7 @@ class SimulatorInterface {
         if (input)
             this._initGamepadUI(input);
     }
-    createSimulatorSettingsPanel(simulatorOptions, simulatorControls, simulatorScene) {
+    createSimulatorSettingsPanel(simulatorOptions, simulatorControls, simulatorScene, simulatorNavMesh) {
         if (simulatorOptions.simulatorSettingsPanel.enabled) {
             const settingsElement = document.createElement(simulatorOptions.simulatorSettingsPanel.element);
             settingsElement.environments = simulatorOptions.environments;
@@ -11603,6 +14896,7 @@ class SimulatorInterface {
                     simulatorOptions.activeEnvironmentIndex = event.environmentIndex;
                     const activeEnv = simulatorOptions.environments[event.environmentIndex];
                     simulatorScene.setEnvironment(activeEnv?.scenePath ?? null, new THREE.Vector3(simulatorOptions.initialScenePosition.x, simulatorOptions.initialScenePosition.y, simulatorOptions.initialScenePosition.z));
+                    void simulatorNavMesh?.setEnvironment(activeEnv ?? null, simulatorOptions);
                 }
             });
             settingsElement.addEventListener(ShowSimulatorInstructionsEvent.type, () => {
@@ -11716,6 +15010,247 @@ class SimulatorInterface {
     }
 }
 
+const DEFAULT_ZONE_ID = 'simulator';
+const RANDOM_PATH_SAMPLE_ATTEMPTS = 8;
+const desiredGroundPosition = new THREE.Vector3();
+const startGroundPosition = new THREE.Vector3();
+const clampedGroundPosition = new THREE.Vector3();
+const initialScenePosition = new THREE.Vector3();
+const targetWorldPosition$2 = new THREE.Vector3();
+const randomTriangleA = new THREE.Vector3();
+const randomTriangleB = new THREE.Vector3();
+const randomTriangleC = new THREE.Vector3();
+const randomTriangleAB = new THREE.Vector3();
+const randomTriangleAC = new THREE.Vector3();
+class SimulatorNavMesh {
+    constructor() {
+        this.enabled = false;
+        this.ready = false;
+        this.zoneId = DEFAULT_ZONE_ID;
+        this.groupId = null;
+        this.currentNode = null;
+        this.eyeHeight = 1.5;
+    }
+    get constrained() {
+        return this.enabled && this.ready;
+    }
+    async init(options) {
+        this.enabled = options.navMesh.enabled;
+        this.eyeHeight = options.navMesh.eyeHeight;
+        const activeEnv = options.environments[options.activeEnvironmentIndex] ?? null;
+        await this.setEnvironment(activeEnv, options);
+    }
+    async setEnvironment(environment, options) {
+        this.enabled = options.navMesh.enabled;
+        this.eyeHeight = options.navMesh.eyeHeight;
+        this.ready = false;
+        this.groupId = null;
+        this.currentNode = null;
+        this.pathfinding = undefined;
+        this.zone = undefined;
+        if (!this.enabled)
+            return;
+        if (!environment?.navMeshPath) {
+            console.warn('SimulatorNavMesh: navmesh is enabled, but the active environment has no navMeshPath.');
+            return;
+        }
+        try {
+            initialScenePosition.set(options.initialScenePosition.x, options.initialScenePosition.y, options.initialScenePosition.z);
+            const geometry = await this.loadGeometry(environment.navMeshPath, initialScenePosition);
+            try {
+                await this.setGeometry(geometry);
+            }
+            finally {
+                geometry.dispose();
+            }
+        }
+        catch (error) {
+            console.warn(`SimulatorNavMesh: failed to load navmesh at ${environment.navMeshPath}.`, error);
+        }
+    }
+    async setGeometry(geometry) {
+        const Pathfinding = await this.loadPathfinding();
+        const zone = Pathfinding.createZone(geometry);
+        this.pathfinding = new Pathfinding();
+        this.pathfinding.setZoneData(this.zoneId, zone);
+        this.zone = zone;
+        this.ready = true;
+        this.groupId = null;
+        this.currentNode = null;
+    }
+    applyUserMovement(camera, desiredCameraPosition) {
+        if (!this.constrained || !this.pathfinding) {
+            camera.position.copy(desiredCameraPosition);
+            return;
+        }
+        startGroundPosition.copy(camera.position);
+        startGroundPosition.y -= this.eyeHeight;
+        desiredGroundPosition.copy(desiredCameraPosition);
+        desiredGroundPosition.y -= this.eyeHeight;
+        if (this.groupId === null || this.currentNode === null) {
+            this.groupId = this.pathfinding.getGroup(this.zoneId, startGroundPosition);
+            if (this.groupId === null) {
+                camera.position.copy(desiredCameraPosition);
+                return;
+            }
+            this.currentNode = this.pathfinding.getClosestNode(startGroundPosition, this.zoneId, this.groupId, true);
+            this.currentNode ??= this.pathfinding.getClosestNode(startGroundPosition, this.zoneId, this.groupId, false);
+        }
+        if (!this.currentNode || this.groupId === null) {
+            camera.position.copy(desiredCameraPosition);
+            return;
+        }
+        this.currentNode = this.pathfinding.clampStep(startGroundPosition, desiredGroundPosition, this.currentNode, this.zoneId, this.groupId, clampedGroundPosition);
+        camera.position.set(clampedGroundPosition.x, clampedGroundPosition.y + this.eyeHeight, clampedGroundPosition.z);
+    }
+    findPathTo(startCameraPosition, targetGroundPosition) {
+        if (!this.constrained || !this.pathfinding)
+            return null;
+        const start = startGroundPosition.copy(startCameraPosition);
+        start.y -= this.eyeHeight;
+        const groupId = this.getGroup(start);
+        if (groupId === null)
+            return null;
+        return this.pathfinding.findPath(start, targetGroundPosition, this.zoneId, groupId);
+    }
+    findRandomPathFrom(startCameraPosition) {
+        if (!this.constrained || !this.pathfinding || !this.zone)
+            return null;
+        const start = startGroundPosition.copy(startCameraPosition);
+        start.y -= this.eyeHeight;
+        const groupId = this.getGroup(start);
+        if (groupId === null)
+            return null;
+        for (let i = 0; i < RANDOM_PATH_SAMPLE_ATTEMPTS; i++) {
+            const target = this.getRandomPointInGroup(groupId);
+            if (!target)
+                continue;
+            const path = this.pathfinding.findPath(start, target, this.zoneId, groupId);
+            if (path)
+                return { target, path };
+        }
+        return null;
+    }
+    isGroundPositionReachable(startCameraPosition, targetGroundPosition) {
+        return this.isLocationReachable(startCameraPosition, targetGroundPosition);
+    }
+    isLocationReachable(startCameraPosition, targetGroundPosition) {
+        return this.findPathTo(startCameraPosition, targetGroundPosition) !== null;
+    }
+    isObjectReachable(startCameraPosition, object) {
+        object.getWorldPosition(targetWorldPosition$2);
+        return this.isGroundPositionReachable(startCameraPosition, targetWorldPosition$2);
+    }
+    getGroup(position) {
+        if (!this.pathfinding)
+            return null;
+        return this.pathfinding.getGroup(this.zoneId, position);
+    }
+    getRandomPointInGroup(groupId) {
+        const group = this.zone?.groups[groupId];
+        if (!group)
+            return null;
+        let totalArea = 0;
+        const areas = group.map((node) => {
+            const area = this.getNodeArea(node);
+            totalArea += area;
+            return totalArea;
+        });
+        if (totalArea <= 0)
+            return null;
+        const targetArea = Math.random() * totalArea;
+        const nodeIndex = areas.findIndex((area) => area >= targetArea);
+        const node = group[nodeIndex === -1 ? group.length - 1 : nodeIndex];
+        return this.sampleNode(node);
+    }
+    getNodeArea(node) {
+        if (!node || !this.zone)
+            return 0;
+        const [a, b, c] = node.vertexIds.map((id) => this.zone.vertices[id]);
+        randomTriangleAB.subVectors(b, a);
+        randomTriangleAC.subVectors(c, a);
+        return randomTriangleAB.cross(randomTriangleAC).length() * 0.5;
+    }
+    sampleNode(node) {
+        if (!node || !this.zone)
+            return null;
+        const [a, b, c] = node.vertexIds.map((id) => this.zone.vertices[id]);
+        randomTriangleA.copy(a);
+        randomTriangleB.copy(b);
+        randomTriangleC.copy(c);
+        let u = Math.random();
+        let v = Math.random();
+        if (u + v > 1) {
+            u = 1 - u;
+            v = 1 - v;
+        }
+        return new THREE.Vector3()
+            .copy(randomTriangleA)
+            .addScaledVector(randomTriangleAB.subVectors(randomTriangleB, randomTriangleA), u)
+            .addScaledVector(randomTriangleAC.subVectors(randomTriangleC, randomTriangleA), v);
+    }
+    async loadGeometry(path, sceneOffset) {
+        const loader = new GLTFLoader();
+        const gltf = await loader.loadAsync(path);
+        try {
+            gltf.scene.position.copy(sceneOffset);
+            gltf.scene.updateMatrixWorld(true);
+            const navMesh = this.findFirstMesh(gltf.scene);
+            if (!navMesh) {
+                throw new Error('No mesh found in navmesh glTF/GLB.');
+            }
+            const geometry = navMesh.geometry.clone();
+            geometry.applyMatrix4(navMesh.matrixWorld);
+            return geometry;
+        }
+        finally {
+            this.disposeGLTFResources(gltf);
+        }
+    }
+    disposeGLTFResources(gltf) {
+        gltf.scene.traverse((object) => {
+            const mesh = object;
+            if (!mesh.isMesh)
+                return;
+            mesh.geometry?.dispose();
+            const materials = Array.isArray(mesh.material)
+                ? mesh.material
+                : [mesh.material];
+            for (const material of materials) {
+                this.disposeMaterial(material);
+            }
+        });
+    }
+    disposeMaterial(material) {
+        if (!material)
+            return;
+        for (const value of Object.values(material)) {
+            if (value instanceof THREE.Texture) {
+                value.dispose();
+            }
+        }
+        material.dispose();
+    }
+    findFirstMesh(root) {
+        const queue = [root];
+        while (queue.length > 0) {
+            const object = queue.shift();
+            const mesh = object;
+            if (mesh.isMesh && mesh.geometry) {
+                return mesh;
+            }
+            queue.push(...object.children);
+        }
+        return null;
+    }
+    async loadPathfinding() {
+        if (!this.Pathfinding) {
+            this.Pathfinding = (await import('three-pathfinding')).Pathfinding;
+        }
+        return this.Pathfinding;
+    }
+}
+
 class SimulatorScene extends THREE.Scene {
     constructor() {
         super();
@@ -11810,9 +15345,9 @@ class SimulatorUser extends Script {
 }
 
 // World sensing for the simulator.
-// Currently just injects planes.
+// Injects planes and meshes extracted from the simulated environment.
 class SimulatorWorld {
-    async init(options, world) {
+    async init(options, world, simulatorScene) {
         this.options = options;
         this.world = world;
         // Wait for World script initialization to complete first
@@ -11820,6 +15355,49 @@ class SimulatorWorld {
         const activeEnv = options.simulator.environments[options.simulator.activeEnvironmentIndex];
         if (options.world.planes.enabled && activeEnv?.scenePlanesPath) {
             await this.loadPlanes(activeEnv.scenePlanesPath);
+        }
+        // Unlike planes (loaded from a prebuilt JSON), the scene mesh is extracted
+        // from the ground-truth geometry of the loaded environment GLTF.
+        if (options.world.meshes.enabled && simulatorScene?.gltf?.scene) {
+            this.loadMeshesFromScene(simulatorScene.gltf.scene);
+        }
+    }
+    /**
+     * Bakes every sub-mesh of the environment into world-space
+     * {@link SimulatorMesh} objects and injects them into the MeshDetector.
+     */
+    loadMeshesFromScene(root) {
+        if (!this.world.meshes)
+            return;
+        root.updateMatrixWorld(true);
+        const simMeshes = [];
+        root.traverse((object) => {
+            const mesh = object;
+            if (!mesh.isMesh || !mesh.geometry)
+                return;
+            const geometry = mesh.geometry.clone();
+            geometry.applyMatrix4(mesh.matrixWorld);
+            const positionAttribute = geometry.attributes.position;
+            if (!positionAttribute) {
+                geometry.dispose();
+                return;
+            }
+            const vertices = new Float32Array(positionAttribute.array);
+            let indices;
+            if (geometry.index) {
+                indices = new Uint32Array(geometry.index.array);
+            }
+            else {
+                indices = new Uint32Array(positionAttribute.count);
+                for (let i = 0; i < indices.length; i++) {
+                    indices[i] = i;
+                }
+            }
+            simMeshes.push({ vertices, indices, lastChangedTime: 0 });
+            geometry.dispose();
+        });
+        if (simMeshes.length > 0) {
+            this.world.meshes.setSimulatorMeshes(simMeshes);
         }
     }
     async loadPlanes(path) {
@@ -11844,19 +15422,12 @@ class SimulatorWorld {
     }
 }
 
-// Object which just holds the spark renderer so other classes don't need to import spark.
-class SparkRendererHolder {
-    constructor(renderer) {
-        this.renderer = renderer;
-    }
-}
-
 /**
  * Utility functions for positioning and orienting objects in 3D
  * space.
  */
 // Reusable instances to avoid creating new objects in the render loop.
-const vector3$3 = new THREE.Vector3();
+const vector3$2 = new THREE.Vector3();
 const vector3a = new THREE.Vector3();
 const vector3b = new THREE.Vector3();
 const matrix4$2 = new THREE.Matrix4();
@@ -11892,7 +15463,7 @@ function placeObjectAtIntersectionFacingTarget(obj, intersection, target) {
         .copy(intersection.normal)
         .transformDirection(intersection.object.matrixWorld);
     const forwardVector = target
-        .getWorldPosition(vector3$3)
+        .getWorldPosition(vector3$2)
         .sub(obj.position)
         .cross(worldNormal)
         .cross(worldNormal)
@@ -11911,6 +15482,44 @@ function placeObjectAtIntersectionFacingTarget(obj, intersection, target) {
     // authored with +Z forward, or a rotation offset can be applied here.
     obj.quaternion.setFromRotationMatrix(matrix4$2);
     return obj;
+}
+
+function disposeMaterial(material, except = new Set()) {
+    if (!material) {
+        return;
+    }
+    const materials = Array.isArray(material) ? material : [material];
+    for (const item of materials) {
+        if (!except.has(item)) {
+            item.dispose();
+        }
+    }
+}
+function disposeRenderableResources(object) {
+    const renderable = object;
+    renderable.geometry?.dispose?.();
+    disposeMaterial(renderable.material);
+}
+function hasRenderableResources(object) {
+    const renderable = object;
+    return !!(renderable.geometry || renderable.material);
+}
+function disposeObjectTree(object) {
+    for (const child of [...object.children]) {
+        disposeObjectTree(child);
+        object.remove(child);
+    }
+    if (hasRenderableResources(object)) {
+        disposeRenderableResources(object);
+    }
+    const disposable = object;
+    disposable.dispose?.();
+}
+function disposeObjectChildren(object) {
+    for (const child of [...object.children]) {
+        disposeObjectTree(child);
+        object.remove(child);
+    }
 }
 
 /**
@@ -11995,6 +15604,7 @@ let BaseDetectorBackend$1 = class BaseDetectorBackend {
         const detectedObjects = (await Promise.all(detectionPromises)).filter((obj) => obj !== null && obj !== undefined);
         return detectedObjects;
     }
+    dispose() { }
     /**
      * Creates a debug visual representation for a detected object in the 3D scene.
      *
@@ -12103,6 +15713,10 @@ class GeminiDetectorBackend extends BaseDetectorBackend$1 {
             responseMimeType: 'application/json',
             responseSchema: geminiOptions.responseSchema,
             systemInstruction: [{ text: geminiOptions.systemInstruction }],
+            // Spread any caller-provided generation options (temperature, topP, topK,
+            // seed, etc.). Keys here take precedence over the defaults above when
+            // they overlap, letting demos pin temperature=0 for determinism.
+            ...(geminiOptions.generationConfig ?? {}),
         };
     }
     async detect(snapshot) {
@@ -12165,16 +15779,16 @@ class GeminiDetectorBackend extends BaseDetectorBackend$1 {
     }
 }
 
-let FilesetResolver$2;
+let FilesetResolver$3;
 let ObjectDetector$1;
 // --- Attempt Dynamic Import ---
-async function loadMediaPipeModule$2() {
-    if (FilesetResolver$2 && ObjectDetector$1) {
+async function loadMediaPipeModule$3() {
+    if (FilesetResolver$3 && ObjectDetector$1) {
         return;
     }
     try {
         const mediapipeModule = await import('@mediapipe/tasks-vision');
-        FilesetResolver$2 = mediapipeModule.FilesetResolver;
+        FilesetResolver$3 = mediapipeModule.FilesetResolver;
         ObjectDetector$1 = mediapipeModule.ObjectDetector;
         console.log("'@mediapipe/tasks-vision' module loaded successfully.");
     }
@@ -12251,9 +15865,9 @@ let MediaPipeDetectorBackend$1 = class MediaPipeDetectorBackend extends BaseDete
     async tryInitializeObjectDetector() {
         if (this.objectDetector)
             return;
-        await loadMediaPipeModule$2();
+        await loadMediaPipeModule$3();
         const mediapipeOptions = this.context.options.objects.backendConfig.mediapipe;
-        const vision = await FilesetResolver$2.forVisionTasks(mediapipeOptions.wasmFilesUrl);
+        const vision = await FilesetResolver$3.forVisionTasks(mediapipeOptions.wasmFilesUrl);
         this.objectDetector = await ObjectDetector$1.createFromOptions(vision, {
             baseOptions: {
                 modelAssetPath: mediapipeOptions.modelAssetPath,
@@ -12276,6 +15890,20 @@ class ObjectDetector extends Script {
          */
         this._detectedObjects = new Map();
         this._detectorBackends = new Map();
+        this.activeClients = new Set();
+        this.currentDetectionPromise = null;
+        this.lastContinuousDetectionStartedAtMs = -Infinity;
+        this.disposed = false;
+        /**
+         * The latest detected objects.
+         */
+        this.detectedObjects = [];
+        /**
+         * Target device profile used to look up RGB camera intrinsics and pose
+         * for converting detection bounding boxes into world space. Defaults to
+         * `'galaxyxr'`; auto-overridden to `'quest3'` in {@link init} when the
+         * Meta Quest browser is detected. Can be overridden manually before init.
+         */
         this.targetDevice = 'galaxyxr';
     }
     static { this.dependencies = {
@@ -12299,6 +15927,12 @@ class ObjectDetector extends Script {
         this.depth = depth;
         this.camera = camera;
         this.renderer = renderer;
+        this.disposed = false;
+        if (this.targetDevice === 'galaxyxr' &&
+            typeof navigator !== 'undefined' &&
+            /OculusBrowser|Quest/i.test(navigator.userAgent)) {
+            this.targetDevice = 'quest3';
+        }
         if (this.options.objects.showDebugVisualizations) {
             this._debugVisualsGroup = new THREE.Group();
             // Disable raycasting for the debug group to prevent interaction errors.
@@ -12307,14 +15941,91 @@ class ObjectDetector extends Script {
         }
     }
     /**
-     * Runs the object detection process based on the configured backend.
+     * Starts continuous object detection for the given client.
+     * If this is the first client, starts the background detection loop.
+     * @param client - The client object requesting object detection.
+     */
+    start(client) {
+        if (this.activeClients.has(client)) {
+            return;
+        }
+        this.activeClients.add(client);
+        if (this.activeClients.size === 1) {
+            this.runContinuousDetection();
+        }
+    }
+    /**
+     * Stops continuous object detection for the given client.
+     * If this was the last client, stops the background detection loop.
+     * @param client - The client object that no longer needs object detection.
+     */
+    stop(client) {
+        this.activeClients.delete(client);
+    }
+    /**
+     * Called per frame by the engine. If there are active clients,
+     * ensures the continuous object detection is running.
+     */
+    update() {
+        if (this.activeClients.size === 0 || this.currentDetectionPromise) {
+            return;
+        }
+        const pollingIntervalMs = this.options.objects.pollingIntervalMs;
+        if (pollingIntervalMs > 0 &&
+            performance.now() - this.lastContinuousDetectionStartedAtMs <
+                pollingIntervalMs) {
+            return;
+        }
+        this.runContinuousDetection();
+    }
+    runContinuousDetection() {
+        if (this.currentDetectionPromise) {
+            return;
+        }
+        this.lastContinuousDetectionStartedAtMs = performance.now();
+        this.currentDetectionPromise = this.runDetectionInternal()
+            .then((results) => {
+            if (!this.disposed) {
+                this.detectedObjects = results;
+            }
+            return results;
+        })
+            .finally(() => {
+            this.currentDetectionPromise = null;
+        });
+    }
+    /**
+     * Runs object detection or returns the ongoing detection promise.
+     *
+     * - If continuous detection is started (has active clients), returns the
+     *   promise for the next detection result.
+     * - If continuous detection is not started, performs a one-off detection and
+     *   returns the result. If a one-off detection is already in progress, returns
+     *   the promise for that ongoing detection.
+     *
      * @returns A promise that resolves with an
      * array of detected `DetectedObject` instances.
      */
-    async runDetection() {
-        this.clear(); // Clear previous results before starting a new detection.
-        const depthMeshSnapshot = this.getDepthMeshSnapshot();
+    runDetection() {
+        if (this.currentDetectionPromise) {
+            return this.currentDetectionPromise;
+        }
+        if (this.activeClients.size > 0) {
+            this.runContinuousDetection();
+            return this.currentDetectionPromise;
+        }
+        this.currentDetectionPromise = this.runDetectionInternal().finally(() => {
+            this.currentDetectionPromise = null;
+        });
+        return this.currentDetectionPromise;
+    }
+    async runDetectionInternal() {
+        this.clearDetectedObjects(); // Clear previous scene results before starting a new detection.
         const cameraParametersSnapshot = getCameraParametersSnapshot(this.camera, this.renderer.xr.getCamera(), this.deviceCamera, this.targetDevice);
+        if (!cameraParametersSnapshot) {
+            // Device camera not ready yet (warming up); skip until it is available.
+            return [];
+        }
         const context = this.getDetectorContext();
         const activeBackend = this.options.objects.backendConfig.activeBackend;
         const detectorBackendPromise = this.getOrCreateDetectorBackend(activeBackend, context);
@@ -12326,12 +16037,24 @@ class ObjectDetector extends Script {
             console.warn(`Failed to load or initialize ObjectDetector backend '${activeBackend}':`, error);
             return [];
         }
-        const detectedObjects = await detectorBackend.run(depthMeshSnapshot, cameraParametersSnapshot);
-        for (const obj of detectedObjects) {
-            this._detectedObjects.set(obj.uuid, obj);
-            this.add(obj);
+        if (this.disposed) {
+            return [];
         }
-        return detectedObjects;
+        const depthMeshSnapshot = this.getDepthMeshSnapshot();
+        try {
+            const detectedObjects = await detectorBackend.run(depthMeshSnapshot, cameraParametersSnapshot);
+            if (this.disposed) {
+                return [];
+            }
+            for (const obj of detectedObjects) {
+                this._detectedObjects.set(obj.uuid, obj);
+                this.add(obj);
+            }
+            return detectedObjects;
+        }
+        finally {
+            this.disposeDepthMeshSnapshot(depthMeshSnapshot);
+        }
     }
     getDetectorContext() {
         return {
@@ -12393,14 +16116,23 @@ class ObjectDetector extends Script {
      * tracking.
      */
     clear() {
+        this.clearDetectedObjects();
+        this.detectedObjects = [];
+        return this;
+    }
+    clearDetectedObjects() {
         for (const obj of this._detectedObjects.values()) {
+            disposeObjectTree(obj);
             this.remove(obj);
         }
         this._detectedObjects.clear();
         if (this._debugVisualsGroup) {
-            this._debugVisualsGroup.clear();
+            disposeObjectChildren(this._debugVisualsGroup);
         }
-        return this;
+    }
+    disposeDepthMeshSnapshot(depthMeshSnapshot) {
+        depthMeshSnapshot.geometry.dispose();
+        disposeMaterial(depthMeshSnapshot.material);
     }
     /**
      * Toggles the visibility of all debug visualizations for detected objects.
@@ -12411,70 +16143,17 @@ class ObjectDetector extends Script {
             this._debugVisualsGroup.visible = visible;
         }
     }
-    /**
-     * Generates a visual representation of the depth map, normalized to 0-1 range,
-     * and triggers a download for debugging.
-     * @param depthArray - The raw depth data array.
-     */
-    _visualizeDepthMap(depthArray) {
-        const width = this.depth.width;
-        const height = this.depth.height;
-        if (!width || !height || depthArray.length === 0) {
-            console.warn('Cannot visualize depth map: missing dimensions or data.');
-            return;
+    dispose() {
+        this.disposed = true;
+        this.activeClients.clear();
+        disposeObjectChildren(this);
+        this.clear(); // Unlinks children so needs to come last
+        for (const backendPromise of this._detectorBackends.values()) {
+            void backendPromise
+                .then((backend) => backend.dispose?.())
+                .catch(() => { });
         }
-        // 1. Find Min/Max for normalization (ignoring 0/invalid depth).
-        let min = Infinity;
-        let max = -Infinity;
-        for (let i = 0; i < depthArray.length; ++i) {
-            const val = depthArray[i];
-            if (val > 0) {
-                if (val < min)
-                    min = val;
-                if (val > max)
-                    max = val;
-            }
-        }
-        // Handle edge case where no valid depth exists.
-        if (min === Infinity) {
-            min = 0;
-            max = 1;
-        }
-        if (min === max) {
-            max = min + 1; // Avoid divide by zero
-        }
-        // 2. Create Canvas.
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        const imageData = ctx.createImageData(width, height);
-        const data = imageData.data;
-        // 3. Fill Pixels.
-        for (let i = 0; i < depthArray.length; ++i) {
-            const raw = depthArray[i];
-            // Normalize to 0-1.
-            // Typically 0 means invalid/sky in some depth APIs, so we keep it black.
-            // Otherwise, map [min, max] to [0, 1].
-            const normalized = raw === 0 ? 0 : (raw - min) / (max - min);
-            const byteVal = Math.floor(normalized * 255);
-            const stride = i * 4;
-            data[stride] = byteVal; // R
-            data[stride + 1] = byteVal; // G
-            data[stride + 2] = byteVal; // B
-            data[stride + 3] = 255; // Alpha
-        }
-        ctx.putImageData(imageData, 0, 0);
-        // 4. Download.
-        const timestamp = new Date()
-            .toISOString()
-            .slice(0, 19)
-            .replace('T', '_')
-            .replace(/:/g, '-');
-        const link = document.createElement('a');
-        link.download = `depth_debug_${timestamp}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
+        this._detectorBackends.clear();
     }
 }
 
@@ -12623,10 +16302,14 @@ class PlaneDetector extends Script {
     _removePlaneMesh(xrPlane) {
         const planeMesh = this._detectedPlanes.get(xrPlane);
         if (planeMesh) {
-            planeMesh.geometry.dispose();
+            this.disposePlaneMesh(planeMesh);
             this.remove(planeMesh);
             this._detectedPlanes.delete(xrPlane);
         }
+    }
+    disposePlaneMesh(planeMesh) {
+        planeMesh.geometry.dispose();
+        disposeMaterial(planeMesh.material, this._debugMaterial ? new Set([this._debugMaterial]) : undefined);
     }
     /**
      * Updates the position and orientation of a `DetectedPlane` mesh from its XR
@@ -12678,10 +16361,20 @@ class PlaneDetector extends Script {
     }
     setSimulatorPlanes(planes) {
         this.usingSimulatorPlanes = true;
-        this._detectedPlanes.clear();
+        for (const plane of Array.from(this._detectedPlanes.keys())) {
+            this._removePlaneMesh(plane);
+        }
         for (const plane of planes) {
             this._addSimulatorPlaneMesh(plane);
         }
+    }
+    dispose() {
+        for (const plane of Array.from(this._detectedPlanes.keys())) {
+            this._removePlaneMesh(plane);
+        }
+        this._debugMaterial?.dispose();
+        this.usingSimulatorPlanes = false;
+        this._xrRefSpace = undefined;
     }
 }
 
@@ -12697,7 +16390,7 @@ class DetectedMesh extends THREE.Mesh {
         geometry.computeVertexNormals();
         super(geometry, material);
         this.lastChangedTime = 0;
-        this.lastChangedTime = mesh.lastChangedTime;
+        this.lastChangedTime = 'lastChangedTime' in mesh ? mesh.lastChangedTime : 0;
         this.semanticLabel = mesh.semanticLabel;
     }
     initRapierPhysics(RAPIER, blendedWorld) {
@@ -12779,6 +16472,9 @@ class MeshDetector extends Script {
         this.fallbackDebugMaterial = null;
         this.xrMeshToThreeMesh = new Map();
         this.threeMeshToXrMesh = new Map();
+        // When true, meshes are injected by the simulator and the WebXR
+        // detectedMeshes path is skipped (mirrors PlaneDetector.usingSimulatorPlanes).
+        this.usingSimulatorMeshes = false;
         this.defaultMaterial = new THREE.MeshBasicMaterial({ visible: false });
         this.meshTimedata = new Map();
         // Optimization1: Mesh update throttling (similar to ARCore reflection cube map in /usr/local/google/home/adamren/Desktop/xrlabs/arlabs/xrblocks/samples/lighting)
@@ -12822,6 +16518,8 @@ class MeshDetector extends Script {
         }
     }
     updateMeshes(_timestamp, frame) {
+        if (this.usingSimulatorMeshes)
+            return;
         this.frameCount++;
         // Profiling1: Time spent in accessing detectedMeshes
         const t0 = performance.now();
@@ -12920,6 +16618,49 @@ class MeshDetector extends Script {
                 this.removeMesh(xrMesh, threeMesh);
             }
         }
+    }
+    /**
+     * Injects a set of meshes from the desktop simulator, bypassing the WebXR
+     * `frame.detectedMeshes` path. Mirrors `PlaneDetector.setSimulatorPlanes`.
+     */
+    setSimulatorMeshes(meshes) {
+        this.usingSimulatorMeshes = true;
+        for (const [xrMesh, threeMesh] of this.xrMeshToThreeMesh) {
+            this.removeMesh(xrMesh, threeMesh);
+        }
+        for (const simMesh of meshes) {
+            const material = (simMesh.semanticLabel &&
+                this.debugMaterials.get(simMesh.semanticLabel)) ||
+                this.fallbackDebugMaterial ||
+                this.defaultMaterial;
+            const threeMesh = new DetectedMesh(simMesh, material);
+            if (simMesh.position) {
+                threeMesh.position.copy(simMesh.position);
+            }
+            if (simMesh.quaternion) {
+                threeMesh.quaternion.copy(simMesh.quaternion);
+            }
+            this.xrMeshToThreeMesh.set(simMesh, threeMesh);
+            this.threeMeshToXrMesh.set(threeMesh, simMesh);
+            this.add(threeMesh);
+            if (this.physics) {
+                threeMesh.initRapierPhysics(this.physics.RAPIER, this.physics.blendedWorld);
+            }
+        }
+    }
+    dispose() {
+        for (const [xrMesh, threeMesh] of Array.from(this.xrMeshToThreeMesh.entries())) {
+            this.removeMesh(xrMesh, threeMesh);
+        }
+        this.defaultMaterial.dispose();
+        this.fallbackDebugMaterial?.dispose();
+        this.fallbackDebugMaterial = null;
+        for (const material of this.debugMaterials.values()) {
+            material.dispose();
+        }
+        this.debugMaterials.clear();
+        this.usingSimulatorMeshes = false;
+        this.physics = undefined;
     }
     createMesh(frame, xrMesh) {
         const semanticLabel = xrMesh.semanticLabel;
@@ -13304,18 +17045,19 @@ class BaseDetectorBackend {
             sampleRate: this.context.sampleRate,
         };
     }
+    dispose() { }
 }
 
-let FilesetResolver$1;
+let FilesetResolver$2;
 let AudioClassifier;
 // --- Attempt Dynamic Import ---
-async function loadMediaPipeModule$1() {
-    if (FilesetResolver$1 && AudioClassifier) {
+async function loadMediaPipeModule$2() {
+    if (FilesetResolver$2 && AudioClassifier) {
         return;
     }
     try {
         const mediapipeModule = await import('@mediapipe/tasks-audio');
-        FilesetResolver$1 = mediapipeModule.FilesetResolver;
+        FilesetResolver$2 = mediapipeModule.FilesetResolver;
         AudioClassifier = mediapipeModule.AudioClassifier;
         console.log("'@mediapipe/tasks-audio' module loaded successfully.");
     }
@@ -13337,9 +17079,9 @@ class MediaPipeDetectorBackend extends BaseDetectorBackend {
     async tryInitializeAudioClassifier() {
         if (this.audioClassifier)
             return;
-        await loadMediaPipeModule$1();
+        await loadMediaPipeModule$2();
         const mediapipeConfig = this.context.options.sounds.backendConfig.mediapipe;
-        const audioTasks = await FilesetResolver$1.forAudioTasks(mediapipeConfig.wasmFilesUrl);
+        const audioTasks = await FilesetResolver$2.forAudioTasks(mediapipeConfig.wasmFilesUrl);
         this.audioClassifier = await AudioClassifier.createFromOptions(audioTasks, {
             baseOptions: { modelAssetPath: mediapipeConfig.modelAssetPath },
         });
@@ -13384,6 +17126,11 @@ class MediaPipeDetectorBackend extends BaseDetectorBackend {
             };
         }
         return null;
+    }
+    dispose() {
+        this.audioClassifier?.close();
+        this.audioClassifier = null;
+        this.accumulatedAudio = [];
     }
 }
 
@@ -13459,6 +17206,14 @@ class SoundDetector extends Script {
     }
     update(_timestamp, _frame) {
         // No per-frame update logic needed, audio is handled asynchronously via streams.
+    }
+    dispose() {
+        this.stopListening();
+        for (const backendPromise of this._detectorBackends.values()) {
+            void backendPromise.then((backend) => backend.dispose()).catch(() => { });
+        }
+        this._detectorBackends.clear();
+        this.audioListener = undefined;
     }
     getOrCreateDetectorBackend(sampleRate) {
         if (!this.options) {
@@ -14035,18 +17790,19 @@ class BaseHumanBackend {
         }
         return this.detect(snapshot, depthMeshSnapshot, cameraParametersSnapshot);
     }
+    dispose() { }
 }
 
-let FilesetResolver;
+let FilesetResolver$1;
 let PoseLandmarker;
 // --- Attempt Dynamic Import ---
-async function loadMediaPipeModule() {
-    if (FilesetResolver && PoseLandmarker) {
+async function loadMediaPipeModule$1() {
+    if (FilesetResolver$1 && PoseLandmarker) {
         return;
     }
     try {
         const mediapipeModule = await import('@mediapipe/tasks-vision');
-        FilesetResolver = mediapipeModule.FilesetResolver;
+        FilesetResolver$1 = mediapipeModule.FilesetResolver;
         PoseLandmarker = mediapipeModule.PoseLandmarker;
         console.log("'@mediapipe/tasks-vision' MediaPipe Pose Module loaded successfully.");
     }
@@ -14154,9 +17910,9 @@ class MediaPipeHumanBackend extends BaseHumanBackend {
     async tryInitializePoseLandmarker() {
         if (this.poseLandmarker)
             return;
-        await loadMediaPipeModule();
+        await loadMediaPipeModule$1();
         const humansOptions = this.context.options.humans.backendConfig.mediapipe;
-        const vision = await FilesetResolver.forVisionTasks(humansOptions.wasmFilesUrl);
+        const vision = await FilesetResolver$1.forVisionTasks(humansOptions.wasmFilesUrl);
         this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
             baseOptions: {
                 modelAssetPath: humansOptions.modelAssetPath,
@@ -14169,6 +17925,10 @@ class MediaPipeHumanBackend extends BaseHumanBackend {
             minTrackingConfidence: humansOptions.minTrackingConfidence,
         });
     }
+    dispose() {
+        this.poseLandmarker?.close();
+        this.poseLandmarker = null;
+    }
 }
 
 /**
@@ -14179,7 +17939,15 @@ class MediaPipeHumanBackend extends BaseHumanBackend {
 class HumanRecognizer extends Script {
     constructor() {
         super(...arguments);
-        this._detectorBackends = new Map();
+        this.detectorBackends = new Map();
+        this.activeClients = new Set();
+        this.currentDetectionPromise = null;
+        this.lastContinuousDetectionStartedAtMs = -Infinity;
+        this.disposed = false;
+        /**
+         * The latest detected body poses.
+         */
+        this.poses = [];
         this.targetDevice = 'galaxyxr';
     }
     static { this.dependencies = {
@@ -14195,18 +17963,97 @@ class HumanRecognizer extends Script {
         this.depth = depth;
         this.camera = camera;
         this.renderer = renderer;
+        this.disposed = false;
     }
     /**
-     * Runs the human body pose detection process based on the configured backend.
+     * Starts continuous pose detection for the given client.
+     * If this is the first client, starts the background detection loop.
+     * @param client - The client object requesting pose detection.
      */
-    async runDetection() {
+    start(client) {
+        if (this.activeClients.has(client)) {
+            return;
+        }
+        this.activeClients.add(client);
+        if (this.activeClients.size === 1) {
+            this.runContinuousDetection();
+        }
+    }
+    /**
+     * Stops continuous pose detection for the given client.
+     * If this was the last client, stops the background detection loop.
+     * @param client - The client object that no longer needs pose detection.
+     */
+    stop(client) {
+        this.activeClients.delete(client);
+    }
+    /**
+     * Called per frame by the engine. If there are active clients,
+     * ensures the continuous pose detection is running.
+     */
+    update() {
+        if (this.activeClients.size === 0 || this.currentDetectionPromise) {
+            return;
+        }
+        const pollingIntervalMs = this.options.humans.pollingIntervalMs;
+        if (pollingIntervalMs > 0 &&
+            performance.now() - this.lastContinuousDetectionStartedAtMs <
+                pollingIntervalMs) {
+            return;
+        }
+        this.runContinuousDetection();
+    }
+    runContinuousDetection() {
+        if (this.currentDetectionPromise) {
+            return;
+        }
+        this.lastContinuousDetectionStartedAtMs = performance.now();
+        this.currentDetectionPromise = this.runDetectionInternal()
+            .then((results) => {
+            if (!this.disposed) {
+                this.poses = results;
+            }
+            return results;
+        })
+            .finally(() => {
+            this.currentDetectionPromise = null;
+        });
+    }
+    /**
+     * Runs a pose detection or returns the ongoing detection promise.
+     *
+     * - If continuous detection is started (has active clients), returns the promise
+     *   for the next detection result.
+     * - If continuous detection is not started, performs a one-off detection and
+     *   returns the result. If a one-off detection is already in progress, returns
+     *   the promise for that ongoing detection.
+     *
+     * @returns A promise resolving to the next body pose detection result.
+     */
+    runDetection() {
+        if (this.currentDetectionPromise) {
+            return this.currentDetectionPromise;
+        }
+        if (this.activeClients.size > 0) {
+            this.runContinuousDetection();
+            return this.currentDetectionPromise;
+        }
+        this.currentDetectionPromise = this.runDetectionInternal().finally(() => {
+            this.currentDetectionPromise = null;
+        });
+        return this.currentDetectionPromise;
+    }
+    async runDetectionInternal() {
         this.clear();
         if (!this.depth || !this.depth.depthMesh) {
             console.warn('Cannot run Human Detection: Depth module / depthMesh is not enabled or initialized.');
             return [];
         }
-        const depthMeshSnapshot = this.getDepthMeshSnapshot();
         const cameraParametersSnapshot = getCameraParametersSnapshot(this.camera, this.renderer.xr.getCamera(), this.deviceCamera, this.targetDevice);
+        if (!cameraParametersSnapshot) {
+            // Device camera not ready yet (warming up); skip until it is available.
+            return [];
+        }
         const context = this.getBackendContext();
         const activeBackend = this.options.humans.backendConfig.activeBackend;
         const backendPromise = this.getOrCreateBackend(activeBackend, context);
@@ -14218,8 +18065,17 @@ class HumanRecognizer extends Script {
             console.warn(`Failed to load or initialize HumanRecognizer backend '${activeBackend}':`, error);
             return [];
         }
-        const bodyPoses = await backend.run(depthMeshSnapshot, cameraParametersSnapshot);
-        return bodyPoses;
+        if (this.disposed) {
+            return [];
+        }
+        const depthMeshSnapshot = this.getDepthMeshSnapshot();
+        try {
+            const bodyPoses = await backend.run(depthMeshSnapshot, cameraParametersSnapshot);
+            return this.disposed ? [] : bodyPoses;
+        }
+        finally {
+            this.disposeDepthMeshSnapshot(depthMeshSnapshot);
+        }
     }
     getBackendContext() {
         return {
@@ -14228,7 +18084,7 @@ class HumanRecognizer extends Script {
         };
     }
     getOrCreateBackend(activeBackend, context) {
-        let backendPromise = this._detectorBackends.get(activeBackend);
+        let backendPromise = this.detectorBackends.get(activeBackend);
         if (!backendPromise) {
             backendPromise = (async () => {
                 switch (activeBackend) {
@@ -14238,7 +18094,7 @@ class HumanRecognizer extends Script {
                         throw new Error(`HumanRecognizer backend '${activeBackend}' is not supported.`);
                 }
             })();
-            this._detectorBackends.set(activeBackend, backendPromise);
+            this.detectorBackends.set(activeBackend, backendPromise);
         }
         return backendPromise;
     }
@@ -14256,6 +18112,1217 @@ class HumanRecognizer extends Script {
         depthMesh.getWorldScale(depthMeshSnapshot.scale);
         depthMeshSnapshot.updateMatrixWorld(true);
         return depthMeshSnapshot;
+    }
+    disposeDepthMeshSnapshot(depthMeshSnapshot) {
+        depthMeshSnapshot.geometry.dispose();
+        disposeMaterial(depthMeshSnapshot.material);
+    }
+    dispose() {
+        this.disposed = true;
+        this.activeClients.clear();
+        this.clear();
+        this.poses = [];
+        for (const backendPromise of this.detectorBackends.values()) {
+            void backendPromise
+                .then((backend) => backend.dispose?.())
+                .catch(() => { });
+        }
+        this.detectorBackends.clear();
+    }
+}
+
+// --- Dynamic Import of three-mesh-bvh ---
+//
+// Loaded the same way troika-three-text is in TextView: type-only
+// import for the SDK build, dynamic runtime import with try / catch +
+// status tracking so apps without three-mesh-bvh installed (or without
+// it in their importmap) don't break, they just don't get the
+// accelerated raycast.
+//
+// Apps opt in to BVH by either calling enableAcceleratedRaycast() or
+// applyBVH() and ensuring three-mesh-bvh is reachable at runtime
+// (e.g. via the demo importmap).
+var BvhImportStatus;
+(function (BvhImportStatus) {
+    BvhImportStatus[BvhImportStatus["PENDING"] = 0] = "PENDING";
+    BvhImportStatus[BvhImportStatus["SUCCESS"] = 1] = "SUCCESS";
+    BvhImportStatus[BvhImportStatus["FAILED"] = 2] = "FAILED";
+})(BvhImportStatus || (BvhImportStatus = {}));
+let acceleratedRaycast;
+let computeBoundsTree;
+let disposeBoundsTree;
+let bvhImportStatus = BvhImportStatus.PENDING;
+let bvhImportError;
+let bvhImportPromise = null;
+let bvhProtoPatched = false;
+function importBVH() {
+    if (bvhImportPromise)
+        return bvhImportPromise;
+    bvhImportPromise = (async () => {
+        try {
+            const mod = await import('three-mesh-bvh');
+            acceleratedRaycast = mod.acceleratedRaycast;
+            computeBoundsTree = mod.computeBoundsTree;
+            disposeBoundsTree = mod.disposeBoundsTree;
+            bvhImportStatus = BvhImportStatus.SUCCESS;
+            return true;
+        }
+        catch (error) {
+            if (error instanceof Error)
+                bvhImportError = error;
+            bvhImportStatus = BvhImportStatus.FAILED;
+            console.warn('[xrblocks] three-mesh-bvh not available; raycasts will use the ' +
+                'stock three.js walker. Install three-mesh-bvh or add it to your ' +
+                'importmap to enable BVH-accelerated raycasts.', error);
+            return false;
+        }
+    })();
+    return bvhImportPromise;
+}
+/**
+ * Whether the BVH module has been loaded AND the THREE prototypes have
+ * been patched. Sync check; returns false until `enableAcceleratedRaycast()`
+ * (or `applyBVH()`) has resolved at least once.
+ */
+function isBVHReady() {
+    return bvhProtoPatched;
+}
+/**
+ * Dynamically import three-mesh-bvh and install the prototype patches
+ * that route `THREE.Mesh.raycast` through the accelerated path when
+ * the target mesh has a computed bounds tree. Adds
+ * `computeBoundsTree` / `disposeBoundsTree` helpers to
+ * `THREE.BufferGeometry`.
+ *
+ * Async because the BVH module is loaded on demand (same pattern as
+ * troika-three-text). Resolves to `true` if the module loaded and
+ * patches were applied, `false` if the module isn't available — in
+ * which case meshes continue to use the stock raycaster.
+ *
+ * Safe to call multiple times. The first call kicks off the import,
+ * subsequent calls share the same promise.
+ */
+async function enableAcceleratedRaycast() {
+    const ok = await importBVH();
+    if (!ok || bvhProtoPatched)
+        return bvhProtoPatched;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    THREE.Mesh.prototype.raycast = acceleratedRaycast;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+    bvhProtoPatched = true;
+    return true;
+}
+/**
+ * Walk the given object3D (recursively) and build a bounds tree on
+ * every standard `THREE.Mesh` whose geometry doesn't already have one.
+ * Subsequent `raycaster.intersectObject(root, true)` calls then go
+ * through the BVH-accelerated path.
+ *
+ * Use on dense, static environmental meshes only (loaded immersive
+ * scenes, photogrammetry scans, baked levels). The tree has a one-time
+ * build + memory cost and assumes static vertices, so it's a net loss
+ * for low-poly / UI / dynamic meshes. Don't apply globally to
+ * `xb.core.scene`.
+ *
+ * Skips `THREE.SkinnedMesh`: skinned meshes deform vertices on the GPU
+ * each frame, so a bounds tree built on the bind-pose geometry is wrong
+ * the moment the mesh animates. Three's `SkinnedMesh.raycast()` also
+ * overrides the patched `Mesh.prototype.raycast` and does its own CPU
+ * skinning, so the BVH would never be consulted anyway.
+ *
+ * Skips `THREE.BatchedMesh`: three-mesh-bvh ships a dedicated
+ * `computeBatchedBoundsTree` / `disposeBatchedBoundsTree` pair that
+ * builds per-draw-range BVHs on `this.boundsTrees` (plural), and
+ * `acceleratedRaycast` has a separate `isBatchedMesh` branch that
+ * consults those. The standard `computeBoundsTree` would index the
+ * combined batched buffer and produce wrong hits. Conservative skip
+ * until the batched helpers are wired up.
+ *
+ * `THREE.InstancedMesh` is NOT skipped: its `.raycast()` calls a
+ * shared internal `Mesh` per instance, which does route through the
+ * patched `Mesh.prototype.raycast`, so a BVH on the shared geometry
+ * accelerates every per-instance test.
+ *
+ * Async because it awaits the dynamic import of three-mesh-bvh. If the
+ * module isn't available, this is a no-op. Idempotent across calls.
+ */
+async function applyBVH(root, { recursive = true } = {}) {
+    const ok = await enableAcceleratedRaycast();
+    if (!ok)
+        return;
+    const visit = (obj) => {
+        if (obj instanceof THREE.Mesh &&
+            !(obj instanceof THREE.SkinnedMesh) &&
+            !(obj instanceof THREE.BatchedMesh) &&
+            obj.geometry) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const geom = obj.geometry;
+            if (!geom.boundsTree && typeof geom.computeBoundsTree === 'function') {
+                geom.computeBoundsTree();
+            }
+        }
+        if (recursive) {
+            for (const child of obj.children)
+                visit(child);
+        }
+    };
+    visit(root);
+}
+/**
+ * Walk the given object3D (recursively) and dispose any bounds trees
+ * previously built by `applyBVH`. Sync; no-op if three-mesh-bvh
+ * wasn't loaded.
+ */
+function disposeBVH(root, { recursive = true } = {}) {
+    if (!bvhProtoPatched)
+        return;
+    const visit = (obj) => {
+        if (obj instanceof THREE.Mesh && obj.geometry) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const geom = obj.geometry;
+            if (geom.boundsTree && typeof geom.disposeBoundsTree === 'function') {
+                geom.disposeBoundsTree();
+            }
+        }
+        if (recursive) {
+            for (const child of obj.children)
+                visit(child);
+        }
+    };
+    visit(root);
+}
+// Exposed for tests; consumers should use isBVHReady() instead.
+function _getBvhImportStatus() {
+    return { status: bvhImportStatus, error: bvhImportError };
+}
+
+/**
+ * Common facial landmark anchor names. These map to specific indices
+ * in the 478-point MediaPipe FaceLandmarker mesh and are exposed for
+ * convenience so callers can read e.g. the nose tip without memorising
+ * the index 1.
+ */
+var FaceLandmarkName;
+(function (FaceLandmarkName) {
+    FaceLandmarkName["NoseTip"] = "noseTip";
+    FaceLandmarkName["Chin"] = "chin";
+    FaceLandmarkName["LeftEyeOuterCorner"] = "leftEyeOuterCorner";
+    FaceLandmarkName["LeftEyeInnerCorner"] = "leftEyeInnerCorner";
+    FaceLandmarkName["RightEyeOuterCorner"] = "rightEyeOuterCorner";
+    FaceLandmarkName["RightEyeInnerCorner"] = "rightEyeInnerCorner";
+    FaceLandmarkName["LeftPupil"] = "leftPupil";
+    FaceLandmarkName["RightPupil"] = "rightPupil";
+    FaceLandmarkName["MouthLeftCorner"] = "mouthLeftCorner";
+    FaceLandmarkName["MouthRightCorner"] = "mouthRightCorner";
+    FaceLandmarkName["UpperLipCenter"] = "upperLipCenter";
+    FaceLandmarkName["LowerLipCenter"] = "lowerLipCenter";
+    FaceLandmarkName["ForeheadCenter"] = "foreheadCenter";
+})(FaceLandmarkName || (FaceLandmarkName = {}));
+/**
+ * Maps the named anchors above to FaceLandmarker mesh indices. Source:
+ * MediaPipe FaceLandmarker canonical face mesh topology, plus the iris
+ * sub-model (indices 468..477) for pupil centres.
+ */
+const LANDMARK_INDEX = {
+    [FaceLandmarkName.NoseTip]: 1,
+    [FaceLandmarkName.Chin]: 152,
+    [FaceLandmarkName.LeftEyeOuterCorner]: 263,
+    [FaceLandmarkName.LeftEyeInnerCorner]: 362,
+    [FaceLandmarkName.RightEyeOuterCorner]: 33,
+    [FaceLandmarkName.RightEyeInnerCorner]: 133,
+    [FaceLandmarkName.LeftPupil]: 473,
+    [FaceLandmarkName.RightPupil]: 468,
+    [FaceLandmarkName.MouthLeftCorner]: 291,
+    [FaceLandmarkName.MouthRightCorner]: 61,
+    [FaceLandmarkName.UpperLipCenter]: 13,
+    [FaceLandmarkName.LowerLipCenter]: 14,
+    [FaceLandmarkName.ForeheadCenter]: 10,
+};
+/**
+ * Represents a single human face detected in physical space.
+ * Inherits from `THREE.Object3D` to fit naturally into the Three.js
+ * scene graph, positioning itself at the estimated nose tip of the
+ * tracked face. When a facial transformation matrix is emitted by the
+ * backend it is decomposed onto `position`, `quaternion`, and `scale`
+ * so the Object3D directly represents the rigid head pose.
+ */
+class DetectedFace extends THREE.Object3D {
+    /**
+     * Creates an instance of DetectedFace.
+     *
+     * @param faceId - A unique tracking identifier for this face.
+     * @param landmarks - The 478 raw + 3D-projected facial landmarks.
+     * @param detection2DBoundingBox - The 2D bounding box of the face in
+     *     normalized screen space.
+     * @param blendshapes - Optional 52 ARKit-style blendshape weights.
+     *     Empty when the backend was configured with
+     *     `outputFaceBlendshapes: false`.
+     * @param facialTransformationMatrix - Optional 4x4 rigid head pose
+     *     matrix in world space. Null when the backend was configured
+     *     with `outputFacialTransformationMatrixes: false`.
+     */
+    constructor(faceId, landmarks, detection2DBoundingBox, blendshapes = [], facialTransformationMatrix = null) {
+        super();
+        this.faceId = faceId;
+        this.landmarks = landmarks;
+        this.detection2DBoundingBox = detection2DBoundingBox;
+        this.blendshapes = blendshapes;
+        this.facialTransformationMatrix = facialTransformationMatrix;
+        // Default Object3D position to the projected nose tip so consumers
+        // can parent objects to `face.position` without first decoding a
+        // landmark index.
+        const nose = this.getLandmarkPosition(FaceLandmarkName.NoseTip);
+        if (nose) {
+            this.position.copy(nose);
+        }
+        // If a rigid facial transformation matrix is available, decompose
+        // it onto position/quaternion/scale. This overrides the nose-tip
+        // default with a more stable head pose suitable for parenting
+        // glasses or masks.
+        if (this.facialTransformationMatrix) {
+            this.facialTransformationMatrix.decompose(this.position, this.quaternion, this.scale);
+        }
+    }
+    /**
+     * Returns the 3D world-space position of a named facial landmark.
+     *
+     * @param name - The landmark name to look up.
+     * @returns A clone of the landmark's world position, or `null` if the
+     *     index is out of range or depth back-projection was unsuccessful.
+     */
+    getLandmarkPosition(name) {
+        const index = LANDMARK_INDEX[name];
+        if (index === undefined)
+            return null;
+        const lm = this.landmarks[index];
+        return lm && lm.worldPosition ? lm.worldPosition.clone() : null;
+    }
+    /**
+     * Returns the score for a blendshape category, or `0` if the category
+     * isn't present in the current detection.
+     *
+     * @param categoryName - The ARKit category name, e.g. `jawOpen`.
+     */
+    getBlendshape(categoryName) {
+        const bs = this.blendshapes.find((b) => b.categoryName === categoryName);
+        return bs ? bs.score : 0;
+    }
+}
+
+/**
+ * Abstract base class for all face landmark detection backends (e.g.
+ * MediaPipe).
+ *
+ * Implements a Template Method pattern via `run()`, which orchestrates
+ * the detection pipeline by checking availability, acquiring a camera
+ * snapshot, and calling the abstract `detect()` hook implemented by
+ * specific backends.
+ */
+class BaseFaceBackend {
+    /**
+     * Creates an instance of BaseFaceBackend.
+     * @param context - The shared dependency and configuration context.
+     */
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * The orchestration pipeline (Template Method) for running face
+     * detection. Checks backend availability and obtains a camera
+     * snapshot before running the concrete detection model.
+     *
+     * @param depthMeshSnapshot - The current 3D depth mesh snapshot of
+     *     the physical environment.
+     * @param cameraParametersSnapshot - The current camera parameters
+     *     and matrix transforms.
+     * @returns A promise that resolves to an array of detected faces.
+     */
+    async run(depthMeshSnapshot, cameraParametersSnapshot) {
+        if (!(await this.isAvailable())) {
+            return [];
+        }
+        const snapshot = await this.getSnapshot();
+        if (!snapshot) {
+            return [];
+        }
+        return this.detect(snapshot, depthMeshSnapshot, cameraParametersSnapshot);
+    }
+    dispose() { }
+}
+
+// Source code for the MediaPipe FaceLandmarker web worker. Inlined as a
+// string and instantiated via Blob URL so the SDK ships in one bundle
+// without the rollup pipeline having to know about worker entry points.
+//
+// The worker dynamically imports `@mediapipe/tasks-vision` from a CDN URL
+// (workers don't share the host page's importmap), loads the
+// FaceLandmarker model once on `init`, then runs synchronous
+// `detect(imageBitmap)` calls per request. ImageBitmaps are transferable
+// so the snapshot pixel buffer doesn't get cloned across the worker
+// boundary.
+//
+// Wire protocol (all messages carry a numeric `id` so the main thread can
+// correlate request/response pairs):
+//   { id, type: 'init', config: { mediapipeModuleUrl, wasmFilesUrl,
+//                                  modelAssetPath, numFaces, ... } }
+//   { id, type: 'detect', imageBitmap: ImageBitmap }           // transfer the bitmap
+// Replies:
+//   { id, ok: true }
+//   { id, ok: true, result: FaceLandmarkerResult }
+//   { id, ok: false, error: string }
+//
+// The result object is a structured-clonable subset of MediaPipe's
+// FaceLandmarkerResult (plain landmarks, blendshape categories, transform
+// matrix data arrays). Float32Arrays inside `facialTransformationMatrixes`
+// clone cheaply, no transfer list needed.
+const MEDIA_PIPE_FACE_WORKER_SOURCE = /* js */ `
+let landmarker = null;
+
+async function init(config) {
+  const mod = await import(config.mediapipeModuleUrl);
+  const { FilesetResolver, FaceLandmarker } = mod;
+  const vision = await FilesetResolver.forVisionTasks(config.wasmFilesUrl);
+  landmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: config.modelAssetPath,
+      // CPU delegate in the worker. GPU would need an OffscreenCanvas
+      // surface and MediaPipe's wasm pipeline only spins one up when it
+      // finds a real DOM canvas, which workers don't have.
+      delegate: 'CPU',
+    },
+    runningMode: 'IMAGE',
+    numFaces: config.numFaces,
+    minFaceDetectionConfidence: config.minFaceDetectionConfidence,
+    minFacePresenceConfidence: config.minFacePresenceConfidence,
+    minTrackingConfidence: config.minTrackingConfidence,
+    outputFaceBlendshapes: config.outputFaceBlendshapes,
+    outputFacialTransformationMatrixes: config.outputFacialTransformationMatrixes,
+  });
+}
+
+self.onmessage = async (event) => {
+  const { id, type } = event.data;
+  try {
+    if (type === 'init') {
+      await init(event.data.config);
+      self.postMessage({ id, ok: true });
+    } else if (type === 'detect') {
+      if (!landmarker) throw new Error('worker not initialized');
+      const bitmap = event.data.imageBitmap;
+      const result = landmarker.detect(bitmap);
+      bitmap.close();
+      self.postMessage({ id, ok: true, result });
+    } else {
+      throw new Error('unknown message type: ' + type);
+    }
+  } catch (err) {
+    self.postMessage({
+      id,
+      ok: false,
+      error: (err && err.message) || String(err),
+    });
+  }
+};
+`;
+
+// CDN module the worker dynamic-imports for MediaPipe. Workers can't see
+// the host page's importmap so we hand them an absolute URL. Pinned to a
+// version that matches the SDK's tested matrix; bump in lockstep with
+// any importmap updates in demos/face_mirror/index.html.
+const MEDIAPIPE_MODULE_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs';
+/**
+ * Convert a raw MediaPipe `FaceLandmarkerResult` into an array of
+ * `DetectedFace` objects with world-space positions, blendshape
+ * weights, and rigid head transforms.
+ *
+ * Extracted as a free function so unit tests can drive it directly
+ * without standing up the full backend lifecycle.
+ *
+ * For each landmark we try a depth-mesh raycast (`transformRgbUvToWorld`)
+ * first; when the ray misses the mesh we fall back to back-projecting
+ * through the camera frustum, placing the point ~0.5 m from the camera
+ * modulated by the landmark's relative z. The 0.5 m default is tuned
+ * for selfie / desktop sim use; passthrough Quest views typically hit
+ * the depth mesh path so the fallback rarely runs there.
+ */
+function processFaceLandmarkerResult(result, depthMeshSnapshot, cameraParametersSnapshot) {
+    const detectedFaces = [];
+    for (let i = 0; i < result.faceLandmarks.length; i++) {
+        const mpLandmarks = result.faceLandmarks[i];
+        const landmarks = [];
+        let xmin = 1;
+        let ymin = 1;
+        let xmax = 0;
+        let ymax = 0;
+        for (let j = 0; j < mpLandmarks.length; j++) {
+            const lm = mpLandmarks[j];
+            xmin = Math.min(xmin, lm.x);
+            ymin = Math.min(ymin, lm.y);
+            xmax = Math.max(xmax, lm.x);
+            ymax = Math.max(ymax, lm.y);
+            // Transform screen UV to WebXR world position via depth mesh
+            // raycast (preferred) or camera-frustum back-projection
+            // fallback when the ray misses the mesh.
+            const uv = new THREE.Vector2(lm.x, lm.y);
+            const worldCoords = transformRgbUvToWorld(uv, depthMeshSnapshot, cameraParametersSnapshot);
+            let wp;
+            if (worldCoords) {
+                wp = worldCoords.worldPosition;
+            }
+            else {
+                const origin = new THREE.Vector3().applyMatrix4(cameraParametersSnapshot.worldFromView);
+                const clipVec = new THREE.Vector3(2 * lm.x - 1, 2 * (1.0 - lm.y) - 1, -1);
+                const direction = clipVec
+                    .applyMatrix4(cameraParametersSnapshot.worldFromClip)
+                    .sub(origin)
+                    .normalize();
+                // Faces sit ~0.5 m from the camera in selfie/sim use, modulate
+                // by the landmark's z so the back of the head stays behind
+                // the front of the face along the view ray.
+                wp = origin.addScaledVector(direction, 0.5 + (lm.z || 0));
+            }
+            landmarks.push({
+                x: lm.x,
+                y: lm.y,
+                z: lm.z,
+                worldPosition: wp,
+            });
+        }
+        const boundingBox = new THREE.Box2(new THREE.Vector2(xmin, ymin), new THREE.Vector2(xmax, ymax));
+        // Blendshapes are one Classifications object per face. Each
+        // `categories` entry has `categoryName` and `score`. The browser
+        // model emits them already smoothed across frames.
+        const blendshapes = [];
+        const mpBlendshapes = result.faceBlendshapes?.[i];
+        if (mpBlendshapes && mpBlendshapes.categories) {
+            for (const c of mpBlendshapes.categories) {
+                blendshapes.push({
+                    categoryName: c.categoryName,
+                    score: c.score,
+                });
+            }
+        }
+        // Facial transformation matrixes are stored as a column-major
+        // Float32Array(16). THREE.Matrix4.fromArray() consumes the same
+        // layout directly.
+        let facialTransform = null;
+        const mpMatrix = result.facialTransformationMatrixes?.[i];
+        if (mpMatrix && mpMatrix.data) {
+            facialTransform = new THREE.Matrix4().fromArray(mpMatrix.data);
+        }
+        const face = new DetectedFace(i, landmarks, boundingBox, blendshapes, facialTransform);
+        detectedFaces.push(face);
+    }
+    return detectedFaces;
+}
+/**
+ * Face Landmark detector backend implementation using MediaPipe's
+ * FaceLandmarker. Runs locally on the device, but offloads the
+ * inference to a Web Worker so heavy detection passes (~30 ms on a
+ * modern laptop, much more on mobile) don't stall the render loop.
+ *
+ * Pipeline per detect():
+ *   1. Main thread captures an `ImageData` snapshot from the device
+ *      camera (already async).
+ *   2. Convert to `ImageBitmap` once and transfer it (zero-copy) to
+ *      the worker.
+ *   3. Worker runs `landmarker.detect()` and posts back the structured-
+ *      clonable result.
+ *   4. Main thread runs `processFaceLandmarkerResult` (depth-mesh
+ *      raycasts + camera-frustum back-projection) which has to live on
+ *      the render thread because it touches the live depth mesh and
+ *      camera matrices.
+ *
+ * Emits 478 facial landmarks per face plus optional 52 ARKit-style
+ * blendshape weights and an optional rigid 4x4 facial transformation
+ * matrix.
+ */
+class MediaPipeFaceBackend extends BaseFaceBackend {
+    constructor(context) {
+        super(context);
+        this.worker = null;
+        this.workerUrl = null;
+        this.nextRequestId = 0;
+        this.pendingRequests = new Map();
+        this.initializationPromise = this.tryInitializeFaceLandmarker();
+    }
+    async isAvailable() {
+        try {
+            await this.initializationPromise;
+            return true;
+        }
+        catch (e) {
+            console.error('MediaPipe Face Landmarker is not available:', e);
+            return false;
+        }
+    }
+    async getSnapshot() {
+        const imageData = await this.context.deviceCamera.getSnapshot({
+            outputFormat: 'imageData',
+        });
+        if (!imageData)
+            return null;
+        return { imageData };
+    }
+    async detect(snapshot, depthMeshSnapshot, cameraParametersSnapshot) {
+        await this.initializationPromise;
+        if (!this.worker) {
+            return [];
+        }
+        // Convert the snapshot to an ImageBitmap so the pixel buffer can be
+        // transferred (zero-copy) into the worker. ImageData itself is
+        // structured-cloneable but that means a full pixel copy per detect;
+        // ImageBitmap moves ownership.
+        let bitmap;
+        try {
+            bitmap = await createImageBitmap(snapshot.imageData);
+        }
+        catch (error) {
+            console.error('Failed to create ImageBitmap for face detection:', error);
+            return [];
+        }
+        let workerResult;
+        try {
+            const reply = (await this.send({ type: 'detect', imageBitmap: bitmap }, [
+                bitmap,
+            ]));
+            workerResult = reply.result;
+        }
+        catch (error) {
+            console.error('MediaPipe Face detection (worker) failed:', error);
+            return [];
+        }
+        if (!workerResult ||
+            !workerResult.faceLandmarks ||
+            workerResult.faceLandmarks.length === 0) {
+            return [];
+        }
+        return processFaceLandmarkerResult(workerResult, depthMeshSnapshot, cameraParametersSnapshot);
+    }
+    /**
+     * Tear down the worker and revoke the Blob URL it was constructed
+     * from. Safe to call multiple times.
+     */
+    dispose() {
+        if (this.worker) {
+            this.worker.terminate();
+            this.worker = null;
+        }
+        if (this.workerUrl) {
+            URL.revokeObjectURL(this.workerUrl);
+            this.workerUrl = null;
+        }
+        // Reject any in-flight requests so callers don't hang.
+        for (const { reject } of this.pendingRequests.values()) {
+            reject(new Error('MediaPipeFaceBackend disposed'));
+        }
+        this.pendingRequests.clear();
+    }
+    async tryInitializeFaceLandmarker() {
+        if (this.worker)
+            return;
+        if (typeof Worker === 'undefined') {
+            throw new Error('Web Workers are not available in this environment');
+        }
+        // Spawn the worker from an inlined Blob URL so we don't have to
+        // teach the rollup pipeline about a separate worker entry point.
+        const blob = new Blob([MEDIA_PIPE_FACE_WORKER_SOURCE], {
+            type: 'text/javascript',
+        });
+        this.workerUrl = URL.createObjectURL(blob);
+        this.worker = new Worker(this.workerUrl);
+        this.worker.onmessage = (event) => {
+            const { id } = event.data;
+            const pending = this.pendingRequests.get(id);
+            if (!pending)
+                return;
+            this.pendingRequests.delete(id);
+            if (event.data.ok) {
+                pending.resolve(event.data);
+            }
+            else {
+                pending.reject(new Error(event.data.error || 'worker error'));
+            }
+        };
+        this.worker.onerror = (event) => {
+            console.error('MediaPipe face worker errored:', event.message);
+        };
+        const facesOptions = this.context.options.faces.backendConfig.mediapipe;
+        await this.send({
+            type: 'init',
+            config: {
+                mediapipeModuleUrl: MEDIAPIPE_MODULE_URL,
+                wasmFilesUrl: facesOptions.wasmFilesUrl,
+                modelAssetPath: facesOptions.modelAssetPath,
+                numFaces: facesOptions.numFaces,
+                minFaceDetectionConfidence: facesOptions.minFaceDetectionConfidence,
+                minFacePresenceConfidence: facesOptions.minFacePresenceConfidence,
+                minTrackingConfidence: facesOptions.minTrackingConfidence,
+                outputFaceBlendshapes: facesOptions.outputFaceBlendshapes,
+                outputFacialTransformationMatrixes: facesOptions.outputFacialTransformationMatrixes,
+            },
+        });
+    }
+    /**
+     * Promise-wrap a single request/response round trip with the worker.
+     * The worker echoes back the request `id` so we can correlate replies
+     * even when multiple detect() calls overlap.
+     */
+    send(payload, transfer = []) {
+        if (!this.worker) {
+            return Promise.reject(new Error('worker not spawned'));
+        }
+        const id = this.nextRequestId++;
+        const worker = this.worker;
+        return new Promise((resolve, reject) => {
+            this.pendingRequests.set(id, { resolve, reject });
+            worker.postMessage({ id, ...payload }, transfer);
+        });
+    }
+}
+
+// Kick off the BVH-accelerated raycast prototype patches at module
+// load so the per-landmark raycasts inside processFaceLandmarkerResult
+// go through the accelerated path. Fire-and-forget: the helper loads
+// three-mesh-bvh dynamically and the SDK keeps working even if the
+// module isn't installed or in the importmap (raycasts fall back to
+// the stock walker). idempotent across modules so multiple subsystems
+// can ping it safely.
+//
+// FaceLandmarker emits 478 landmarks per face and we raycast each one
+// against the depth-mesh snapshot. Stock three.js is O(triangles) per
+// ray; the depth mesh runs in the thousands of triangles so without
+// BVH the per-detection raycast loop alone dominates the frame budget.
+enableAcceleratedRaycast();
+/**
+ * A detector script that orchestrates face landmark estimation. Manages
+ * the backend face detector lifecycle (e.g. MediaPipe) and exposes the
+ * detected faces, including 3D landmark positions, blendshape weights,
+ * and rigid head transforms, in the world coordinate space.
+ */
+class FaceRecognizer extends Script {
+    constructor() {
+        super(...arguments);
+        this._detectorBackends = new Map();
+        this.activeClients = new Set();
+        this.currentDetectionPromise = null;
+        this.lastContinuousDetectionStartedAtMs = -Infinity;
+        this.disposed = false;
+        /**
+         * The latest detected faces from continuous detection.
+         */
+        this.detectedFaces = [];
+        this.targetDevice = 'galaxyxr';
+        // Cached depth-mesh snapshot (cloned geometry + BVH). We rebuild it
+        // only when the source depth geometry's position attribute bumps its
+        // version (three.js does this automatically whenever the depth mesh
+        // refreshes via needsUpdate = true). For a static desktop sim the
+        // BVH build therefore amortizes across all detections instead of
+        // running every detection.
+        this.cachedDepthMeshSnapshot = null;
+        this.cachedDepthMeshSource = null;
+        this.cachedDepthMeshVersion = -1;
+    }
+    static { this.dependencies = {
+        options: WorldOptions,
+        deviceCamera: XRDeviceCamera,
+        depth: Depth,
+        camera: THREE.Camera,
+        renderer: THREE.WebGLRenderer,
+    }; }
+    init({ options, deviceCamera, depth, camera, renderer, }) {
+        this.options = options;
+        this.deviceCamera = deviceCamera;
+        this.depth = depth;
+        this.camera = camera;
+        this.renderer = renderer;
+        this.disposed = false;
+    }
+    /**
+     * Starts continuous face detection for the given client.
+     * If this is the first client, starts the background detection loop.
+     * @param client - The client object requesting face detection.
+     */
+    start(client) {
+        if (this.activeClients.has(client)) {
+            return;
+        }
+        this.activeClients.add(client);
+        if (this.activeClients.size === 1) {
+            this.runContinuousDetection();
+        }
+    }
+    /**
+     * Stops continuous face detection for the given client.
+     * If this was the last client, stops the background detection loop.
+     * @param client - The client object that no longer needs face detection.
+     */
+    stop(client) {
+        this.activeClients.delete(client);
+    }
+    /**
+     * Called per frame by the engine. If there are active clients,
+     * ensures the continuous face detection is running.
+     */
+    update() {
+        if (this.activeClients.size === 0 || this.currentDetectionPromise) {
+            return;
+        }
+        const pollingIntervalMs = this.options.faces.pollingIntervalMs;
+        if (pollingIntervalMs > 0 &&
+            performance.now() - this.lastContinuousDetectionStartedAtMs <
+                pollingIntervalMs) {
+            return;
+        }
+        this.runContinuousDetection();
+    }
+    runContinuousDetection() {
+        if (this.currentDetectionPromise) {
+            return;
+        }
+        this.lastContinuousDetectionStartedAtMs = performance.now();
+        this.currentDetectionPromise = this.runDetectionInternal()
+            .then((results) => {
+            if (!this.disposed) {
+                this.detectedFaces = results;
+            }
+            return results;
+        })
+            .finally(() => {
+            this.currentDetectionPromise = null;
+        });
+    }
+    /**
+     * Runs face landmark detection or returns the ongoing detection promise.
+     *
+     * - If continuous detection is started (has active clients), returns the
+     *   promise for the next detection result.
+     * - If continuous detection is not started, performs a one-off detection and
+     *   returns the result. If a one-off detection is already in progress, returns
+     *   the promise for that ongoing detection.
+     */
+    runDetection() {
+        if (this.currentDetectionPromise) {
+            return this.currentDetectionPromise;
+        }
+        if (this.activeClients.size > 0) {
+            this.runContinuousDetection();
+            return this.currentDetectionPromise;
+        }
+        this.currentDetectionPromise = this.runDetectionInternal().finally(() => {
+            this.currentDetectionPromise = null;
+        });
+        return this.currentDetectionPromise;
+    }
+    async runDetectionInternal() {
+        this.clear();
+        if (!this.depth || !this.depth.depthMesh) {
+            console.warn('Cannot run Face Detection: Depth module / depthMesh is not enabled or initialized.');
+            return [];
+        }
+        const cameraParametersSnapshot = getCameraParametersSnapshot(this.camera, this.renderer.xr.getCamera(), this.deviceCamera, this.targetDevice);
+        if (!cameraParametersSnapshot) {
+            // Device camera not ready yet (warming up); skip until it is available.
+            return [];
+        }
+        const context = this.getBackendContext();
+        const activeBackend = this.options.faces.backendConfig.activeBackend;
+        const backendPromise = this.getOrCreateBackend(activeBackend, context);
+        let backend;
+        try {
+            backend = await backendPromise;
+        }
+        catch (error) {
+            console.warn(`Failed to load or initialize FaceRecognizer backend '${activeBackend}':`, error);
+            return [];
+        }
+        if (this.disposed) {
+            return [];
+        }
+        const depthMeshSnapshot = this.getDepthMeshSnapshot();
+        const faces = await backend.run(depthMeshSnapshot, cameraParametersSnapshot);
+        return this.disposed ? [] : faces;
+    }
+    getBackendContext() {
+        return {
+            options: this.options,
+            deviceCamera: this.deviceCamera,
+        };
+    }
+    getOrCreateBackend(activeBackend, context) {
+        let backendPromise = this._detectorBackends.get(activeBackend);
+        if (!backendPromise) {
+            backendPromise = (async () => {
+                switch (activeBackend) {
+                    case 'mediapipe':
+                        return new MediaPipeFaceBackend(context);
+                    default:
+                        throw new Error(`FaceRecognizer backend '${activeBackend}' is not supported.`);
+                }
+            })();
+            this._detectorBackends.set(activeBackend, backendPromise);
+        }
+        return backendPromise;
+    }
+    getDepthMeshSnapshot() {
+        const depthMesh = this.depth.depthMesh;
+        const geometry = this.depth.options.depthMesh.updateFullResolutionGeometry
+            ? depthMesh.geometry
+            : depthMesh.downsampledGeometry || depthMesh.geometry;
+        // Both BufferAttribute and InterleavedBufferAttribute carry a
+        // `version` field that three.js bumps on `needsUpdate = true`, but
+        // the type for the union doesn't expose it. Cast to read.
+        const positionAttr = geometry.attributes.position;
+        const version = positionAttr.version;
+        if (this.cachedDepthMeshSnapshot &&
+            this.cachedDepthMeshSource === geometry &&
+            this.cachedDepthMeshVersion === version) {
+            // Source geometry hasn't been updated since last snapshot. Refresh
+            // the cached snapshot's world transform (cheap) and return it as
+            // is. The BVH built over the cloned positions is still valid
+            // because the source positions haven't changed.
+            depthMesh.getWorldPosition(this.cachedDepthMeshSnapshot.position);
+            depthMesh.getWorldQuaternion(this.cachedDepthMeshSnapshot.quaternion);
+            depthMesh.getWorldScale(this.cachedDepthMeshSnapshot.scale);
+            this.cachedDepthMeshSnapshot.updateMatrixWorld(true);
+            return this.cachedDepthMeshSnapshot;
+        }
+        // Source changed (or first call). Dispose the previous BVH so its
+        // backing buffers free, then clone + rebuild.
+        if (this.cachedDepthMeshSnapshot) {
+            this.disposeCachedDepthMeshSnapshot();
+        }
+        const clonedGeometry = geometry.clone();
+        clonedGeometry.computeBoundingSphere();
+        clonedGeometry.computeBoundingBox();
+        // Build a BVH over the cloned depth-mesh geometry when three-mesh-bvh
+        // is available so the per-landmark raycasts inside
+        // processFaceLandmarkerResult go through the BVH-accelerated path
+        // instead of walking every triangle 478 times. If BVH isn't ready
+        // yet (dynamic import in flight or three-mesh-bvh not installed),
+        // we skip computeBoundsTree and the stock raycaster takes over.
+        if (isBVHReady()) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            clonedGeometry.computeBoundsTree();
+        }
+        const depthMeshSnapshot = new THREE.Mesh(clonedGeometry, new THREE.MeshBasicMaterial());
+        depthMesh.getWorldPosition(depthMeshSnapshot.position);
+        depthMesh.getWorldQuaternion(depthMeshSnapshot.quaternion);
+        depthMesh.getWorldScale(depthMeshSnapshot.scale);
+        depthMeshSnapshot.updateMatrixWorld(true);
+        this.cachedDepthMeshSnapshot = depthMeshSnapshot;
+        this.cachedDepthMeshSource = geometry;
+        this.cachedDepthMeshVersion = version;
+        return depthMeshSnapshot;
+    }
+    disposeCachedDepthMeshSnapshot() {
+        if (!this.cachedDepthMeshSnapshot) {
+            return;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.cachedDepthMeshSnapshot.geometry.disposeBoundsTree?.();
+        this.cachedDepthMeshSnapshot.geometry.dispose();
+        disposeMaterial(this.cachedDepthMeshSnapshot.material);
+        this.cachedDepthMeshSnapshot = null;
+        this.cachedDepthMeshSource = null;
+        this.cachedDepthMeshVersion = -1;
+    }
+    dispose() {
+        this.disposed = true;
+        this.activeClients.clear();
+        this.clear();
+        this.detectedFaces = [];
+        const pendingDetection = this.currentDetectionPromise;
+        if (pendingDetection) {
+            void pendingDetection
+                .finally(() => {
+                this.disposeCachedDepthMeshSnapshot();
+            })
+                .catch(() => { });
+        }
+        else {
+            this.disposeCachedDepthMeshSnapshot();
+        }
+        for (const backendPromise of this._detectorBackends.values()) {
+            void backendPromise
+                .then((backend) => backend.dispose?.())
+                .catch(() => { });
+        }
+        this._detectorBackends.clear();
+    }
+}
+
+/**
+ * Abstract base for segmentation backends (e.g. MediaPipe).
+ *
+ * `run()` is a Template Method: it checks availability, grabs a camera frame,
+ * then defers to the concrete `segment()` hook. Unlike pose/object detection
+ * there is no depth or world-space step, the result is a 2D mask.
+ */
+class BaseSegmenterBackend {
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * Runs one segmentation pass. Returns `null` when the backend is not ready
+     * or no camera frame is available.
+     */
+    async run() {
+        if (!(await this.isAvailable())) {
+            return null;
+        }
+        const snapshot = await this.getSnapshot();
+        if (!snapshot) {
+            return null;
+        }
+        return this.segment(snapshot);
+    }
+    dispose() { }
+}
+
+let FilesetResolver;
+let ImageSegmenter;
+// --- Attempt Dynamic Import ---
+async function loadMediaPipeModule() {
+    if (FilesetResolver && ImageSegmenter) {
+        return;
+    }
+    try {
+        const mediapipeModule = await import('@mediapipe/tasks-vision');
+        FilesetResolver = mediapipeModule.FilesetResolver;
+        ImageSegmenter = mediapipeModule.ImageSegmenter;
+        console.log("'@mediapipe/tasks-vision' MediaPipe Segmenter Module loaded successfully.");
+    }
+    catch (error) {
+        console.error('Failed to load MediaPipe Tasks Vision module:', error);
+        throw error;
+    }
+}
+/**
+ * Maps a MediaPipe category mask into a {@link SegmentationMask}. Copies the
+ * buffer out before `close()` frees the underlying memory. Exported for tests.
+ * @param mask - The MediaPipe category mask, or null/undefined if absent.
+ * @returns The segmentation mask, or `null` when no mask was provided.
+ */
+function categoryMaskToSegmentationMask(mask) {
+    if (!mask) {
+        return null;
+    }
+    const result = {
+        // Copy out before close() frees the underlying buffer.
+        data: new Uint8Array(mask.getAsUint8Array()),
+        width: mask.width,
+        height: mask.height,
+    };
+    mask.close();
+    return result;
+}
+/**
+ * Segmentation backend backed by MediaPipe's `ImageSegmenter`. Runs locally on
+ * the device using the configured selfie multiclass model.
+ */
+class MediaPipeSegmenterBackend extends BaseSegmenterBackend {
+    constructor(context) {
+        super(context);
+        this.imageSegmenter = null;
+        this.initializationPromise = this.tryInitializeSegmenter();
+    }
+    async tryInitializeSegmenter() {
+        await loadMediaPipeModule();
+        const mediapipe = this.context.options.segmentation.backendConfig.mediapipe;
+        const vision = await FilesetResolver.forVisionTasks(mediapipe.wasmFilesUrl);
+        this.imageSegmenter = await ImageSegmenter.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: mediapipe.modelAssetPath, delegate: 'GPU' },
+            runningMode: 'IMAGE',
+            outputCategoryMask: mediapipe.outputCategoryMask,
+            outputConfidenceMasks: false,
+        });
+    }
+    async isAvailable() {
+        try {
+            await this.initializationPromise;
+            return this.imageSegmenter !== null;
+        }
+        catch (e) {
+            console.error('MediaPipe Image Segmenter is not available:', e);
+            return false;
+        }
+    }
+    async getSnapshot() {
+        const imageData = await this.context.deviceCamera.getSnapshot({
+            outputFormat: 'imageData',
+        });
+        if (!imageData)
+            return null;
+        return { imageData };
+    }
+    async segment(snapshot) {
+        await this.initializationPromise;
+        if (!this.imageSegmenter) {
+            return null;
+        }
+        // In IMAGE running mode segment() invokes the callback synchronously
+        // before returning, so `out` is populated by the time we read it.
+        let out = null;
+        this.imageSegmenter.segment(snapshot.imageData, (result) => {
+            out = categoryMaskToSegmentationMask(result.categoryMask);
+        });
+        return out;
+    }
+    dispose() {
+        this.imageSegmenter?.close();
+        this.imageSegmenter = null;
+    }
+}
+
+/**
+ * A Script that runs semantic segmentation on the device camera feed and
+ * returns a per-pixel category mask ({@link SegmentationMask}).
+ *
+ * Mirrors `HumanRecognizer` / `ObjectDetector`, but without any depth or
+ * world-space step, segmentation is a pure 2D camera-to-mask operation, so it
+ * does not depend on the depth mesh or camera intrinsics.
+ *
+ * Multiple concurrent calls to {@link runSegmentation} within the same async
+ * cycle are coalesced: only one MediaPipe inference is dispatched per cycle
+ * and its result is shared with all callers. The latest completed mask is also
+ * available synchronously via {@link latestMask}.
+ */
+class Segmenter extends Script {
+    constructor() {
+        super(...arguments);
+        this._backends = new Map();
+        /** The result of the most recently completed segmentation pass. */
+        this._latestMask = null;
+        /**
+         * The inference currently in progress, shared among all concurrent callers
+         * so MediaPipe is not invoked more than once per cycle.
+         */
+        this._inferenceInFlight = null;
+        /**
+         * Timestamp (ms) of the most recent inference kick-off. Initialised to
+         * `Number.NEGATIVE_INFINITY` so the first `update()` tick fires immediately.
+         */
+        this._lastRunMs = Number.NEGATIVE_INFINITY;
+        this._disposed = false;
+    }
+    static { this.dependencies = {
+        options: WorldOptions,
+        deviceCamera: XRDeviceCamera,
+    }; }
+    init({ options, deviceCamera, }) {
+        this.options = options;
+        this.deviceCamera = deviceCamera;
+        this._disposed = false;
+    }
+    /**
+     * The latest cached segmentation mask from the most recently completed
+     * inference pass. Returns `null` until the first inference finishes.
+     */
+    get latestMask() {
+        return this._latestMask;
+    }
+    /**
+     * Continuous throttled loop driven by the engine frame tick.
+     *
+     * Called every frame by `ScriptsManager` (via `Core.update → scriptsManager.update`).
+     * Kicks off a fresh inference pass at most once per
+     * `options.segmentation.pollingIntervalMs` milliseconds. The in-flight guard
+     * prevents stacking: if a previous inference is still running the tick is
+     * silently skipped rather than launching a second one.
+     *
+     * After each completed inference {@link latestMask} is updated so all
+     * consumers in the same frame read the same cached result without each
+     * triggering their own MediaPipe run.
+     *
+     * @param time - Current timestamp in milliseconds, forwarded from the
+     *   engine frame loop.
+     */
+    update(time) {
+        if (this._disposed)
+            return;
+        if (this._inferenceInFlight)
+            return;
+        if (time - this._lastRunMs < this.options.segmentation.pollingIntervalMs)
+            return;
+        this._lastRunMs = time;
+        void this.runSegmentation();
+    }
+    /**
+     * Runs one segmentation pass over the current camera frame, or returns the
+     * result of the in-flight pass when one is already running. Multiple callers
+     * in the same async cycle share a single MediaPipe inference rather than
+     * each triggering their own.
+     *
+     * Under normal usage consumers should poll {@link latestMask} (kept fresh
+     * by the automatic loop) rather than calling this directly.
+     *
+     * @returns The mask, or `null` if the backend or camera frame is not ready.
+     */
+    async runSegmentation() {
+        if (this._disposed) {
+            return null;
+        }
+        if (this._inferenceInFlight) {
+            return this._inferenceInFlight;
+        }
+        this._inferenceInFlight = this._runInference().then((mask) => {
+            if (!this._disposed) {
+                this._latestMask = mask;
+            }
+            this._inferenceInFlight = null;
+            return mask;
+        });
+        return this._inferenceInFlight;
+    }
+    async _runInference() {
+        const activeBackend = this.options.segmentation.backendConfig.activeBackend;
+        const backendPromise = this.getOrCreateBackend(activeBackend);
+        let backend;
+        try {
+            backend = await backendPromise;
+        }
+        catch (error) {
+            console.warn(`Failed to load or initialize Segmenter backend '${activeBackend}':`, error);
+            return null;
+        }
+        return backend.run();
+    }
+    getBackendContext() {
+        return {
+            options: this.options,
+            deviceCamera: this.deviceCamera,
+        };
+    }
+    getOrCreateBackend(activeBackend) {
+        let backendPromise = this._backends.get(activeBackend);
+        if (!backendPromise) {
+            const context = this.getBackendContext();
+            backendPromise = (async () => {
+                switch (activeBackend) {
+                    case 'mediapipe':
+                        return new MediaPipeSegmenterBackend(context);
+                    default:
+                        throw new Error(`Segmenter backend '${activeBackend}' is not supported.`);
+                }
+            })();
+            this._backends.set(activeBackend, backendPromise);
+        }
+        return backendPromise;
+    }
+    dispose() {
+        this._disposed = true;
+        this._latestMask = null;
+        this._inferenceInFlight = null;
+        for (const backendPromise of this._backends.values()) {
+            void backendPromise
+                .then((backend) => backend.dispose?.())
+                .catch(() => { });
+        }
+        this._backends.clear();
     }
 }
 
@@ -14319,6 +19386,14 @@ class World extends Script {
         if (this.options.humans.enabled) {
             this.humans = new HumanRecognizer();
             this.add(this.humans);
+        }
+        if (this.options.faces.enabled) {
+            this.faces = new FaceRecognizer();
+            this.add(this.faces);
+        }
+        if (this.options.segmentation.enabled) {
+            this.segmentation = new Segmenter();
+            this.add(this.segmentation);
         }
         // TODO: Initialize other modules as they are available & implemented.
         /*
@@ -14416,6 +19491,30 @@ class World extends Script {
         this.planes?.showDebugVisualizations(visible);
         this.objects?.showDebugVisualizations(visible);
     }
+    dispose() {
+        const detectors = [
+            this.planes,
+            this.objects,
+            this.meshes,
+            this.sounds,
+            this.humans,
+            this.faces,
+            this.segmentation,
+        ];
+        for (const detector of detectors) {
+            if (!detector)
+                continue;
+            detector.dispose();
+            this.remove(detector);
+        }
+        this.planes = undefined;
+        this.objects = undefined;
+        this.meshes = undefined;
+        this.sounds = undefined;
+        this.humans = undefined;
+        this.faces = undefined;
+        this.segmentation = undefined;
+    }
 }
 
 class Simulator extends Script {
@@ -14437,13 +19536,14 @@ class Simulator extends Script {
         this.editorIcon = 'simulation';
         this.simulatorScene = new SimulatorScene();
         this.simulatorWorld = new SimulatorWorld();
+        this.navMesh = new SimulatorNavMesh();
         this.depth = new SimulatorDepth(this.simulatorScene);
         // Controller poses relative to the camera.
         this.simulatorControllerState = new SimulatorControllerState();
         this.hands = new SimulatorHands(this.simulatorControllerState, this.simulatorScene);
         this.simulatorUser = new SimulatorUser();
         this.userInterface = new SimulatorInterface();
-        this.controls = new SimulatorControls(this.simulatorControllerState, this.hands, this.setStereoRenderMode.bind(this), this.userInterface);
+        this.controls = new SimulatorControls(this.simulatorControllerState, this.hands, this.navMesh, this.setStereoRenderMode.bind(this), this.userInterface);
         this.renderDepthPass = false;
         this.renderMode = SimulatorRenderMode.DEFAULT;
         this.stereoCameras = [];
@@ -14458,11 +19558,12 @@ class Simulator extends Script {
         const deviceCamera = registry.get(XRDeviceCamera);
         this.options = simulatorOptions;
         camera.position.copy(this.options.initialCameraPosition);
-        this.userInterface.init(simulatorOptions, this.controls, this.hands, input, this.simulatorScene);
+        this.userInterface.init(simulatorOptions, this.controls, this.hands, input, this.simulatorScene, this.navMesh);
         renderer.autoClearColor = false;
         await this.simulatorScene.init(simulatorOptions);
-        await this.simulatorWorld.init(options, world);
-        this.hands.init({ input });
+        await this.navMesh.init(simulatorOptions);
+        await this.simulatorWorld.init(options, world, this.simulatorScene);
+        await this.hands.init({ input });
         this.controls.init({ camera, input, timer, renderer, simulatorOptions });
         if (deviceCamera &&
             !this.simulatorCamera &&
@@ -15386,6 +20487,9 @@ class SpeechSynthesizer extends Script {
             }
             utterance.volume = effectiveVolume;
             console.log(`SpeechSynthesizer: Setting utterance volume to ${effectiveVolume}`);
+            if (this.onBoundaryCallback) {
+                utterance.onboundary = (event) => this.onBoundaryCallback?.(event.charIndex);
+            }
             this.synth.speak(utterance);
         });
     }
@@ -16171,6 +21275,7 @@ class IconButton extends TextView {
         });
         // Pass geometry and material to the TextView -> View chain.
         super(options, geometry, material);
+        this.draggingMode = DragMode.DO_NOT_DRAG;
         /** The overall opacity when the button is not being interacted with. */
         this.opacity = 1.0;
         /** The background opacity when the button is not being interacted with. */
@@ -16469,14 +21574,12 @@ const SquircleShader = {
       #include <alphatest_fragment>
       #include <alphahash_fragment>
       #include <specularmap_fragment>
-      vec2 size = uBoxSize * 1000.0;
 
-      // Calculates the adjusted radius based on box size.
-      float radius = min(size.x, size.y) * (0.05 + uRadius);
-      vec2 half_size = 0.5 * size;
+      // Compute the distance from the rounded box edge in meters.
+      float dist = distRoundBox(vUv * uBoxSize - uBoxSize * 0.5, uBoxSize * 0.5, uRadius);
 
-      // Compute the distance from the rounded box edge.
-      float dist = distRoundBox(vUv * size - half_size, half_size, radius);
+      // Antialiasing delta
+      float aa = fwidth(dist) * 0.8;
 
       // Use lerp for smooth color transition based on distance.
       vec4 colorInside = uBackgroundColor;
@@ -16489,7 +21592,7 @@ const SquircleShader = {
       // Transparent black for outside.
       vec4 colorOutside = vec4(0.0, 0.0, 0.0, 0.0);
 
-      vec4 finalColor = mix(colorInside, colorOutside, smoothstep(0.0, 1.0, dist));
+      vec4 finalColor = mix(colorInside, colorOutside, smoothstep(0.0, aa, dist));
 
       // Return premultiplied alpha.
       gl_FragColor = uOpacity * finalColor.a * vec4(finalColor.rgb, 1.0);
@@ -16520,6 +21623,7 @@ class TextButton extends TextView {
             depthWrite: false,
         });
         super(options, geometry, material);
+        this.draggingMode = DragMode.DO_NOT_DRAG;
         /** Default description of this view in Three.js DevTools. */
         this.name = 'TextButton';
         /** The font size of the text label. */
@@ -16609,6 +21713,7 @@ class VideoView extends View {
      */
     constructor(options = {}) {
         super(options);
+        this.draggingMode = DragMode.DO_NOT_DRAG;
         /** Default description of this view in Three.js DevTools. */
         this.name = 'VideoView';
         /** The display mode for the video ('center' preserves aspect ratio). */
@@ -16873,200 +21978,6 @@ class VideoView extends View {
             return;
         }
         this.mesh.scale.set(Math.min(this.rangeX, this.videoAspectRatio * this.rangeY), Math.min(this.rangeY, this.rangeX / this.videoAspectRatio), 1);
-    }
-}
-
-const DOWN = Object.freeze(new THREE.Vector3(0, -1, 0));
-const UP = Object.freeze(new THREE.Vector3(0, 1, 0));
-const FORWARD = Object.freeze(new THREE.Vector3(0, 0, -1));
-const BACK = Object.freeze(new THREE.Vector3(0, 0, 1));
-const LEFT = Object.freeze(new THREE.Vector3(-1, 0, 0));
-const RIGHT = Object.freeze(new THREE.Vector3(1, 0, 0));
-const ZERO_VECTOR3 = Object.freeze(new THREE.Vector3(0, 0, 0));
-
-// Temporary variables.
-const _quaternion = new THREE.Quaternion();
-const _euler = new THREE.Euler();
-const _vector3 = new THREE.Vector3();
-var DragMode;
-(function (DragMode) {
-    DragMode["TRANSLATING"] = "TRANSLATING";
-    DragMode["ROTATING"] = "ROTATING";
-    DragMode["SCALING"] = "SCALING";
-    DragMode["DO_NOT_DRAG"] = "DO_NOT_DRAG";
-})(DragMode || (DragMode = {}));
-class DragManager extends Script {
-    constructor() {
-        super(...arguments);
-        this.mode = DragManager.IDLE;
-        this.originalObjectPosition = new THREE.Vector3();
-        this.originalObjectRotation = new THREE.Quaternion();
-        this.originalObjectScale = new THREE.Vector3();
-        this.originalController1Position = new THREE.Vector3();
-        this.originalController1RotationInverse = new THREE.Quaternion();
-        this.originalController1MatrixInverse = new THREE.Matrix4();
-        this.originalScalingControllerDistance = 0.0;
-        this.originalScalingObjectScale = new THREE.Vector3();
-        this.type = 'DragManager';
-        this.name = 'Drag Manager';
-        this.editorIcon = 'drag_pan';
-    }
-    static { this.dependencies = { input: Input, camera: THREE.Camera }; }
-    static { this.IDLE = 'IDLE'; }
-    static { this.TRANSLATING = DragMode.TRANSLATING; }
-    static { this.ROTATING = DragMode.ROTATING; }
-    static { this.SCALING = DragMode.SCALING; }
-    static { this.DO_NOT_DRAG = DragMode.DO_NOT_DRAG; }
-    init({ input, camera }) {
-        this.input = input;
-        this.camera = camera;
-    }
-    onSelectStart(event) {
-        const controller = event.target;
-        const intersections = this.input.intersectionsForController.get(controller);
-        if (intersections && intersections.length > 0) {
-            this.beginDragging(intersections[0], controller);
-        }
-    }
-    onSelectEnd() {
-        this.mode = DragManager.IDLE;
-        this.intersection = undefined;
-        this.draggableObject = undefined;
-    }
-    update() {
-        for (const controller of this.input.controllers) {
-            this.updateDragging(controller);
-        }
-    }
-    beginDragging(intersection, controller) {
-        const [draggableObject, draggingMode] = this.findDraggableObjectAndDraggingMode(intersection.object);
-        if (draggableObject == null ||
-            draggingMode == null ||
-            draggingMode == DragManager.DO_NOT_DRAG) {
-            return false;
-        }
-        if (this.mode != DragManager.IDLE) {
-            // Already dragging, switch to scaling.
-            return this.beginScaling(controller);
-        }
-        this.draggableObject = draggableObject;
-        this.mode =
-            draggingMode == DragManager.ROTATING
-                ? DragManager.ROTATING
-                : DragManager.TRANSLATING;
-        this.originalController1Position.copy(controller.position);
-        this.originalController1MatrixInverse
-            .compose(controller.position, controller.quaternion, controller.scale)
-            .invert();
-        this.originalController1RotationInverse
-            .copy(controller.quaternion)
-            .invert();
-        this.intersection = intersection;
-        this.controller1 = controller;
-        this.originalObjectRotation.copy(draggableObject.quaternion);
-        this.originalObjectPosition.copy(draggableObject.position);
-        this.originalObjectScale.copy(draggableObject.scale);
-        return true;
-    }
-    // Scaling is a two-handed gesture, based on the distance between the two
-    // hands.
-    beginScaling(controller) {
-        this.controller2 = controller;
-        this.originalScalingControllerDistance = _vector3
-            .subVectors(this.controller1.position, this.controller2.position)
-            .length();
-        this.originalScalingObjectScale.copy(this.intersection.object.scale);
-        this.mode = DragManager.SCALING;
-        return true;
-    }
-    updateDragging(controller) {
-        if (this.mode == DragManager.TRANSLATING) {
-            return this.updateTranslating();
-        }
-        else if (this.mode == DragManager.ROTATING) {
-            return this.updateRotating(controller);
-        }
-        else if (this.mode == DragManager.SCALING) {
-            return this.updateScaling();
-        }
-        // Continue handle controller.
-        return false;
-    }
-    updateTranslating() {
-        const model = this.draggableObject;
-        model.position.copy(this.originalObjectPosition);
-        model.quaternion.copy(this.originalObjectRotation);
-        model.scale.copy(this.originalObjectScale);
-        model.updateMatrix();
-        this.controller1.updateMatrix();
-        model.matrix
-            .premultiply(this.originalController1MatrixInverse)
-            .premultiply(this.controller1.matrix);
-        model.position.setFromMatrixPosition(model.matrix);
-        if (model.dragFacingCamera) {
-            this.turnPanelToFaceTheCamera();
-        }
-        return true;
-    }
-    updateRotating(controller) {
-        if (controller != this.controller1) {
-            return;
-        }
-        if (controller instanceof MouseController) {
-            return this.updateRotatingFromMouseController(controller);
-        }
-        const model = this.draggableObject;
-        const deltaPosition = new THREE.Vector3().subVectors(controller.position, this.originalController1Position);
-        deltaPosition.applyQuaternion(this.originalController1RotationInverse);
-        const offsetRotation = _quaternion.setFromAxisAngle(UP, 10.0 * deltaPosition.x);
-        model.quaternion.multiplyQuaternions(offsetRotation, this.originalObjectRotation);
-        return true;
-    }
-    updateRotatingFromMouseController(controller) {
-        const model = this.draggableObject;
-        const deltaRotation = _quaternion.multiplyQuaternions(controller.quaternion, this.originalController1RotationInverse);
-        const rotationYawAngle = _euler.setFromQuaternion(deltaRotation, 'YXZ');
-        const offsetRotation = _quaternion.setFromAxisAngle(UP, -10 * rotationYawAngle.y);
-        model.quaternion.multiplyQuaternions(offsetRotation, this.originalObjectRotation);
-        return true;
-    }
-    updateScaling() {
-        const newControllerDistance = _vector3
-            .subVectors(this.controller1.position, this.controller2.position)
-            .length();
-        const distanceRatio = newControllerDistance / this.originalScalingControllerDistance;
-        const model = this.draggableObject;
-        model.scale
-            .copy(this.originalScalingObjectScale)
-            .multiplyScalar(distanceRatio);
-        return true;
-    }
-    turnPanelToFaceTheCamera() {
-        const model = this.draggableObject;
-        _vector3.subVectors(model.position, this.camera.position);
-        model.quaternion.setFromAxisAngle(UP, (3 * Math.PI) / 2 - Math.atan2(_vector3.z, _vector3.x));
-    }
-    /**
-     * Seach up the scene graph to find the first draggable object and the first
-     * drag mode at or below the draggable object.
-     * @param target - Child object to search.
-     * @returns Array containing the first draggable object and the first drag
-     *     mode.
-     */
-    findDraggableObjectAndDraggingMode(target) {
-        let currentTarget = target;
-        let draggableObject;
-        let draggingMode;
-        while (currentTarget && !draggableObject) {
-            draggableObject = currentTarget.draggable
-                ? currentTarget
-                : undefined;
-            draggingMode =
-                draggingMode ??
-                    currentTarget.draggingMode;
-            currentTarget = currentTarget.parent;
-        }
-        return [draggableObject, draggingMode];
     }
 }
 
@@ -17389,10 +22300,6 @@ const SpatialPanelShader = {
     }
 
     void main(void) {
-      vec2 size = uBoxSize * 1000.0;
-      float radius = min(size.x, size.y) * (0.05 + uRadius);
-      vec2 half_size = 0.5 * size;
-
       // Distance to the outer edge of the round box in UV space (0-1)
       float distOuterUV = distRoundBox(vTexCoord * uBoxSize - uBoxSize * 0.5, uBoxSize * 0.5, uRadius);
 
@@ -17435,9 +22342,8 @@ class PanelMesh extends THREE.Mesh {
      * Creates an instance of PanelMesh.
      * @param shader - Shader for the panel mesh.
      * @param backgroundColor - The background color as a CSS string.
-     * @param panelScale - The initial scale of the plane
      */
-    constructor(shader, backgroundColor, panelScale = 1.0) {
+    constructor(shader, backgroundColor) {
         // Each mesh needs its own unique set of uniforms.
         const uniforms = THREE.UniformsUtils.clone(shader.uniforms);
         const material = new THREE.ShaderMaterial({
@@ -17448,7 +22354,7 @@ class PanelMesh extends THREE.Mesh {
             depthWrite: false,
             side: THREE.DoubleSide,
         });
-        const geometry = new THREE.PlaneGeometry(panelScale, panelScale);
+        const geometry = new THREE.PlaneGeometry(1.0, 1.0);
         super(geometry, material);
         /** Text description of the PanelMesh */
         this.name = 'PanelMesh';
@@ -17522,6 +22428,8 @@ class Panel extends View {
          * Whether to show highlights for the spatial panel.
          */
         this.showHighlights = false;
+        /** The width of the interactive border, in meters. */
+        this.borderWidth = 0.1;
         /** The background color of the panel, expressed as a CSS color string. */
         this.backgroundColor = '#c2c2c255';
         // --- Private Fading Animation Properties ---
@@ -17551,8 +22459,6 @@ class Panel extends View {
         this._targetOpacity = 1.0;
         const isDraggable = options.draggable ?? this.draggable;
         const useBorderlessShader = options.useBorderlessShader ?? !isDraggable;
-        // Draggable panels have a larger geometry for interaction padding.
-        const panelScale = useBorderlessShader ? 1.0 : 1.3;
         // Use SpatialPanelShader for SpatialPanel, while developers can choose
         // useBorderlessShader=false to disable the interactive border.
         const shader = useBorderlessShader ? SquircleShader : SpatialPanelShader;
@@ -17574,7 +22480,11 @@ class Panel extends View {
             options.useDefaultPosition ?? this.useDefaultPosition;
         this.useBorderlessShader =
             options.useBorderlessShader ?? this.useBorderlessShader;
-        this.mesh = new PanelMesh(shader, this.backgroundColor, panelScale);
+        this.borderWidth = options.borderWidth ?? this.borderWidth;
+        this.mesh = new PanelMesh(shader, this.backgroundColor);
+        if (this.mesh.uniforms.uBorderWidth) {
+            this.mesh.uniforms.uBorderWidth.value = this.borderWidth;
+        }
         this.add(this.mesh);
         this.updateLayout();
     }
@@ -17721,9 +22631,17 @@ class Panel extends View {
      */
     updateLayout() {
         super.updateLayout();
-        this.mesh.setAspectRatio(this.aspectRatio);
         const parentAspectRatio = this.isRoot || !this.parent ? 1.0 : this.parent.aspectRatio;
-        this.mesh.setWidthHeight(this.width * Math.max(parentAspectRatio, 1.0), this.height * Math.max(1.0 / parentAspectRatio, 1.0));
+        const layoutWidth = this.width * Math.max(parentAspectRatio, 1.0);
+        const layoutHeight = this.height * Math.max(1.0 / parentAspectRatio, 1.0);
+        const effectiveBorderWidth = this.useBorderlessShader
+            ? 0.0
+            : this.borderWidth;
+        const meshWidth = layoutWidth + effectiveBorderWidth;
+        const meshHeight = layoutHeight + effectiveBorderWidth;
+        const panelScale = Math.min(layoutWidth, layoutHeight);
+        this.mesh.scale.set(meshWidth / panelScale, meshHeight / panelScale, 1.0);
+        this.mesh.setWidthHeight(meshWidth, meshHeight);
         this.mesh.renderOrder = this.renderOrder;
     }
     /**
@@ -18021,7 +22939,10 @@ class LoadingSpinner extends HTMLElement {
         shadowRoot.innerHTML = LoadingSpinner.innerHTML;
     }
 }
-customElements.define('xb-blocks-loading-spinner', LoadingSpinner);
+// Prevents errors in headless environments where the spinner isn't actually used.
+if (!customElements.get('xb-blocks-loading-spinner')) {
+    customElements.define('xb-blocks-loading-spinner', LoadingSpinner);
+}
 // Creates a new Loading spinner and attaches it to document.body.
 function createLoadingSpinner() {
     return document.body.appendChild(document.createElement('xb-blocks-loading-spinner'));
@@ -18430,17 +23351,6 @@ class PermissionsManager {
 }
 
 /**
- * A node to hold all XR Blocks Systems.
- */
-class XRSystems extends THREE.Group {
-    constructor() {
-        super(...arguments);
-        this.type = 'XRSystems';
-        this.name = 'XR Blocks Systems';
-    }
-}
-
-/**
  * Core is the central engine of the XR Blocks framework, acting as a
  * singleton manager for all XR subsystems. Its primary goal is to abstract
  * low-level WebXR and THREE.js details, providing a simplified and powerful API
@@ -18460,6 +23370,33 @@ class Core {
     }
     set renderer(renderer) {
         this._renderer = renderer;
+    }
+    get isPaused() {
+        return this._isPaused;
+    }
+    pause() {
+        this._isPaused = true;
+        this.simulationTimer.pause();
+    }
+    resume() {
+        this._isPaused = false;
+    }
+    stepFrame(dtMs = 16.67) {
+        if (this.isSteppingFrame) {
+            throw new Error('Core.stepFrame() cannot be called while already stepping.');
+        }
+        this.isSteppingFrame = true;
+        try {
+            this.simulationTimer.step(dtMs, this.timer.getTimescale());
+            this.manualStepTime += dtMs;
+            this.update(this.manualStepTime, undefined);
+            if (this.physics) {
+                this.physicsStep();
+            }
+        }
+        finally {
+            this.isSteppingFrame = false;
+        }
     }
     /**
      * Core is a singleton manager that manages all XR "blocks".
@@ -18483,6 +23420,7 @@ class Core {
          * A timer for tracking time deltas. Call timer.getDelta() or getDeltaTime().
          */
         this.timer = new THREE.Timer();
+        this.simulationTimer = new SimulationTimer();
         /** Manages hand, mouse, gaze inputs. */
         this.input = new Input();
         /** The main camera for rendering. */
@@ -18504,11 +23442,16 @@ class Core {
         this.dragManager = new DragManager();
         /** Manages real-world understanding: planes, meshes, objects, and sounds. */
         this.world = new World();
+        /** Manages agent-facing observations of the app/session. */
+        this.context = new Context();
         /** A shared texture loader. */
         this.textureLoader = new THREE.TextureLoader();
         this.webXRSettings = {};
         /** Whether the XR simulator is currently active. */
         this.simulatorRunning = false;
+        this._isPaused = false;
+        this.isSteppingFrame = false;
+        this.manualStepTime = 0;
         this.depth = new Depth();
         this.ai = new AI();
         this.scriptsManager = new ScriptsManager(async (script) => {
@@ -18531,7 +23474,14 @@ class Core {
          * @param frame - The WebXR frame object, if in an XR session.
          */
         this.update = (time, frame) => {
+            if (this._isPaused && !this.isSteppingFrame) {
+                return;
+            }
             this.currentFrame = frame;
+            this.manualStepTime = Math.max(this.manualStepTime, time);
+            if (!this.isSteppingFrame) {
+                this.simulationTimer.update(time, this.timer.getTimescale());
+            }
             this.timer.update(time);
             if (this.simulatorRunning) {
                 this.simulator.simulatorUpdate();
@@ -18546,6 +23496,8 @@ class Core {
             }
             // Traverse the scene to find all scripts.
             this.scriptsManager.syncScriptsWithScene(this.scene);
+            // Force matrix updates since there is no active renderer render loop in headless/test environments.
+            this.scene.updateMatrixWorld(true);
             // Updates reticles and UIs.
             this.scriptsManager.resetUX();
             this.input.update();
@@ -18575,14 +23527,29 @@ class Core {
          * corresponding physics update on all active scripts.
          */
         this.physicsStep = () => {
+            if (this._isPaused && !this.isSteppingFrame) {
+                return;
+            }
             this.physics.physicsStep();
             this.scriptsManager.physicsStep();
         };
         this.startSimulator = async () => {
-            this.xrButton?.domElement.remove();
-            this.xrSystemsGroup.add(this.simulator);
-            await this.scriptsManager.initScript(this.simulator);
-            this.onSimulatorStarted();
+            if (this.simulatorRunning)
+                return;
+            if (this.startingSimulator)
+                return this.startingSimulator;
+            this.startingSimulator = (async () => {
+                this.xrButton?.domElement.remove();
+                this.xrSystemsGroup.add(this.simulator);
+                await this.scriptsManager.initScript(this.simulator);
+                this.onSimulatorStarted();
+            })();
+            try {
+                await this.startingSimulator;
+            }
+            finally {
+                this.startingSimulator = undefined;
+            }
         };
         /**
          * Lifecycle callback executed when an XR session ends. Notifies all active
@@ -18606,9 +23573,12 @@ class Core {
         Core.instance = this;
         this.scene.name = 'XR Blocks Scene';
         this.scene.add(this.xrSystemsGroup);
-        this.xrSystemsGroup.add(this.user, this.dragManager, this.ui, this.sound, this.world);
+        this.xrSystemsGroup.add(this.user, this.dragManager, this.ui, this.sound, this.world, this.context);
         this.registry.register(this.registry);
+        this.registry.register(this);
         this.registry.register(this.waitFrame);
+        this.registry.register(this.screenshotSynthesizer);
+        this.registry.register(this.simulationTimer);
         this.registry.register(this.scene);
         this.registry.register(this.timer);
         this.registry.register(this.input);
@@ -18617,9 +23587,11 @@ class Core {
         this.registry.register(this.sound);
         this.registry.register(this.dragManager);
         this.registry.register(this.simulator);
+        this.registry.register(this.simulator.navMesh);
         this.registry.register(this.scriptsManager);
         this.registry.register(this.depth);
         this.registry.register(this.world);
+        this.registry.register(this.context);
         this.registry.register(this.xrSystemsGroup);
     }
     /**
@@ -18630,16 +23602,29 @@ class Core {
      * session.
      */
     async init(options = new Options()) {
+        try {
+            await this.initialize(options);
+            markDebugReady(this);
+        }
+        catch (error) {
+            markDebugFailed(this, error);
+            throw error;
+        }
+    }
+    async initialize(options) {
         loadingSpinnerManager.showSpinner();
         this.registry.register(options, Options);
         this.registry.register(options.depth, DepthOptions);
         this.registry.register(options.simulator, SimulatorOptions);
         this.registry.register(options.world, WorldOptions);
+        this.registry.register(options.context, ContextOptions);
+        this.registry.register(options.context.scene, SceneOptions);
         this.registry.register(options.world.meshes, MeshDetectionOptions);
         this.registry.register(options.uikit, UIKitOptions);
         this.registry.register(options.ai, AIOptions);
         this.registry.register(options.sound, SoundOptions);
         this.registry.register(options.gestures, GestureRecognitionOptions);
+        this.registry.register(options.headGestures, HeadGestureRecognitionOptions);
         this.registry.register(options.strokes, StrokeRecognitionOptions);
         if (options.transition.enabled) {
             this.transition = new XRTransition();
@@ -18683,14 +23668,14 @@ class Core {
         }
         this.options = options;
         this.scriptsManager.catchExceptions = options.catchScriptExceptions;
-        // Sets up controllers.
+        // Sets up input. Head gestures are camera-only and do not require controllers.
+        this.input.init({
+            scene: this.scene,
+            systemsGroup: this.xrSystemsGroup,
+            options: options,
+            renderer: this.renderer,
+        });
         if (options.controllers.enabled) {
-            this.input.init({
-                scene: this.scene,
-                systemsGroup: this.xrSystemsGroup,
-                options: options,
-                renderer: this.renderer,
-            });
             this.input.bindSelectStart(this.scriptsManager.callSelectStart);
             this.input.bindSelectEnd(this.scriptsManager.callSelectEnd);
             this.input.bindSelect(this.scriptsManager.callSelect);
@@ -18705,16 +23690,16 @@ class Core {
             this.deviceCamera = new XRDeviceCamera(options.deviceCamera);
             this.deviceCamera.setRenderer(this.renderer);
             this.registry.register(this.deviceCamera);
+            this.context.setDeviceCamera(this.deviceCamera);
         }
         const webXRRequiredFeatures = options.webxrRequiredFeatures;
+        const webXROptionalFeatures = options.webxrOptionalFeatures;
         // Use camera-access when the browser supports it.
         if (options.deviceCamera?.enabled) {
-            if (!this.webXRSettings.optionalFeatures) {
-                this.webXRSettings.optionalFeatures = [];
-            }
-            this.webXRSettings.optionalFeatures.push('camera-access');
+            webXROptionalFeatures.push('camera-access');
         }
         this.webXRSettings.requiredFeatures = webXRRequiredFeatures;
+        this.webXRSettings.optionalFeatures = webXROptionalFeatures;
         // Sets up depth.
         if (options.depth.enabled) {
             webXRRequiredFeatures.push('depth-sensing');
@@ -18738,15 +23723,18 @@ class Core {
                 this.registry.register(this.gestureRecognition);
             }
         }
+        // World-sensing and lighting features are requested as optional so that
+        // browsers lacking one of them still enter the immersive session instead
+        // of rejecting it outright; the subsystems no-op when the data is absent.
         if (options.world.planes.enabled) {
-            webXRRequiredFeatures.push('plane-detection');
+            webXROptionalFeatures.push('plane-detection');
         }
         if (options.world.meshes.enabled) {
-            webXRRequiredFeatures.push('mesh-detection');
+            webXROptionalFeatures.push('mesh-detection');
         }
         // Sets up lighting.
         if (options.lighting.enabled) {
-            webXRRequiredFeatures.push('light-estimation');
+            webXROptionalFeatures.push('light-estimation');
             this.lighting = new Lighting();
             this.lighting.init(options.lighting, this.renderer, this.scene, this.depth);
         }
@@ -18796,7 +23784,7 @@ class Core {
             this.input.addReticles();
         }
         if (shouldAutostartSimulator) {
-            this.startSimulator();
+            await this.startSimulator();
         }
         if (!loadingSpinnerManager.isLoading) {
             loadingSpinnerManager.hideSpinner();
@@ -19045,53 +24033,77 @@ function computeMetrics(v) {
     return { width, openHeight };
 }
 
-class OcclusionUtils {
-    /**
-     * Creates a simple material used for rendering objects into the occlusion
-     * map. This material is intended to be used with `renderer.overrideMaterial`.
-     * @returns A new instance of THREE.MeshBasicMaterial.
-     */
-    static createOcclusionMapOverrideMaterial() {
-        return new THREE.MeshBasicMaterial();
+/**
+ * Generates a visual representation of the current depth buffer on a
+ * {@link Depth} instance and triggers a download for debugging.
+ * @param depth - The depth subsystem instance.
+ * @param viewIndex - The depth view index to visualize.
+ */
+function visualizeDepth(depth, viewIndex = 0) {
+    const depthArray = depth.depthArray[viewIndex];
+    if (!depthArray) {
+        console.warn('Cannot visualize depth map: no depth data available.');
+        return;
     }
-    /**
-     * Modifies a material's shader in-place to incorporate distance-based
-     * alpha occlusion. This is designed to be used with a material's
-     * `onBeforeCompile` property. This only works with built-in three.js
-     * materials.
-     * @param shader - The shader object provided by onBeforeCompile.
-     */
-    static addOcclusionToShader(shader) {
-        shader.uniforms.occlusionEnabled = { value: true };
-        shader.uniforms.tOcclusionMap = { value: null };
-        shader.uniforms.uOcclusionClipFromWorld = { value: new THREE.Matrix4() };
-        shader.defines = { USE_UV: true, DISTANCE: true };
-        shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', [
-            'uniform mat4 uOcclusionClipFromWorld;',
-            'varying vec4 vOcclusionScreenCoord;',
-            '#include <common>',
-        ].join('\n'))
-            .replace('#include <fog_vertex>', [
-            '#include <fog_vertex>',
-            'vOcclusionScreenCoord = uOcclusionClipFromWorld * worldPosition;',
-        ].join('\n'));
-        shader.fragmentShader = shader.fragmentShader
-            .replace('uniform vec3 diffuse;', [
-            'uniform vec3 diffuse;',
-            'uniform bool occlusionEnabled;',
-            'uniform sampler2D tOcclusionMap;',
-            'varying vec4 vOcclusionScreenCoord;',
-        ].join('\n'))
-            .replace('vec4 diffuseColor = vec4( diffuse, opacity );', [
-            'vec4 diffuseColor = vec4( diffuse, opacity );',
-            'vec2 occlusion_coordinates = 0.5 + 0.5 * vOcclusionScreenCoord.xy / vOcclusionScreenCoord.w;',
-            'vec2 occlusion_sample = texture2D(tOcclusionMap, occlusion_coordinates.xy).rg;',
-            'occlusion_sample = occlusion_sample / max(0.0001, occlusion_sample.g);',
-            'float occlusion_value = clamp(occlusion_sample.r, 0.0, 1.0);',
-            'diffuseColor.a *= occlusionEnabled ? occlusion_value : 1.0;',
-        ].join('\n'));
+    visualizeDepthMap(depthArray, depth.width, depth.height);
+}
+/**
+ * Generates a visual representation of a depth map, normalized to 0-1 range,
+ * and triggers a download for debugging.
+ * @param depthArray - The raw depth data array.
+ * @param width - The depth map width in pixels.
+ * @param height - The depth map height in pixels.
+ */
+function visualizeDepthMap(depthArray, width, height) {
+    if (!width || !height || depthArray.length === 0) {
+        console.warn('Cannot visualize depth map: missing dimensions or data.');
+        return;
     }
+    // Find Min/Max for normalization, ignoring 0/invalid depth.
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < depthArray.length; ++i) {
+        const val = depthArray[i];
+        if (val > 0) {
+            if (val < min)
+                min = val;
+            if (val > max)
+                max = val;
+        }
+    }
+    if (min === Infinity) {
+        min = 0;
+        max = 1;
+    }
+    if (min === max) {
+        max = min + 1;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(width, height);
+    const data = imageData.data;
+    for (let i = 0; i < depthArray.length; ++i) {
+        const raw = depthArray[i];
+        const normalized = raw === 0 ? 0 : (raw - min) / (max - min);
+        const byteVal = Math.floor(normalized * 255);
+        const stride = i * 4;
+        data[stride] = byteVal;
+        data[stride + 1] = byteVal;
+        data[stride + 2] = byteVal;
+        data[stride + 3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
+    const timestamp = new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace('T', '_')
+        .replace(/:/g, '-');
+    const link = document.createElement('a');
+    link.download = `depth_debug_${timestamp}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
 }
 
 /**
@@ -19585,14 +24597,19 @@ const inverseCameraRotation = new THREE.Quaternion();
  * Represents a action to walk towards a panel or object.
  */
 class WalkTowardsPanelAction extends SimulatorUserAction {
-    static { this.dependencies = { camera: THREE.Camera, timer: THREE.Timer }; }
+    static { this.dependencies = {
+        camera: THREE.Camera,
+        timer: THREE.Timer,
+        navMesh: SimulatorNavMesh,
+    }; }
     constructor(target) {
         super();
         this.target = target;
     }
-    async init({ camera, timer }) {
+    async init({ camera, timer, navMesh, }) {
         this.camera = camera;
         this.timer = timer;
+        this.navMesh = navMesh;
     }
     isLookingAtTarget() {
         const camera = this.camera;
@@ -19607,8 +24624,9 @@ class WalkTowardsPanelAction extends SimulatorUserAction {
         const camera = this.camera;
         this.target.getWorldPosition(targetWorldPosition);
         cameraToTargetVector.copy(targetWorldPosition).sub(camera.position);
-        return (Math.abs(cameraToTargetVector.length() - NEAR_TARGET_DISTANCE) <
-            NEAR_TARGET_THRESHOLD);
+        cameraToTargetVector.y = 0;
+        return (cameraToTargetVector.length() <=
+            NEAR_TARGET_DISTANCE + NEAR_TARGET_THRESHOLD);
     }
     lookAtTarget() {
         const camera = this.camera;
@@ -19634,12 +24652,15 @@ class WalkTowardsPanelAction extends SimulatorUserAction {
         const deltaTime = this.timer.getDelta();
         this.target.getWorldPosition(targetWorldPosition);
         cameraToTargetVector.copy(targetWorldPosition).sub(camera.position);
+        cameraToTargetVector.y = 0;
+        const distanceToTarget = cameraToTargetVector.length();
+        const movementDistance = clamp$1(distanceToTarget - NEAR_TARGET_DISTANCE, 0, MOVEMENT_SPEED_METERS_PER_SECOND * deltaTime);
+        if (movementDistance === 0 || distanceToTarget === 0)
+            return;
         closeToTargetPosition
-            .copy(targetWorldPosition)
-            .addScaledVector(cameraToTargetVector, -NEAR_TARGET_THRESHOLD);
-        const cameraToCloseToTarget = closeToTargetPosition.sub(camera.position);
-        const movementDistance = clamp$1(cameraToCloseToTarget.length(), 0, MOVEMENT_SPEED_METERS_PER_SECOND * deltaTime);
-        camera.position.addScaledVector(cameraToCloseToTarget, movementDistance / cameraToCloseToTarget.length());
+            .copy(camera.position)
+            .addScaledVector(cameraToTargetVector, movementDistance / distanceToTarget);
+        this.navMesh.applyUserMovement(camera, closeToTargetPosition);
     }
     async play({ simulatorUser, journeyId, waitFrame, }) {
         let isLookingAtTarget = this.isLookingAtTarget();
@@ -19700,6 +24721,11 @@ const user = core.user;
  * understanding features like plane detection and object detection.
  */
 const world = core.world;
+/**
+ * A direct alias to the `Context` instance, which provides agent-facing
+ * observations such as semantic trees, visible objects, and Set-of-Mark views.
+ */
+const context = core.context;
 /**
  * A direct alias to the `AI` instance for integrating generative AI features,
  * including multi-modal understanding, image generation, and live conversation.
@@ -20026,7 +25052,7 @@ class TextScrollerState extends Script {
     }
 }
 
-const vector3$2 = new THREE.Vector3();
+const vector3$1 = new THREE.Vector3();
 /**
  * A simple container that represents a single, swipeable page
  * within a `Pager` component. It's a fundamental building block for creating
@@ -20038,9 +25064,9 @@ class Page extends View {
     }
     updateLayout() {
         // Do not update the position.
-        vector3$2.copy(this.position);
+        vector3$1.copy(this.position);
         super.updateLayout();
-        this.position.copy(vector3$2);
+        this.position.copy(vector3$1);
     }
 }
 
@@ -20079,7 +25105,7 @@ class PagerState extends Script {
     }
 }
 
-const vector3$1 = new THREE.Vector3();
+const vector3 = new THREE.Vector3();
 const matrix4 = new THREE.Matrix4();
 /**
  * A layout container that manages a collection of `Page` views and
@@ -20236,7 +25262,7 @@ class Pager extends View {
             this.updateMatrixWorld();
             matrix4.copy(this.matrixWorld).invert();
             for (const intersection of childIntersections) {
-                const pointInLocalCoordinates = vector3$1
+                const pointInLocalCoordinates = vector3
                     .copy(intersection.point)
                     .applyMatrix4(matrix4);
                 if (Math.abs(pointInLocalCoordinates.x) < 0.5) {
@@ -20408,737 +25434,6 @@ class FreestandingSlider {
     }
 }
 
-/**
- * The base URL for Three.js JSM examples, used for DRACO and KTX2 decoders.
- */
-const jsmUrl = `https://cdn.jsdelivr.net/npm/three@0.${THREE.REVISION}.0/examples/jsm/`;
-/**
- * The configured GLTFLoader instance.
- */
-let gltfLoaderInstance;
-function getGLTFLoader(renderer, manager) {
-    if (gltfLoaderInstance) {
-        return gltfLoaderInstance;
-    }
-    const dracoLoader = new DRACOLoader(manager);
-    dracoLoader.setDecoderPath(jsmUrl + 'libs/draco/');
-    dracoLoader.setDecoderConfig({ type: 'js' });
-    const ktx2Loader = new KTX2Loader(manager);
-    ktx2Loader.setTranscoderPath(jsmUrl + 'libs/basis/');
-    if (renderer) {
-        ktx2Loader.detectSupport(renderer);
-    }
-    gltfLoaderInstance = new GLTFLoader(manager);
-    gltfLoaderInstance.setDRACOLoader(dracoLoader);
-    gltfLoaderInstance.setKTX2Loader(ktx2Loader);
-    return gltfLoaderInstance;
-}
-/**
- * Manages the loading of 3D models, automatically handling dependencies
- * like DRACO and KTX2 loaders.
- */
-class ModelLoader {
-    /**
-     * Creates an instance of ModelLoader.
-     * @param manager - The
-     *     loading manager to use,
-     * required for KTX2 texture support.
-     */
-    constructor(manager = THREE.DefaultLoadingManager) {
-        this.manager = manager;
-    }
-    /**
-     * Loads a model based on its file extension. Supports .gltf, .glb,
-     * .ply, .spz, .splat, and .ksplat.
-     * @returns A promise that resolves with the loaded model data (e.g., a glTF
-     *     scene or a SplatMesh).
-     */
-    async load({ path, url = '', renderer = undefined, onProgress = undefined, }) {
-        if (onProgress) {
-            console.warn('ModelLoader: An onProgress callback was provided to load(), ' +
-                'but a LoadingManager is in use. Progress will be reported via the ' +
-                "LoadingManager's onProgress callback. The provided callback will be ignored.");
-        }
-        const extension = url.split('.').pop()?.toLowerCase() || '';
-        const splatExtensions = ['ply', 'spz', 'splat', 'ksplat'];
-        const gltfExtensions = ['gltf', 'glb'];
-        if (gltfExtensions.includes(extension)) {
-            return await this.loadGLTF({ path, url, renderer });
-        }
-        else if (splatExtensions.includes(extension)) {
-            return await this.loadSplat({ url });
-        }
-        console.error('Unsupported file type: ' + extension);
-        return null;
-    }
-    /**
-     * Loads a 3DGS model (.ply, .spz, .splat, .ksplat).
-     * @param url - The URL of the model file.
-     * @returns A promise that resolves with the loaded
-     * SplatMesh object.
-     */
-    async loadSplat({ url = '' }) {
-        const { SplatMesh } = await import('@sparkjsdev/spark'); // Dynamic import
-        const splatMesh = new SplatMesh({ url });
-        await splatMesh.initialized;
-        return splatMesh;
-    }
-    /**
-     * Loads a GLTF or GLB model.
-     * @param options - The loading options.
-     * @returns A promise that resolves with the loaded glTF object.
-     */
-    async loadGLTF({ path, url = '', renderer = undefined, }) {
-        const loader = getGLTFLoader(renderer, this.manager);
-        if (path) {
-            loader.setPath(path);
-        }
-        return new Promise((resolve, reject) => {
-            loader.load(url, (gltf) => resolve(gltf), undefined, (error) => reject(error));
-        });
-    }
-}
-
-/**
- * Calculates the bounding box for a group of THREE.Object3D instances.
- *
- * @param objects - An array of THREE.Object3D instances.
- * @returns The computed THREE.Box3.
- */
-function getGroupBoundingBox(objects) {
-    const bbox = new THREE.Box3();
-    if (objects.length === 0) {
-        return bbox;
-    }
-    const parentReferences = new Map();
-    for (const child of objects) {
-        if (child.parent) {
-            parentReferences.set(child, child.parent);
-            child.removeFromParent();
-        }
-        bbox.expandByObject(child, true);
-    }
-    // Restore parent references
-    for (const [child, parent] of parentReferences.entries()) {
-        parent.add(child);
-    }
-    return bbox;
-}
-
-/**
- * A custom `THREE.BufferGeometry` that creates one rounded corner
- * piece for the `ModelViewerPlatform`. Four of these are instantiated and
- * rotated to form all corners of the platform.
- */
-class ModelViewerPlatformCornerGeometry extends THREE.BufferGeometry {
-    constructor(radius = 1, tube = 0.4, radialSegments = 12, tubularSegments = 48) {
-        super();
-        const indices = [];
-        const vertices = [];
-        const normals = [];
-        const uvs = [];
-        const center = new THREE.Vector3();
-        const vertex = new THREE.Vector3();
-        const normal = new THREE.Vector3();
-        for (let j = 0; j <= radialSegments; j++) {
-            for (let i = 0; i <= tubularSegments; i++) {
-                const u = ((i / tubularSegments) * Math.PI) / 2;
-                const v = (j / radialSegments) * Math.PI + (3 * Math.PI) / 2;
-                vertex.x = (radius + tube * Math.cos(v)) * Math.cos(u);
-                vertex.y = (radius + tube * Math.cos(v)) * Math.sin(u);
-                vertex.z = tube * Math.sin(v);
-                vertices.push(vertex.x, vertex.y, vertex.z);
-                center.x = radius * Math.cos(u);
-                center.y = radius * Math.sin(u);
-                normal.subVectors(vertex, center).normalize();
-                normals.push(normal.x, normal.y, normal.z);
-                uvs.push(i / tubularSegments);
-                uvs.push(j / radialSegments);
-            }
-        }
-        for (let j = 1; j <= radialSegments; j++) {
-            for (let i = 1; i <= tubularSegments; i++) {
-                const a = (tubularSegments + 1) * j + i - 1;
-                const b = (tubularSegments + 1) * (j - 1) + i - 1;
-                const c = (tubularSegments + 1) * (j - 1) + i;
-                const d = (tubularSegments + 1) * j + i;
-                indices.push(a, b, d);
-                indices.push(b, c, d);
-            }
-        }
-        this.setIndex(indices);
-        this.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-        this.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-        this.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    }
-}
-
-/**
- * A factory function that constructs the complete geometry for a
- * `ModelViewerPlatform`. It combines several sub-geometries: four rounded
- * corners, four straight side tubes, and the flat top and bottom surfaces.
- * @param width - The total width of the platform.
- * @param depth - The total depth of the platform.
- * @param thickness - The thickness of the platform.
- * @param cornerRadius - The radius of the rounded corners.
- * @returns A merged `THREE.BufferGeometry` for the entire platform.
- */
-function createPlatformGeometry(width = 1, depth = 1, thickness = 0.02, cornerRadius = 0.03, cornerWidthSegments = 5, radialSegments = 5) {
-    const sideGeometries = createPlatformSideGeometries(width, depth, thickness, cornerRadius, cornerWidthSegments, radialSegments);
-    const sideGeometriesVertexCount = sideGeometries.reduce((acc, val) => {
-        return acc + val.index.count;
-    }, 0);
-    const flatGeometries = createPlatformFlatGeometries(width, depth, thickness, cornerRadius, cornerWidthSegments);
-    const flatGeometriesVertexCount = flatGeometries.reduce((acc, val) => {
-        return acc + val.index.count;
-    }, 0);
-    const allGeometries = [...sideGeometries, ...flatGeometries];
-    const mergedGeometry = BufferGeometryUtils.mergeGeometries(allGeometries);
-    allGeometries.forEach((geometry) => geometry.dispose());
-    mergedGeometry.addGroup(0, sideGeometriesVertexCount, 0);
-    mergedGeometry.addGroup(sideGeometriesVertexCount, flatGeometriesVertexCount, 1);
-    mergedGeometry.computeBoundingBox();
-    return mergedGeometry;
-}
-function createPlatformSideGeometries(width = 1, depth = 1, thickness = 0.01, cornerRadius = 0.03, cornerWidthSegments = 5, radialSegments = 5) {
-    const cornerGeometry = new ModelViewerPlatformCornerGeometry(cornerRadius, thickness / 2, radialSegments, cornerWidthSegments).rotateX(Math.PI / 2);
-    const cornerGeometry1 = cornerGeometry
-        .clone()
-        .rotateY((2 * Math.PI) / 2)
-        .translate(-(width / 2 - cornerRadius), 0, -(depth / 2 - cornerRadius));
-    const cornerGeometry2 = cornerGeometry
-        .clone()
-        .rotateY((3 * Math.PI) / 2)
-        .translate(-(width / 2 - cornerRadius), 0, depth / 2 - cornerRadius);
-    const cornerGeometry3 = cornerGeometry
-        .clone()
-        .rotateY((4 * Math.PI) / 2)
-        .translate(width / 2 - cornerRadius, 0, depth / 2 - cornerRadius);
-    const cornerGeometry4 = cornerGeometry
-        .rotateY((5 * Math.PI) / 2)
-        .translate(width / 2 - cornerRadius, 0, -(depth / 2 - cornerRadius));
-    const cornerTubes = [
-        cornerGeometry1,
-        cornerGeometry2,
-        cornerGeometry3,
-        cornerGeometry4,
-    ];
-    const widthTube = new THREE.CylinderGeometry(thickness / 2, thickness / 2, width - 2 * cornerRadius, radialSegments, 1, true, 0, Math.PI).rotateZ(Math.PI / 2);
-    const widthTube1 = widthTube
-        .clone()
-        .rotateX(-Math.PI / 2)
-        .translate(0, 0, -depth / 2);
-    const widthTube2 = widthTube.rotateX(Math.PI / 2).translate(0, 0, depth / 2);
-    const depthTube = new THREE.CylinderGeometry(thickness / 2, thickness / 2, depth - 2 * cornerRadius, radialSegments, 1, true, 0, Math.PI).rotateX(-Math.PI / 2);
-    const depthTube1 = depthTube
-        .clone()
-        .rotateY(Math.PI)
-        .translate(-width / 2, 0, 0);
-    const depthTube2 = depthTube.translate(width / 2, 0, 0);
-    const sideTubes = [widthTube1, widthTube2, depthTube1, depthTube2];
-    return [...cornerTubes, ...sideTubes];
-}
-function createPlatformFlatGeometries(width = 1, depth = 1, thickness = 0.01, cornerRadius = 0.03, cornerWidthSegments = 5) {
-    const widthMinusRadius = width - 2 * cornerRadius;
-    const depthMinusRadius = depth - 2 * cornerRadius;
-    const longQuad = new THREE.PlaneGeometry(width, depthMinusRadius).rotateX(-Math.PI / 2);
-    const shortQuad = new THREE.PlaneGeometry(widthMinusRadius, cornerRadius).rotateX(-Math.PI / 2);
-    const shortQuadTranslationZ = depthMinusRadius / 2 + cornerRadius / 2;
-    const shortQuad1 = shortQuad.clone().translate(0, 0, shortQuadTranslationZ);
-    const shortQuad2 = shortQuad.translate(0, 0, -shortQuadTranslationZ);
-    const quadGeometries = [longQuad, shortQuad1, shortQuad2];
-    const cornerCircle = new THREE.CircleGeometry(cornerRadius, cornerWidthSegments, 0, Math.PI / 2).rotateX(-Math.PI / 2);
-    const circleTranslationZ = depthMinusRadius / 2;
-    const circleTranslationX = widthMinusRadius / 2;
-    const cornerCircle1 = cornerCircle
-        .clone()
-        .rotateY((3 * Math.PI) / 2)
-        .translate(circleTranslationX, 0, circleTranslationZ);
-    const cornerCircle2 = cornerCircle
-        .clone()
-        .rotateY((0 * Math.PI) / 2)
-        .translate(circleTranslationX, 0, -circleTranslationZ);
-    const cornerCircle3 = cornerCircle
-        .clone()
-        .rotateY((1 * Math.PI) / 2)
-        .translate(-circleTranslationX, 0, -circleTranslationZ);
-    const cornerCircle4 = cornerCircle
-        .clone()
-        .rotateY((2 * Math.PI) / 2)
-        .translate(-circleTranslationX, 0, circleTranslationZ);
-    const circleGeometries = [
-        cornerCircle1,
-        cornerCircle2,
-        cornerCircle3,
-        cornerCircle4,
-    ];
-    const topGeometries = [...quadGeometries, ...circleGeometries];
-    const bottomGeometries = topGeometries.map((geometry) => {
-        return geometry
-            .clone()
-            .rotateX(Math.PI)
-            .translate(0, -thickness / 2, 0);
-    });
-    topGeometries.forEach((geometry) => geometry.translate(0, thickness / 2, 0));
-    return [...topGeometries, ...bottomGeometries];
-}
-
-/**
- * A specialized `THREE.Mesh` that serves as the interactive base for
- * a `ModelViewer`. It has a distinct visual appearance and handles the logic
- * for fading in and out on hover. Its `draggingMode` is set to `TRANSLATING` to
- * enable movement.
- */
-class ModelViewerPlatform extends THREE.Mesh {
-    constructor(width, depth, thickness) {
-        const geometry = createPlatformGeometry(width, depth, thickness);
-        super(geometry, [
-            new THREE.MeshLambertMaterial({
-                color: 0xffffff,
-                transparent: true,
-                opacity: 0.0,
-            }),
-            new THREE.MeshLambertMaterial({
-                color: 0xffffff,
-                transparent: true,
-                opacity: 0.0,
-            }),
-        ]);
-        this.draggingMode = DragManager.TRANSLATING;
-        this.opacity = new AnimatableNumber(0, 0, 0.5, 0);
-    }
-    update(deltaTime) {
-        this.opacity.update(deltaTime);
-        this.material[0].opacity = this.opacity.value;
-        this.material[1].opacity = 0.5 * this.opacity.value;
-        this.visible = this.opacity.value > 0.001;
-    }
-}
-
-const defaultPlatformMargin = new THREE.Vector2(0.2, 0.2);
-const vector3 = new THREE.Vector3();
-const quaternion = new THREE.Quaternion();
-const quaternion2 = new THREE.Quaternion();
-class SplatAnchor extends THREE.Object3D {
-    constructor() {
-        super(...arguments);
-        this.draggingMode = DragMode.ROTATING;
-    }
-}
-class RotationRaycastMesh extends THREE.Mesh {
-    constructor(geometry, material) {
-        super(geometry, material);
-        this.draggingMode = DragMode.ROTATING;
-    }
-}
-/**
- * A comprehensive UI component for loading, displaying, and
- * interacting with 3D models (GLTF and Splats) in an XR scene. It
- * automatically creates an interactive platform for translation and provides
- * mechanisms for rotation and scaling in both desktop and XR.
- */
-class ModelViewer extends Script {
-    static { this.dependencies = {
-        camera: THREE.Camera,
-        depth: Depth,
-        scene: THREE.Scene,
-        renderer: THREE.WebGLRenderer,
-        registry: Registry,
-        timer: THREE.Timer,
-    }; }
-    constructor({ castShadow = true, receiveShadow = true, raycastToChildren = false, }) {
-        super();
-        this.draggable = true;
-        this.rotatable = true;
-        this.scalable = true;
-        this.platformAnimationSpeed = 2;
-        this.platformThickness = 0.02;
-        this.isOneOneScale = false;
-        this.initialScale = new THREE.Vector3().setScalar(1);
-        this.startAnimationOnLoad = true;
-        this.clipActions = [];
-        this.bbox = new THREE.Box3();
-        this.hoveringControllers = new Set();
-        this.occludableShaders = new Set();
-        this.castShadow = castShadow;
-        this.receiveShadow = receiveShadow;
-        this.raycastToChildren = raycastToChildren;
-    }
-    async init({ camera, depth, scene, renderer, registry, timer, }) {
-        this.camera = camera;
-        this.depth = depth;
-        this.scene = scene;
-        this.renderer = renderer;
-        this.registry = registry;
-        this.timer = timer;
-        for (const shader of this.occludableShaders) {
-            this.depth.occludableShaders.add(shader);
-        }
-        if (this.splatMesh) {
-            await this.createSparkRendererIfNeeded();
-            this.scene.add(this.splatMesh);
-        }
-    }
-    async loadSplatModel({ data, onSceneLoaded = (_) => { }, platformMargin = defaultPlatformMargin, setupRaycastCylinder = true, setupRaycastBox = false, setupPlatform = true, }) {
-        this.data = data;
-        if (data.scale) {
-            this.initialScale.copy(data.scale);
-        }
-        const splatMesh = await new ModelLoader().loadSplat({ url: data.model });
-        this.splatMesh = splatMesh;
-        splatMesh.raycast = () => { };
-        this.splatAnchor = new SplatAnchor();
-        this.splatAnchor.add(splatMesh);
-        if (data.scale) {
-            this.splatAnchor.scale.copy(data.scale);
-        }
-        if (data.rotation) {
-            this.splatAnchor.rotation.set(THREE.MathUtils.degToRad(data.rotation.x), THREE.MathUtils.degToRad(data.rotation.y), THREE.MathUtils.degToRad(data.rotation.z));
-        }
-        if (data.position) {
-            this.splatAnchor.position.copy(data.position);
-        }
-        this.add(this.splatAnchor);
-        await this.createSparkRendererIfNeeded();
-        await this.setupBoundingBox(data.verticallyAlignObject !== false, data.horizontallyAlignObject !== false);
-        if (setupRaycastCylinder) {
-            this.setupRaycastCylinder();
-        }
-        else if (setupRaycastBox) {
-            this.setupRaycastBox();
-        }
-        if (setupPlatform) {
-            this.setupPlatform(platformMargin);
-        }
-        this.setCastShadow(this.castShadow);
-        this.setReceiveShadow(this.receiveShadow);
-        // Return the anchor, as it's the interactive object in the scene graph
-        return onSceneLoaded ? onSceneLoaded(this.splatAnchor) : this.splatAnchor;
-    }
-    async loadGLTFModel({ data, onSceneLoaded = () => { }, platformMargin = defaultPlatformMargin, setupRaycastCylinder = true, setupRaycastBox = false, setupPlatform = true, renderer = undefined, addOcclusionToShader = false, }) {
-        this.data = data;
-        if (data.scale) {
-            this.initialScale.copy(data.scale);
-        }
-        const gltf = await new ModelLoader().loadGLTF({
-            path: data.path,
-            url: data.model,
-            renderer: renderer,
-        });
-        const animationMixer = new THREE.AnimationMixer(gltf.scene);
-        gltf.animations.forEach((clip) => {
-            if (this.startAnimationOnLoad) {
-                animationMixer.clipAction(clip).play();
-            }
-            else {
-                this.clipActions.push(animationMixer.clipAction(clip));
-            }
-        });
-        gltf.scene.draggingMode =
-            DragManager.ROTATING;
-        this.gltfMesh = gltf;
-        this.animationMixer = animationMixer;
-        // Set the initial scale
-        if (data.scale) {
-            this.gltfMesh.scene.scale.copy(data.scale);
-        }
-        if (data.rotation) {
-            gltf.scene.rotation.set(THREE.MathUtils.degToRad(data.rotation.x), THREE.MathUtils.degToRad(data.rotation.y), THREE.MathUtils.degToRad(data.rotation.z));
-        }
-        if (data.position) {
-            gltf.scene.position.copy(data.position);
-        }
-        gltf.scene.draggingMode =
-            DragManager.ROTATING;
-        this.add(gltf.scene);
-        await this.setupBoundingBox(data.verticallyAlignObject !== false, data.horizontallyAlignObject !== false);
-        if (setupRaycastCylinder) {
-            this.setupRaycastCylinder();
-        }
-        else if (setupRaycastBox) {
-            this.setupRaycastBox();
-        }
-        if (setupPlatform) {
-            this.setupPlatform(platformMargin);
-        }
-        this.setCastShadow(this.castShadow);
-        this.setReceiveShadow(this.receiveShadow);
-        if (addOcclusionToShader) {
-            for (const material of this.platform?.material || []) {
-                material.onBeforeCompile = (shader) => {
-                    OcclusionUtils.addOcclusionToShader(shader);
-                    shader.uniforms.occlusionEnabled.value = true;
-                    material.userData.shader = shader;
-                    this.occludableShaders.add(shader);
-                    this.depth?.occludableShaders.add(shader);
-                };
-            }
-            this.platform?.layers.enable(OCCLUDABLE_ITEMS_LAYER);
-            gltf.scene.traverse((child) => {
-                if (child.isMesh) {
-                    const mesh = child;
-                    (mesh.material instanceof Array
-                        ? mesh.material
-                        : [mesh.material]).forEach((material) => {
-                        material.transparent = true;
-                        material.onBeforeCompile = (shader) => {
-                            OcclusionUtils.addOcclusionToShader(shader);
-                            shader.uniforms.occlusionEnabled.value = true;
-                            this.occludableShaders.add(shader);
-                            this.depth?.occludableShaders.add(shader);
-                        };
-                    });
-                    child.layers.enable(OCCLUDABLE_ITEMS_LAYER);
-                }
-            });
-        }
-        return onSceneLoaded ? onSceneLoaded(gltf.scene) : gltf.scene;
-    }
-    async setupBoundingBox(verticallyAlignObject = true, horizontallyAlignObject = true) {
-        if (this.splatMesh) {
-            const localBbox = await this.splatMesh.getBoundingBox(false);
-            if (localBbox.isEmpty()) {
-                this.bbox = localBbox;
-                return;
-            }
-            this.splatAnchor.updateMatrix();
-            const localBboxOfTransformedMesh = localBbox
-                .clone()
-                .applyMatrix4(this.splatAnchor.matrix);
-            const translationAmount = new THREE.Vector3();
-            localBboxOfTransformedMesh
-                .getCenter(translationAmount)
-                .multiplyScalar(-1);
-            if (verticallyAlignObject) {
-                translationAmount.y = -localBboxOfTransformedMesh.min.y;
-            }
-            else {
-                translationAmount.y = 0;
-            }
-            if (!horizontallyAlignObject) {
-                translationAmount.x = 0;
-                translationAmount.z = 0;
-            }
-            this.splatAnchor.position.add(translationAmount);
-            this.bbox = localBboxOfTransformedMesh.translate(translationAmount);
-        }
-        else {
-            const contentChildren = this.children.filter((c) => c !== this.platform &&
-                c !== this.rotationRaycastMesh &&
-                c !== this.controlBar);
-            this.bbox = getGroupBoundingBox(contentChildren);
-            if (this.bbox.isEmpty()) {
-                return;
-            }
-            const translationAmount = new THREE.Vector3();
-            this.bbox.getCenter(translationAmount).multiplyScalar(-1);
-            if (verticallyAlignObject) {
-                translationAmount.y = -this.bbox.min.y;
-            }
-            else {
-                translationAmount.y = 0;
-            }
-            if (!horizontallyAlignObject) {
-                translationAmount.x = 0;
-                translationAmount.z = 0;
-            }
-            for (const child of contentChildren) {
-                child.position.add(translationAmount);
-            }
-            this.bbox.translate(translationAmount);
-        }
-    }
-    setupRaycastCylinder() {
-        const bboxSize = new THREE.Vector3();
-        this.bbox.getSize(bboxSize);
-        const radius = 0.05 + 0.5 * Math.min(bboxSize.x, bboxSize.z);
-        const rotationRaycastMesh = new RotationRaycastMesh(new THREE.CylinderGeometry(radius, radius, bboxSize.y), new THREE.MeshBasicMaterial({ color: 0x990000, wireframe: true }));
-        this.bbox.getCenter(rotationRaycastMesh.position);
-        this.rotationRaycastMesh = rotationRaycastMesh;
-        this.rotationRaycastMesh.visible = false;
-        this.add(this.rotationRaycastMesh);
-    }
-    setupRaycastBox() {
-        if (this.rotationRaycastMesh) {
-            this.rotationRaycastMesh.removeFromParent();
-            this.rotationRaycastMesh.geometry.dispose();
-            this.rotationRaycastMesh.material.dispose();
-        }
-        const bboxSize = new THREE.Vector3();
-        this.bbox.getSize(bboxSize);
-        const rotationRaycastMesh = new RotationRaycastMesh(new THREE.BoxGeometry(bboxSize.x, bboxSize.y, bboxSize.z), new THREE.MeshBasicMaterial({ color: 0x990000, wireframe: true }));
-        this.bbox.getCenter(rotationRaycastMesh.position);
-        this.rotationRaycastMesh = rotationRaycastMesh;
-        this.rotationRaycastMesh.visible = false;
-        this.add(this.rotationRaycastMesh);
-    }
-    setupPlatform(platformMargin = defaultPlatformMargin) {
-        const bboxSize = new THREE.Vector3();
-        this.bbox.getSize(bboxSize);
-        const width = bboxSize.x + platformMargin.x;
-        const depth = bboxSize.z + platformMargin.y;
-        this.platform = new ModelViewerPlatform(width, depth, this.platformThickness);
-        const center = new THREE.Vector3();
-        this.bbox.getCenter(center);
-        this.platform.position.set(center.x, -this.platformThickness / 2, center.z);
-        this.add(this.platform);
-    }
-    update() {
-        const delta = this.timer.getDelta();
-        if (this.animationMixer) {
-            this.animationMixer.update(delta);
-        }
-        if (this.platform) {
-            this.platform.update(delta);
-        }
-        const camera = this.camera;
-        if (this.controlBar != null &&
-            this.controlBar.parent == this &&
-            camera != null) {
-            const directionToCamera = vector3
-                .copy(camera.position)
-                .sub(this.position);
-            const distanceToCamera = directionToCamera.length();
-            const pitchAngleRadians = Math.asin(directionToCamera.normalize().y);
-            directionToCamera.y = 0;
-            directionToCamera.normalize();
-            // Make the button face the camera.
-            quaternion.copy(this.quaternion).invert();
-            this.controlBar.quaternion
-                .setFromAxisAngle(LEFT, pitchAngleRadians)
-                .premultiply(quaternion2.setFromUnitVectors(BACK, directionToCamera))
-                .premultiply(quaternion);
-            this.controlBar.position
-                .setScalar(0)
-                .addScaledVector(directionToCamera, 0.5)
-                .applyQuaternion(quaternion);
-            this.controlBar.position.y = 0.0;
-            this.controlBar.scale.set(distanceToCamera / this.scale.x, distanceToCamera / this.scale.y, distanceToCamera / this.scale.z);
-        }
-    }
-    onObjectSelectStart() {
-        return this.draggable || this.rotatable || this.scalable;
-    }
-    onObjectSelectEnd() {
-        return this.draggable || this.rotatable || this.scalable;
-    }
-    onHoverEnter(controller) {
-        this.hoveringControllers.add(controller);
-        if (this.platform) {
-            this.platform.opacity.speed = this.platformAnimationSpeed;
-        }
-    }
-    onHoverExit(controller) {
-        this.hoveringControllers.delete(controller);
-        if (this.platform && this.hoveringControllers.size == 0) {
-            this.platform.opacity.speed = -this.platformAnimationSpeed;
-        }
-    }
-    /**
-     * {@inheritDoc}
-     */
-    raycast(raycaster, intersects) {
-        const content = this.gltfMesh?.scene ?? this.splatMesh;
-        if (this.raycastToChildren && content) {
-            const childRaycasts = [];
-            for (const child of this.children) {
-                if (child != this.rotationRaycastMesh &&
-                    child != this.platform &&
-                    child != this.controlBar) {
-                    raycaster.intersectObject(child, true, childRaycasts);
-                }
-            }
-            intersects.push(...childRaycasts);
-        }
-        if (this.rotationRaycastMesh) {
-            const rotationIntersects = [];
-            this.rotationRaycastMesh.raycast(raycaster, rotationIntersects);
-            for (const intersect of rotationIntersects) {
-                intersects.push(intersect);
-            }
-        }
-        if (this.platform) {
-            const platformIntersects = [];
-            this.platform.raycast(raycaster, platformIntersects);
-            for (const intersect of platformIntersects) {
-                intersects.push(intersect);
-            }
-        }
-        if (this.controlBar != null && this.controlBar.parent == this) {
-            const controlButtonIntersects = [];
-            this.controlBar.raycast(raycaster, controlButtonIntersects);
-            for (const intersect of controlButtonIntersects) {
-                intersects.push(intersect);
-            }
-        }
-        return false;
-    }
-    onScaleButtonClick() {
-        this.scale.setScalar(1.0);
-    }
-    setCastShadow(castShadow) {
-        this.castShadow = castShadow;
-        if (this.gltfMesh) {
-            this.gltfMesh.scene.traverse(function (child) {
-                child.castShadow = castShadow;
-            });
-        }
-        if (this.platform) {
-            this.platform.castShadow = false;
-        }
-    }
-    setReceiveShadow(receiveShadow) {
-        this.receiveShadow = receiveShadow;
-        if (this.gltfMesh) {
-            this.gltfMesh.scene.traverse(function (child) {
-                child.receiveShadow = receiveShadow;
-            });
-        }
-        if (this.platform) {
-            this.platform.receiveShadow = receiveShadow;
-        }
-    }
-    getOcclusionEnabled() {
-        for (const shader of this.occludableShaders) {
-            return shader.uniforms.occlusionEnabled.value;
-        }
-        return false;
-    }
-    setOcclusionEnabled(enabled) {
-        for (const shader of this.occludableShaders) {
-            shader.uniforms.occlusionEnabled.value = enabled;
-        }
-    }
-    playClipAnimationOnce() {
-        if (this.startAnimationOnLoad || this.clipActions.length === 0) {
-            return;
-        }
-        this.clipActions.forEach((clip) => {
-            clip.reset();
-            clip.clampWhenFinished = true;
-            clip.loop = THREE.LoopOnce;
-            clip.play();
-        });
-    }
-    async createSparkRendererIfNeeded() {
-        // We insert our own SparkRenderer configured to show Gaussians up to
-        // Math.sqrt(4) standard deviations from the center, recommended for XR.
-        const { SparkRenderer } = await import('@sparkjsdev/spark');
-        let sparkRendererExists = false;
-        this.scene.traverse((child) => {
-            sparkRendererExists ||= child instanceof SparkRenderer;
-        });
-        if (!sparkRendererExists) {
-            const sparkRenderer = new SparkRenderer({
-                renderer: this.renderer,
-                maxStdDev: Math.sqrt(4),
-            });
-            this.registry.register(new SparkRendererHolder(sparkRenderer));
-            this.scene.add(sparkRenderer);
-        }
-    }
-}
-
 // Fork of HTMLMesh.js from three.js.
 /**
  * A `View` that functions as a drawable canvas in 3D space. It uses
@@ -21162,6 +25457,7 @@ class SketchPanel extends View {
             alphaTest: 0.01,
         });
         super({}, geometry, material);
+        this.draggingMode = DragMode.DO_NOT_DRAG;
         this.activeHand = -1;
         this.activeLine = [];
         this.activeLines = [];
@@ -21440,5 +25736,328 @@ class VideoFileStream extends VideoStream {
     }
 }
 
-export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DEFAULT_RGB_TO_DEPTH_PARAMS, DEVICE_CAMERA_PARAMETERS, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedBodyPose, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FINGER_ORDER, FORWARD, FreestandingSlider, GEMINI_DEFAULT_FLASH_MODEL, GEMINI_DEFAULT_IMAGE_MODEL, GEMINI_DEFAULT_LIVE_MODEL, GamepadBindings, GamepadController, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GestureRecognition, GestureRecognitionOptions, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_INDEX_TO_LABEL, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HeuristicGestureRecognizer, HorizontalPager, HumanRecognizer, HumansOptions, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MediaPipeHandContext, MediaPipeHandPoseEstimator, MeshScript, ModelLoader, ModelViewer, MouseController, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, Orbiter, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, PoseJointName, RIGHT, RIGHT_VIEW_ONLY_LAYER, Raycaster, Registry, Reticle, ReticleOptions, Reticles, RotationRaycastMesh, Row, SIMULATOR_HAND_COMMON_BIOMECHANICAL_CONSTRAINTS_DEGREES, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_ROTATIONS, SOUND_PRESETS, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScriptsManagerEventType, ScrollingTroikaTextView, SetSimulatorEnvironmentEvent, SetSimulatorModeEvent, ShowHandsAction, ShowSimulatorInstructionsEvent, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorOptions, SimulatorPointerLockController, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SparkRendererHolder, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, StrokeRecognizer, StylizedFace, TensorFlowHandPoseEstimator, TextButton, TextScrollerState, TextView, Tool, UI, UIKitOptions, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, WebXRHandContext, WebXRHandPoseEstimator, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, ZERO_VISEME, add, ai, applySimulatorHandPoseRotationConstraints, average, callInitWithDependencyInjection, camera, clamp$1 as clamp, clamp01, clampRotationToAngle, core, cropImage, depth, estimateHandScale, extractYaw, getAdjacentFingerSpreads, getBoneVectors, getCameraParametersSnapshot, getColorHex, getDeltaTime, getDeviceCameraClipFromView, getDeviceCameraWorldFromClip, getDeviceCameraWorldFromView, getElapsedTime, getFingerBendAngles, getFingerCurl, getFingerDirection, getFingerJoint, getFingerPalmAlignment, getFingerSpread, getFingerStraightness, getFingertipDistance, getFingertipPalmDistance, getPalmNormal, getPalmPose, getPalmRight, getPalmUp, getPalmWidth, getRelativeBoneAngles, getThumbBendAngles, getThumbCurl, getThumbDirection, getThumbOpposition, getThumbStraightness, getThumbVerticalDirection, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, input, intrinsicsToProjectionMatrix, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, parseBase64DataURL, parseSimulatorHandPoseRotations, placeObjectAtIntersectionFacingTarget, print, resolveSimulatorHandPoseRotations, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, sound, timer, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
+/**
+ * Per-pixel semantic categories emitted by the selfie multiclass segmentation
+ * model. Index `0` is the background; every other index is part of a person,
+ * so anything `>= 1` can be treated as foreground.
+ */
+var SegmentCategory;
+(function (SegmentCategory) {
+    SegmentCategory[SegmentCategory["Background"] = 0] = "Background";
+    SegmentCategory[SegmentCategory["Hair"] = 1] = "Hair";
+    SegmentCategory[SegmentCategory["BodySkin"] = 2] = "BodySkin";
+    SegmentCategory[SegmentCategory["FaceSkin"] = 3] = "FaceSkin";
+    SegmentCategory[SegmentCategory["Clothes"] = 4] = "Clothes";
+    SegmentCategory[SegmentCategory["Others"] = 5] = "Others";
+})(SegmentCategory || (SegmentCategory = {}));
+
+var sdk = /*#__PURE__*/Object.freeze({
+    __proto__: null,
+    AI: AI,
+    AIOptions: AIOptions,
+    AVERAGE_IPD_METERS: AVERAGE_IPD_METERS,
+    ActiveControllers: ActiveControllers,
+    Agent: Agent,
+    AnimatableNumber: AnimatableNumber,
+    AudioListener: AudioListener,
+    AudioPlayer: AudioPlayer,
+    BACK: BACK,
+    BackgroundMusic: BackgroundMusic,
+    CategoryVolumes: CategoryVolumes,
+    Col: Col,
+    Context: Context,
+    ContextOptions: ContextOptions,
+    Core: Core,
+    CoreSound: CoreSound,
+    DEFAULT_DEVICE_CAMERA_HEIGHT: DEFAULT_DEVICE_CAMERA_HEIGHT,
+    DEFAULT_DEVICE_CAMERA_WIDTH: DEFAULT_DEVICE_CAMERA_WIDTH,
+    DEFAULT_RGB_TO_DEPTH_PARAMS: DEFAULT_RGB_TO_DEPTH_PARAMS,
+    DEVICE_CAMERA_PARAMETERS: DEVICE_CAMERA_PARAMETERS,
+    DOWN: DOWN,
+    Depth: Depth,
+    DepthMesh: DepthMesh,
+    DepthMeshOptions: DepthMeshOptions,
+    DepthOptions: DepthOptions,
+    DepthTextures: DepthTextures,
+    DetectedBodyPose: DetectedBodyPose,
+    DetectedFace: DetectedFace,
+    DetectedMesh: DetectedMesh,
+    DetectedObject: DetectedObject,
+    DetectedPlane: DetectedPlane,
+    DeviceCameraOptions: DeviceCameraOptions,
+    DragManager: DragManager,
+    get DragMode () { return DragMode; },
+    ExitButton: ExitButton,
+    FINGER_ORDER: FINGER_ORDER,
+    FORWARD: FORWARD,
+    get FaceLandmarkName () { return FaceLandmarkName; },
+    FaceRecognizer: FaceRecognizer,
+    FacesOptions: FacesOptions,
+    FreestandingSlider: FreestandingSlider,
+    GEMINI_DEFAULT_FLASH_MODEL: GEMINI_DEFAULT_FLASH_MODEL,
+    GEMINI_DEFAULT_IMAGE_MODEL: GEMINI_DEFAULT_IMAGE_MODEL,
+    GEMINI_DEFAULT_LIVE_MODEL: GEMINI_DEFAULT_LIVE_MODEL,
+    GamepadBindings: GamepadBindings,
+    GamepadController: GamepadController,
+    GazeController: GazeController,
+    Gemini: Gemini,
+    GeminiOptions: GeminiOptions,
+    GenerateSkyboxTool: GenerateSkyboxTool,
+    GestureRecognition: GestureRecognition,
+    GestureRecognitionOptions: GestureRecognitionOptions,
+    GetWeatherTool: GetWeatherTool,
+    Grid: Grid,
+    HAND_BONE_IDX_CONNECTION_MAP: HAND_BONE_IDX_CONNECTION_MAP,
+    HAND_INDEX_TO_LABEL: HAND_INDEX_TO_LABEL,
+    HAND_JOINT_COUNT: HAND_JOINT_COUNT,
+    HAND_JOINT_IDX_CONNECTION_MAP: HAND_JOINT_IDX_CONNECTION_MAP,
+    HAND_JOINT_NAMES: HAND_JOINT_NAMES,
+    get Handedness () { return Handedness; },
+    Hands: Hands,
+    HandsOptions: HandsOptions,
+    HeadGestureRecognition: HeadGestureRecognition,
+    HeadGestureRecognitionOptions: HeadGestureRecognitionOptions,
+    HeuristicGestureRecognizer: HeuristicGestureRecognizer,
+    HeuristicHeadGestureRecognizer: HeuristicHeadGestureRecognizer,
+    HorizontalPager: HorizontalPager,
+    HumanRecognizer: HumanRecognizer,
+    HumansOptions: HumansOptions,
+    IconButton: IconButton,
+    IconView: IconView,
+    ImageView: ImageView,
+    Input: Input,
+    InputOptions: InputOptions,
+    get Keycodes () { return Keycodes; },
+    LEFT: LEFT,
+    LEFT_VIEW_ONLY_LAYER: LEFT_VIEW_ONLY_LAYER,
+    LabelView: LabelView,
+    Lighting: Lighting,
+    LightingOptions: LightingOptions,
+    LoadingSpinnerManager: LoadingSpinnerManager,
+    MaterialSymbolsView: MaterialSymbolsView,
+    MediaPipeHandContext: MediaPipeHandContext,
+    MediaPipeHandPoseEstimator: MediaPipeHandPoseEstimator,
+    MeshDetectionOptions: MeshDetectionOptions,
+    MeshDetector: MeshDetector,
+    MeshScript: MeshScript,
+    ModelLoader: ModelLoader,
+    ModelViewer: ModelViewer,
+    MouseController: MouseController,
+    NUM_HANDS: NUM_HANDS,
+    OCCLUDABLE_ITEMS_LAYER: OCCLUDABLE_ITEMS_LAYER,
+    ObjectDetector: ObjectDetector,
+    ObjectsOptions: ObjectsOptions,
+    OcclusionPass: OcclusionPass,
+    OcclusionUtils: OcclusionUtils,
+    OpenAI: OpenAI,
+    OpenAIOptions: OpenAIOptions,
+    Options: Options,
+    Orbiter: Orbiter,
+    PageIndicator: PageIndicator,
+    Pager: Pager,
+    PagerState: PagerState,
+    Panel: Panel,
+    PanelMesh: PanelMesh,
+    Physics: Physics,
+    PhysicsOptions: PhysicsOptions,
+    PinchOnButtonAction: PinchOnButtonAction,
+    PlaneDetector: PlaneDetector,
+    PlanesOptions: PlanesOptions,
+    get PoseJointName () { return PoseJointName; },
+    RIGHT: RIGHT,
+    RIGHT_VIEW_ONLY_LAYER: RIGHT_VIEW_ONLY_LAYER,
+    Raycaster: Raycaster,
+    Registry: Registry,
+    Reticle: Reticle,
+    ReticleOptions: ReticleOptions,
+    Reticles: Reticles,
+    RotationRaycastMesh: RotationRaycastMesh,
+    Row: Row,
+    SIMULATOR_HAND_COMMON_BIOMECHANICAL_CONSTRAINTS_DEGREES: SIMULATOR_HAND_COMMON_BIOMECHANICAL_CONSTRAINTS_DEGREES,
+    SIMULATOR_HAND_POSE_NAMES: SIMULATOR_HAND_POSE_NAMES,
+    SIMULATOR_HAND_POSE_ROTATIONS: SIMULATOR_HAND_POSE_ROTATIONS,
+    SOUND_PRESETS: SOUND_PRESETS,
+    SceneDetector: SceneDetector,
+    SceneOptions: SceneOptions,
+    SceneSetOfMarkOptions: SceneSetOfMarkOptions,
+    SceneVisibilityOptions: SceneVisibilityOptions,
+    ScreenshotSynthesizer: ScreenshotSynthesizer,
+    Script: Script,
+    ScriptMixin: ScriptMixin,
+    ScriptsManager: ScriptsManager,
+    get ScriptsManagerEventType () { return ScriptsManagerEventType; },
+    ScrollingTroikaTextView: ScrollingTroikaTextView,
+    get SegmentCategory () { return SegmentCategory; },
+    SegmentationOptions: SegmentationOptions,
+    Segmenter: Segmenter,
+    SetSimulatorEnvironmentEvent: SetSimulatorEnvironmentEvent,
+    SetSimulatorModeEvent: SetSimulatorModeEvent,
+    ShowHandsAction: ShowHandsAction,
+    ShowSimulatorInstructionsEvent: ShowSimulatorInstructionsEvent,
+    Simulator: Simulator,
+    SimulatorCamera: SimulatorCamera,
+    SimulatorControlMode: SimulatorControlMode,
+    SimulatorControllerState: SimulatorControllerState,
+    SimulatorControls: SimulatorControls,
+    SimulatorDepth: SimulatorDepth,
+    SimulatorDepthMaterial: SimulatorDepthMaterial,
+    get SimulatorHandPose () { return SimulatorHandPose; },
+    SimulatorHandPoseChangeRequestEvent: SimulatorHandPoseChangeRequestEvent,
+    SimulatorHands: SimulatorHands,
+    SimulatorInterface: SimulatorInterface,
+    SimulatorMediaDeviceInfo: SimulatorMediaDeviceInfo,
+    get SimulatorMode () { return SimulatorMode; },
+    SimulatorNavMesh: SimulatorNavMesh,
+    SimulatorOptions: SimulatorOptions,
+    SimulatorPointerLockController: SimulatorPointerLockController,
+    get SimulatorRenderMode () { return SimulatorRenderMode; },
+    SimulatorScene: SimulatorScene,
+    SimulatorUser: SimulatorUser,
+    SimulatorUserAction: SimulatorUserAction,
+    SketchPanel: SketchPanel,
+    SkyboxAgent: SkyboxAgent,
+    SoundOptions: SoundOptions,
+    SoundSynthesizer: SoundSynthesizer,
+    SparkRendererHolder: SparkRendererHolder,
+    SpatialAudio: SpatialAudio,
+    SpatialPanel: SpatialPanel,
+    SpeechRecognizer: SpeechRecognizer,
+    SpeechRecognizerOptions: SpeechRecognizerOptions,
+    SpeechSynthesizer: SpeechSynthesizer,
+    SpeechSynthesizerOptions: SpeechSynthesizerOptions,
+    SplatAnchor: SplatAnchor,
+    get StreamState () { return StreamState; },
+    StrokeRecognizer: StrokeRecognizer,
+    StylizedFace: StylizedFace,
+    TensorFlowHandPoseEstimator: TensorFlowHandPoseEstimator,
+    TextButton: TextButton,
+    TextScrollerState: TextScrollerState,
+    TextView: TextView,
+    Tool: Tool,
+    UI: UI,
+    UIKitOptions: UIKitOptions,
+    UI_OVERLAY_LAYER: UI_OVERLAY_LAYER,
+    UP: UP,
+    UX: UX,
+    User: User,
+    VIEW_DEPTH_GAP: VIEW_DEPTH_GAP,
+    VerticalPager: VerticalPager,
+    VideoFileStream: VideoFileStream,
+    VideoStream: VideoStream,
+    VideoView: VideoView,
+    View: View,
+    get VolumeCategory () { return VolumeCategory; },
+    WaitFrame: WaitFrame,
+    WalkTowardsPanelAction: WalkTowardsPanelAction,
+    WebXRHandContext: WebXRHandContext,
+    WebXRHandPoseEstimator: WebXRHandPoseEstimator,
+    World: World,
+    WorldOptions: WorldOptions,
+    XRButton: XRButton,
+    XRDeviceCamera: XRDeviceCamera,
+    XREffects: XREffects,
+    XRPass: XRPass,
+    XRTransitionOptions: XRTransitionOptions,
+    XR_BLOCKS_ASSETS_PATH: XR_BLOCKS_ASSETS_PATH,
+    ZERO_VECTOR3: ZERO_VECTOR3,
+    ZERO_VISEME: ZERO_VISEME,
+    _getBvhImportStatus: _getBvhImportStatus,
+    add: add,
+    ai: ai,
+    applyBVH: applyBVH,
+    applySimulatorHandPoseRotationConstraints: applySimulatorHandPoseRotationConstraints,
+    average: average,
+    callInitWithDependencyInjection: callInitWithDependencyInjection,
+    camera: camera,
+    clamp: clamp$1,
+    clamp01: clamp01,
+    clampRotationToAngle: clampRotationToAngle,
+    context: context,
+    core: core,
+    cropImage: cropImage,
+    depth: depth,
+    disposeBVH: disposeBVH,
+    enableAcceleratedRaycast: enableAcceleratedRaycast,
+    estimateHandScale: estimateHandScale,
+    extractYaw: extractYaw,
+    getAdjacentFingerSpreads: getAdjacentFingerSpreads,
+    getBoneVectors: getBoneVectors,
+    getCameraParametersSnapshot: getCameraParametersSnapshot,
+    getColorHex: getColorHex,
+    getDeltaTime: getDeltaTime,
+    getDeviceCameraClipFromView: getDeviceCameraClipFromView,
+    getDeviceCameraWorldFromClip: getDeviceCameraWorldFromClip,
+    getDeviceCameraWorldFromView: getDeviceCameraWorldFromView,
+    getElapsedTime: getElapsedTime,
+    getFingerBendAngles: getFingerBendAngles,
+    getFingerCurl: getFingerCurl,
+    getFingerDirection: getFingerDirection,
+    getFingerJoint: getFingerJoint,
+    getFingerPalmAlignment: getFingerPalmAlignment,
+    getFingerSpread: getFingerSpread,
+    getFingerStraightness: getFingerStraightness,
+    getFingertipDistance: getFingertipDistance,
+    getFingertipPalmDistance: getFingertipPalmDistance,
+    getPalmNormal: getPalmNormal,
+    getPalmPose: getPalmPose,
+    getPalmRight: getPalmRight,
+    getPalmUp: getPalmUp,
+    getPalmWidth: getPalmWidth,
+    getRelativeBoneAngles: getRelativeBoneAngles,
+    getThumbBendAngles: getThumbBendAngles,
+    getThumbCurl: getThumbCurl,
+    getThumbDirection: getThumbDirection,
+    getThumbOpposition: getThumbOpposition,
+    getThumbStraightness: getThumbStraightness,
+    getThumbVerticalDirection: getThumbVerticalDirection,
+    getUrlParamBool: getUrlParamBool,
+    getUrlParamFloat: getUrlParamFloat,
+    getUrlParamInt: getUrlParamInt,
+    getUrlParameter: getUrlParameter,
+    getVec4ByColorString: getVec4ByColorString,
+    getXrCameraLeft: getXrCameraLeft,
+    getXrCameraRight: getXrCameraRight,
+    init: init,
+    initScript: initScript,
+    input: input,
+    intrinsicsToProjectionMatrix: intrinsicsToProjectionMatrix,
+    isBVHReady: isBVHReady,
+    isDeviceCameraPoseAvailable: isDeviceCameraPoseAvailable,
+    lerp: lerp,
+    loadStereoImageAsTextures: loadStereoImageAsTextures,
+    loadingSpinnerManager: loadingSpinnerManager,
+    lookAtRotation: lookAtRotation,
+    objectIsDescendantOf: objectIsDescendantOf,
+    parseBase64DataURL: parseBase64DataURL,
+    parseSimulatorHandPoseRotations: parseSimulatorHandPoseRotations,
+    placeObjectAtIntersectionFacingTarget: placeObjectAtIntersectionFacingTarget,
+    print: print,
+    resolveSimulatorHandPoseRotations: resolveSimulatorHandPoseRotations,
+    resolveSimulatorRotationsFromKeypoints: resolveSimulatorRotationsFromKeypoints,
+    scene: scene,
+    showOnlyInLeftEye: showOnlyInLeftEye,
+    showOnlyInRightEye: showOnlyInRightEye,
+    showReticleOnDepthMesh: showReticleOnDepthMesh,
+    sound: sound,
+    timer: timer,
+    transformRgbUvToWorld: transformRgbUvToWorld,
+    traverseUtil: traverseUtil,
+    uninitScript: uninitScript,
+    urlParams: urlParams,
+    user: user,
+    visualizeDepth: visualizeDepth,
+    visualizeDepthMap: visualizeDepthMap,
+    world: world,
+    xrDepthMeshOptions: xrDepthMeshOptions,
+    xrDepthMeshPhysicsOptions: xrDepthMeshPhysicsOptions,
+    xrDepthMeshVisualizationOptions: xrDepthMeshVisualizationOptions,
+    xrDeviceCameraEnvironmentContinuousOptions: xrDeviceCameraEnvironmentContinuousOptions,
+    xrDeviceCameraEnvironmentOptions: xrDeviceCameraEnvironmentOptions,
+    xrDeviceCameraUserContinuousOptions: xrDeviceCameraUserContinuousOptions,
+    xrDeviceCameraUserOptions: xrDeviceCameraUserOptions
+});
+
+registerDebugGlobals(sdk);
+
+export { AI, AIOptions, AVERAGE_IPD_METERS, ActiveControllers, Agent, AnimatableNumber, AudioListener, AudioPlayer, BACK, BackgroundMusic, CategoryVolumes, Col, Context, ContextOptions, Core, CoreSound, DEFAULT_DEVICE_CAMERA_HEIGHT, DEFAULT_DEVICE_CAMERA_WIDTH, DEFAULT_RGB_TO_DEPTH_PARAMS, DEVICE_CAMERA_PARAMETERS, DOWN, Depth, DepthMesh, DepthMeshOptions, DepthOptions, DepthTextures, DetectedBodyPose, DetectedFace, DetectedMesh, DetectedObject, DetectedPlane, DeviceCameraOptions, DragManager, DragMode, ExitButton, FINGER_ORDER, FORWARD, FaceLandmarkName, FaceRecognizer, FacesOptions, FreestandingSlider, GEMINI_DEFAULT_FLASH_MODEL, GEMINI_DEFAULT_IMAGE_MODEL, GEMINI_DEFAULT_LIVE_MODEL, GamepadBindings, GamepadController, GazeController, Gemini, GeminiOptions, GenerateSkyboxTool, GestureRecognition, GestureRecognitionOptions, GetWeatherTool, Grid, HAND_BONE_IDX_CONNECTION_MAP, HAND_INDEX_TO_LABEL, HAND_JOINT_COUNT, HAND_JOINT_IDX_CONNECTION_MAP, HAND_JOINT_NAMES, Handedness, Hands, HandsOptions, HeadGestureRecognition, HeadGestureRecognitionOptions, HeuristicGestureRecognizer, HeuristicHeadGestureRecognizer, HorizontalPager, HumanRecognizer, HumansOptions, IconButton, IconView, ImageView, Input, InputOptions, Keycodes, LEFT, LEFT_VIEW_ONLY_LAYER, LabelView, Lighting, LightingOptions, LoadingSpinnerManager, MaterialSymbolsView, MediaPipeHandContext, MediaPipeHandPoseEstimator, MeshDetectionOptions, MeshDetector, MeshScript, ModelLoader, ModelViewer, MouseController, NUM_HANDS, OCCLUDABLE_ITEMS_LAYER, ObjectDetector, ObjectsOptions, OcclusionPass, OcclusionUtils, OpenAI, OpenAIOptions, Options, Orbiter, PageIndicator, Pager, PagerState, Panel, PanelMesh, Physics, PhysicsOptions, PinchOnButtonAction, PlaneDetector, PlanesOptions, PoseJointName, RIGHT, RIGHT_VIEW_ONLY_LAYER, Raycaster, Registry, Reticle, ReticleOptions, Reticles, RotationRaycastMesh, Row, SIMULATOR_HAND_COMMON_BIOMECHANICAL_CONSTRAINTS_DEGREES, SIMULATOR_HAND_POSE_NAMES, SIMULATOR_HAND_POSE_ROTATIONS, SOUND_PRESETS, SceneDetector, SceneOptions, SceneSetOfMarkOptions, SceneVisibilityOptions, ScreenshotSynthesizer, Script, ScriptMixin, ScriptsManager, ScriptsManagerEventType, ScrollingTroikaTextView, SegmentCategory, SegmentationOptions, Segmenter, SetSimulatorEnvironmentEvent, SetSimulatorModeEvent, ShowHandsAction, ShowSimulatorInstructionsEvent, Simulator, SimulatorCamera, SimulatorControlMode, SimulatorControllerState, SimulatorControls, SimulatorDepth, SimulatorDepthMaterial, SimulatorHandPose, SimulatorHandPoseChangeRequestEvent, SimulatorHands, SimulatorInterface, SimulatorMediaDeviceInfo, SimulatorMode, SimulatorNavMesh, SimulatorOptions, SimulatorPointerLockController, SimulatorRenderMode, SimulatorScene, SimulatorUser, SimulatorUserAction, SketchPanel, SkyboxAgent, SoundOptions, SoundSynthesizer, SparkRendererHolder, SpatialAudio, SpatialPanel, SpeechRecognizer, SpeechRecognizerOptions, SpeechSynthesizer, SpeechSynthesizerOptions, SplatAnchor, StreamState, StrokeRecognizer, StylizedFace, TensorFlowHandPoseEstimator, TextButton, TextScrollerState, TextView, Tool, UI, UIKitOptions, UI_OVERLAY_LAYER, UP, UX, User, VIEW_DEPTH_GAP, VerticalPager, VideoFileStream, VideoStream, VideoView, View, VolumeCategory, WaitFrame, WalkTowardsPanelAction, WebXRHandContext, WebXRHandPoseEstimator, World, WorldOptions, XRButton, XRDeviceCamera, XREffects, XRPass, XRTransitionOptions, XR_BLOCKS_ASSETS_PATH, ZERO_VECTOR3, ZERO_VISEME, _getBvhImportStatus, add, ai, applyBVH, applySimulatorHandPoseRotationConstraints, average, callInitWithDependencyInjection, camera, clamp$1 as clamp, clamp01, clampRotationToAngle, context, core, cropImage, depth, disposeBVH, enableAcceleratedRaycast, estimateHandScale, extractYaw, getAdjacentFingerSpreads, getBoneVectors, getCameraParametersSnapshot, getColorHex, getDeltaTime, getDeviceCameraClipFromView, getDeviceCameraWorldFromClip, getDeviceCameraWorldFromView, getElapsedTime, getFingerBendAngles, getFingerCurl, getFingerDirection, getFingerJoint, getFingerPalmAlignment, getFingerSpread, getFingerStraightness, getFingertipDistance, getFingertipPalmDistance, getPalmNormal, getPalmPose, getPalmRight, getPalmUp, getPalmWidth, getRelativeBoneAngles, getThumbBendAngles, getThumbCurl, getThumbDirection, getThumbOpposition, getThumbStraightness, getThumbVerticalDirection, getUrlParamBool, getUrlParamFloat, getUrlParamInt, getUrlParameter, getVec4ByColorString, getXrCameraLeft, getXrCameraRight, init, initScript, input, intrinsicsToProjectionMatrix, isBVHReady, isDeviceCameraPoseAvailable, lerp, loadStereoImageAsTextures, loadingSpinnerManager, lookAtRotation, objectIsDescendantOf, parseBase64DataURL, parseSimulatorHandPoseRotations, placeObjectAtIntersectionFacingTarget, print, resolveSimulatorHandPoseRotations, resolveSimulatorRotationsFromKeypoints, scene, showOnlyInLeftEye, showOnlyInRightEye, showReticleOnDepthMesh, sound, timer, transformRgbUvToWorld, traverseUtil, uninitScript, urlParams, user, visualizeDepth, visualizeDepthMap, world, xrDepthMeshOptions, xrDepthMeshPhysicsOptions, xrDepthMeshVisualizationOptions, xrDeviceCameraEnvironmentContinuousOptions, xrDeviceCameraEnvironmentOptions, xrDeviceCameraUserContinuousOptions, xrDeviceCameraUserOptions };
 //# sourceMappingURL=xrblocks.js.map
