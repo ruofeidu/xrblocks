@@ -77,7 +77,7 @@ XR Blocks is a **singleton engine driven by a script lifecycle**:
 | Folder                                      | Responsibility                                                                               |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `core/`                                     | `Core` singleton, `Script`, `Options`, `User`, DI `Registry`, `XRButton`, WebXR session mgmt |
-| `input/`                                    | controllers, hands, gaze, mouse, gamepad; `gestures/`; `strokes/`                            |
+| `input/`                                    | controllers, hands, gaze, mouse, gamepad; `gestures/`; `headGestures/`; `strokes/`           |
 | `world/`                                    | `World` + `planes/`, `mesh/`, `objects/` (Gemini & MediaPipe backends), `sounds/`            |
 | `context/`                                  | Agent-facing scene context: semantic tree, visible objects, Set-of-Mark screenshots          |
 | `depth/`                                    | depth sensing, depth mesh, `occlusion/` shaders & passes                                     |
@@ -126,6 +126,6 @@ XR Blocks is a **singleton engine driven by a script lifecycle**:
 
 - [`CONTEXT.md`](CONTEXT.md) — rules of engagement for building apps with the SDK.
 - [`src/SKILL.md`](src/SKILL.md) — in-tree SDK overview for app developers.
-- [`skills/`](skills/) — focused `xb-*` skills (UI, hands, gestures, depth, world, AI,
+- [`skills/`](skills/) — focused `xb-*` skills (UI, hands, gestures, head gestures, depth, world, AI,
   physics, simulator, sound, multiplayer). Index + naming convention in
   [`skills/README.md`](skills/README.md).
