@@ -92,6 +92,7 @@ export * from './simulator/SimulatorMediaDeviceInfo';
 export * from './simulator/scene/SimulatorNavMesh';
 export type {
   SimulatorObject,
+  SimulatorObjectUpdate,
   SimulatorObjects,
 } from './simulator/scene/SimulatorObjects';
 export * from './simulator/SimulatorOptions';

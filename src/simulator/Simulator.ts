@@ -237,8 +237,14 @@ export class Simulator extends Script {
   /**
    * Loads and activates a simulator environment at runtime.
    */
-  async setEnvironment(name: string, manifestPath: string) {
-    await this.activateEnvironment({name, manifestPath});
+  async setEnvironment(manifestPath: string): Promise<void>;
+  async setEnvironment(name: string, manifestPath: string): Promise<void>;
+  async setEnvironment(nameOrPath: string, manifestPath?: string) {
+    await this.activateEnvironment(
+      manifestPath
+        ? {name: nameOrPath, manifestPath}
+        : {manifestPath: nameOrPath}
+    );
   }
 
   private async activateEnvironment(environment: SimulatorEnvironment) {

@@ -7,6 +7,8 @@ import type {DetectedMesh} from '../../world/mesh/DetectedMesh';
 import {
   SimulatorObjectDefinition,
   SimulatorPhysicsMode,
+  SimulatorQuaternionTuple,
+  SimulatorVector3Tuple,
 } from './SimulatorEnvironmentManifest';
 import {geometryVertices, mergeObjectGeometry} from './SimulatorGeometry';
 import type {SimulatorPhysics} from './SimulatorPhysics';
@@ -15,6 +17,21 @@ export interface SimulatorObject {
   id: string;
   object: THREE.Object3D;
   definition: SimulatorObjectDefinition;
+}
+
+/** Mutable fields on an existing simulator object. Asset ownership and IDs
+ * remain stable; remove and re-add an object to change either of those. */
+export interface SimulatorObjectUpdate {
+  id: string;
+  position?: SimulatorVector3Tuple;
+  quaternion?: SimulatorQuaternionTuple;
+  scale?: SimulatorVector3Tuple;
+  visible?: boolean;
+  detectObject?: boolean;
+  /** Use null to clear an existing semantic label. */
+  label?: string | null;
+  data?: unknown;
+  physics?: SimulatorPhysicsMode;
 }
 
 /** @internal */
@@ -43,6 +60,7 @@ export interface SimulatorObjects {
     options?: {baseUrl?: string}
   ): Promise<SimulatorObject[]>;
   get(ids?: string[]): SimulatorObject[];
+  updateObjects(updates: SimulatorObjectUpdate[]): Promise<SimulatorObject[]>;
   removeObjects(ids: string[]): this;
   clear(): this;
 }
@@ -232,6 +250,162 @@ export class SimulatorObjectsManager implements SimulatorObjects {
       .filter((record): record is SimulatorObjectRecord => !!record);
   }
 
+  async updateObjects(updates: SimulatorObjectUpdate[]) {
+    const seen = new Set<string>();
+    const entries = updates.map((update) => {
+      if (seen.has(update.id)) {
+        throw new Error(
+          `Simulator object '${update.id}' is updated more than once.`
+        );
+      }
+      seen.add(update.id);
+      const record = this.records.get(update.id);
+      if (!record) {
+        throw new Error(`Simulator object '${update.id}' does not exist.`);
+      }
+      this.validateUpdate(update);
+      return {record, update};
+    });
+
+    const snapshots = entries.map(({record}) => ({
+      record,
+      definition: {...record.definition},
+      position: record.object.position.clone(),
+      quaternion: record.object.quaternion.clone(),
+      scale: record.object.scale.clone(),
+      visible: record.object.visible,
+    }));
+
+    const geometries = new Map<SimulatorObjectRecord, THREE.BufferGeometry>();
+    const physicsUpdates = new Set(
+      entries
+        .filter(({update}) =>
+          ['position', 'quaternion', 'scale', 'physics'].some((key) =>
+            Object.prototype.hasOwnProperty.call(update, key)
+          )
+        )
+        .map(({record}) => record)
+    );
+    try {
+      for (const {record, update} of entries) {
+        this.applyUpdate(record, update);
+        if (
+          physicsUpdates.has(record) &&
+          (record.definition.physics ?? false) &&
+          this.physics
+        ) {
+          const geometry = mergeObjectGeometry(record.object);
+          if (!geometry) {
+            throw new Error(
+              `Simulator object '${record.id}' has no mesh geometry for physics.`
+            );
+          }
+          geometries.set(record, geometry);
+        }
+      }
+
+      for (const {record} of entries) {
+        if (!physicsUpdates.has(record)) continue;
+        this.removePhysics(record);
+        record.physicsGeometry = geometries.get(record);
+        this.createPhysics(record);
+      }
+    } catch (error) {
+      for (const geometry of geometries.values()) geometry.dispose();
+      for (const snapshot of snapshots) {
+        if (physicsUpdates.has(snapshot.record))
+          this.removePhysics(snapshot.record);
+        snapshot.record.definition = snapshot.definition;
+        snapshot.record.object.position.copy(snapshot.position);
+        snapshot.record.object.quaternion.copy(snapshot.quaternion);
+        snapshot.record.object.scale.copy(snapshot.scale);
+        snapshot.record.object.visible = snapshot.visible;
+        if (
+          physicsUpdates.has(snapshot.record) &&
+          (snapshot.definition.physics ?? false) &&
+          this.physics
+        ) {
+          snapshot.record.physicsGeometry =
+            mergeObjectGeometry(snapshot.record.object) ?? undefined;
+          this.createPhysics(snapshot.record);
+        }
+      }
+      throw error;
+    }
+
+    if (entries.length > 0) this.onChanged?.();
+    return entries.map(({record}) => record as SimulatorObject);
+  }
+
+  private validateUpdate(update: SimulatorObjectUpdate) {
+    const finiteTuple = (value: number[] | undefined, length: number) =>
+      value === undefined ||
+      (value.length === length && value.every(Number.isFinite));
+    if (!finiteTuple(update.position, 3)) {
+      throw new Error(
+        `Simulator object '${update.id}' has an invalid position.`
+      );
+    }
+    if (
+      !finiteTuple(update.quaternion, 4) ||
+      update.quaternion?.every((component) => component === 0)
+    ) {
+      throw new Error(
+        `Simulator object '${update.id}' has an invalid quaternion.`
+      );
+    }
+    if (
+      !finiteTuple(update.scale, 3) ||
+      update.scale?.some((component) => component === 0)
+    ) {
+      throw new Error(`Simulator object '${update.id}' has an invalid scale.`);
+    }
+    if (update.label !== undefined && update.label !== null && !update.label) {
+      throw new Error(`Simulator object '${update.id}' has an invalid label.`);
+    }
+    if (update.physics && !this.physics) {
+      throw new Error(
+        `Simulator object '${update.id}' requires physics, but simulator physics is not enabled.`
+      );
+    }
+    const detectObject = update.detectObject;
+    const label = update.label;
+    if (detectObject && label === null) {
+      throw new Error(
+        `Simulator object '${update.id}' requires label when detectObject is true.`
+      );
+    }
+  }
+
+  private applyUpdate(
+    record: SimulatorObjectRecord,
+    update: SimulatorObjectUpdate
+  ) {
+    if (update.position) record.object.position.fromArray(update.position);
+    if (update.quaternion)
+      record.object.quaternion.fromArray(update.quaternion).normalize();
+    if (update.scale) record.object.scale.fromArray(update.scale);
+    if (update.visible !== undefined) record.object.visible = update.visible;
+
+    const definition = record.definition;
+    if (update.position) definition.position = [...update.position];
+    if (update.quaternion) definition.quaternion = [...update.quaternion];
+    if (update.scale) definition.scale = [...update.scale];
+    if (update.visible !== undefined) definition.visible = update.visible;
+    if (update.detectObject !== undefined)
+      definition.detectObject = update.detectObject;
+    if (update.label !== undefined)
+      definition.label = update.label ?? undefined;
+    if (Object.prototype.hasOwnProperty.call(update, 'data'))
+      definition.data = update.data;
+    if (update.physics !== undefined) definition.physics = update.physics;
+    if (definition.detectObject && !definition.label) {
+      throw new Error(
+        `Simulator object '${record.id}' requires label when detectObject is true.`
+      );
+    }
+  }
+
   getMeshRecords(): SimulatorObject[] {
     return Array.from(this.records.values());
   }
@@ -338,6 +512,15 @@ export class SimulatorObjectsManager implements SimulatorObjects {
     record.physicsGeometry = undefined;
   }
 
+  private removePhysics(record: SimulatorObjectRecord) {
+    if (this.physics && record.rigidBody) {
+      this.physics.world.removeRigidBody(record.rigidBody);
+      record.rigidBody = undefined;
+    }
+    record.physicsGeometry?.dispose();
+    record.physicsGeometry = undefined;
+  }
+
   private createBodyDesc(mode: Exclude<SimulatorPhysicsMode, false>) {
     return mode === 'dynamic'
       ? this.physics!.RAPIER.RigidBodyDesc.dynamic().setCcdEnabled(true)
@@ -345,12 +528,7 @@ export class SimulatorObjectsManager implements SimulatorObjects {
   }
 
   private disposeRecord(record: SimulatorObjectRecord) {
-    if (this.physics && record.rigidBody) {
-      this.physics.world.removeRigidBody(record.rigidBody);
-      record.rigidBody = undefined;
-    }
-    record.physicsGeometry?.dispose();
-    record.physicsGeometry = undefined;
+    this.removePhysics(record);
     record.object.removeFromParent();
     if (record.ownsObject) disposeObjectTree(record.object);
   }
