@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   Core,
   Simulator,
+  type SimulatorHandPose,
   User,
   World,
   type SimulatorHandPoseRotations,
@@ -213,6 +214,10 @@ export class EmbodiedControlExecutor {
       controller.visible = control.visible;
     }
 
+    if (control.pose) {
+      this.applyHandPose(handIndex, control.pose);
+    }
+
     if (control.rotations) {
       this.applyHandRotations(handIndex, control.rotations);
     }
@@ -221,6 +226,15 @@ export class EmbodiedControlExecutor {
       this.applyHandSelect(handIndex, true);
     } else if (control.selectEnd) {
       this.applyHandSelect(handIndex, false);
+    }
+  }
+
+  private applyHandPose(handIndex: number, pose: SimulatorHandPose) {
+    const {hands} = this.dependencies.simulator;
+    if (handIndex === 0) {
+      hands.setLeftHandLerpPose(pose);
+    } else {
+      hands.setRightHandLerpPose(pose);
     }
   }
 
