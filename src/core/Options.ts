@@ -233,6 +233,14 @@ export class Options {
    */
   enableVR() {
     this.xrSessionMode = 'immersive-vr';
+    if (this.simulator.environments[this.simulator.activeEnvironmentIndex]) {
+      this.simulator.environments[
+        this.simulator.activeEnvironmentIndex
+      ].scenePath = null;
+      this.simulator.environments[
+        this.simulator.activeEnvironmentIndex
+      ].scenePlanesPath = null;
+    }
     return this;
   }
 

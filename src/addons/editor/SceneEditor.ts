@@ -23,7 +23,7 @@ export interface SceneEditorOptions {
 /**
  * Public entry point for the scene editor addon: a multi-object
  * translate/rotate/scale gizmo scene editor with a model picker, an
- * outliner (label/visibility/lock), undo/redo, and simulator manifest
+ * outliner (rename/visibility/lock), undo/redo, and JSON scene
  * export/import. Desktop mouse in the simulator only -- permanently out
  * of scope for real XR controllers (all hit-testing gates on
  * `event.target === xb.core.input.mouseController`, which a real XR
@@ -114,10 +114,6 @@ export class SceneEditor extends xb.Script {
         parent: this.leftColumn,
       }
     );
-    this.sceneManager.onEnvironmentChange = () => {
-      this.selectionManager.clearSelection();
-      this.commandHistory.clearHistory();
-    };
 
     this.add(this.commandHistory);
     this.add(this.sceneManager);
@@ -135,8 +131,9 @@ export class SceneEditor extends xb.Script {
    * session is active -- everywhere else (other simulator modes, or a
    * real headset), it goes fully inert without discarding state, so
    * switching back to Editor mode restores exactly where you left off.
-   * Simulator-owned models are untouched by this -- they are environment
-   * content, not editor chrome, and render normally even in a real headset. */
+   * SceneManager itself (spawned models, occlusion) is untouched by this
+   * -- it's scene content, not editor chrome, and should render normally
+   * even in a real headset. */
   override update() {
     const active =
       xb.core.simulatorRunning &&
@@ -162,9 +159,5 @@ export class SceneEditor extends xb.Script {
 
   override onXRSessionEnded() {
     this.inRealXRSession = false;
-  }
-
-  override dispose() {
-    this.root.remove();
   }
 }

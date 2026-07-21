@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type {SimulatorPlaneType, SimulatorPlane} from 'xrblocks';
+import {SimulatorPlaneType, SimulatorPlane} from 'xrblocks';
 
 interface PlaneAccumulator {
   type: SimulatorPlaneType;
