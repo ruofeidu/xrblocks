@@ -8,23 +8,17 @@ import {KTX2Loader} from 'three/addons/loaders/KTX2Loader.js';
  */
 const jsmUrl = `https://cdn.jsdelivr.net/npm/three@0.${THREE.REVISION}.0/examples/jsm/`;
 
-function createGLTFLoader(
-  renderer?: THREE.WebGLRenderer,
-  manager?: THREE.LoadingManager
-) {
+function createGLTFLoader(manager?: THREE.LoadingManager) {
   const dracoLoader = new DRACOLoader(manager);
   dracoLoader.setDecoderPath(jsmUrl + 'libs/draco/');
   dracoLoader.setDecoderConfig({type: 'js'});
   const ktx2Loader = new KTX2Loader(manager);
   ktx2Loader.setTranscoderPath(jsmUrl + 'libs/basis/');
-  if (renderer) {
-    ktx2Loader.detectSupport(renderer);
-  }
 
   const gltfLoader = new GLTFLoader(manager);
   gltfLoader.setDRACOLoader(dracoLoader);
   gltfLoader.setKTX2Loader(ktx2Loader);
-  return gltfLoader;
+  return {gltfLoader, ktx2Loader};
 }
 
 export type ModelLoaderLoadGLTFOptions = {
@@ -51,6 +45,8 @@ export type ModelLoaderLoadOptions = ModelLoaderLoadGLTFOptions & {
 export class ModelLoader {
   private manager: THREE.LoadingManager;
   private gltfLoader?: GLTFLoader;
+  private ktx2Loader?: KTX2Loader;
+  private ktxRenderer?: THREE.WebGLRenderer;
 
   /**
    * Creates an instance of ModelLoader.
@@ -63,7 +59,15 @@ export class ModelLoader {
   }
 
   private getGLTFLoader(renderer?: THREE.WebGLRenderer) {
-    this.gltfLoader ??= createGLTFLoader(renderer, this.manager);
+    if (!this.gltfLoader) {
+      const {gltfLoader, ktx2Loader} = createGLTFLoader(this.manager);
+      this.gltfLoader = gltfLoader;
+      this.ktx2Loader = ktx2Loader;
+    }
+    if (renderer && renderer !== this.ktxRenderer) {
+      this.ktx2Loader!.detectSupport(renderer);
+      this.ktxRenderer = renderer;
+    }
     return this.gltfLoader;
   }
 
