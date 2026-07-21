@@ -1,4 +1,4 @@
-> **Experimental in Android XR. More robust detection is requiredfor on-device showcase.**
+> **Experimental in Android XR. More robust detection is required for on-device showcase.**
 
 # 3D Object Boxes
 
