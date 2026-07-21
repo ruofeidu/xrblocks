@@ -136,7 +136,7 @@ export class TransformInspectorPanel extends xb.Script {
       el('div', {className: 'row fields'}, rotX.field, rotY.field, rotZ.field),
       el('div', {
         className: 'sectionLabel',
-        textContent: 'Scale (× as-spawned)',
+        textContent: 'Scale',
       }),
       el(
         'div',
@@ -194,18 +194,25 @@ export class TransformInspectorPanel extends xb.Script {
 
     const commands: Command[] = [];
     for (const instance of list) {
-      const viewer = instance.viewer;
-      const before = viewer.position.clone();
-      viewer.position[axis] = value;
-      const after = viewer.position.clone();
+      const object = instance.object;
+      const before = object.position.clone();
+      object.position[axis] = value;
+      const after = object.position.clone();
       if (!before.equals(after)) {
         commands.push({
-          undo: () => void viewer.position.copy(before),
-          redo: () => void viewer.position.copy(after),
+          undo: async () => {
+            object.position.copy(before);
+            await this.sceneManager.commitInstances([instance]);
+          },
+          redo: async () => {
+            object.position.copy(after);
+            await this.sceneManager.commitInstances([instance]);
+          },
         });
       }
     }
     this.commandHistory?.pushBatch(commands);
+    void this.sceneManager.commitInstances(list);
   }
 
   applyRotation(axis: Axis) {
@@ -216,24 +223,30 @@ export class TransformInspectorPanel extends xb.Script {
 
     const commands: Command[] = [];
     for (const instance of list) {
-      const content = instance.viewer.modelScene;
-      if (!content) continue;
-      const before = content.quaternion.clone();
+      const object = instance.object;
+      const before = object.quaternion.clone();
       const euler = new THREE.Euler().setFromQuaternion(
-        content.quaternion,
+        object.quaternion,
         'XYZ'
       );
       euler[axis] = THREE.MathUtils.degToRad(value);
-      content.quaternion.setFromEuler(euler);
-      const after = content.quaternion.clone();
+      object.quaternion.setFromEuler(euler);
+      const after = object.quaternion.clone();
       if (!before.equals(after)) {
         commands.push({
-          undo: () => void content.quaternion.copy(before),
-          redo: () => void content.quaternion.copy(after),
+          undo: async () => {
+            object.quaternion.copy(before);
+            await this.sceneManager.commitInstances([instance]);
+          },
+          redo: async () => {
+            object.quaternion.copy(after);
+            await this.sceneManager.commitInstances([instance]);
+          },
         });
       }
     }
     this.commandHistory?.pushBatch(commands);
+    void this.sceneManager.commitInstances(list);
   }
 
   applyScale(axis: Axis) {
@@ -241,25 +254,29 @@ export class TransformInspectorPanel extends xb.Script {
     if (list.length === 0) return;
     const value = parseFloat(this.scaleInputs[axis].value);
     if (!Number.isFinite(value)) return;
-    // The field shows a multiplier relative to each instance's own
-    // auto-fit baseline (1.0 == as-spawned), not the raw viewer.scale --
-    // see baseScale in SceneManager.spawn().
-    const multiplier = Math.max(MIN_SCALE_COMPONENT, value);
+    const scale = Math.max(MIN_SCALE_COMPONENT, value);
 
     const commands: Command[] = [];
     for (const instance of list) {
-      const viewer = instance.viewer;
-      const before = viewer.scale.clone();
-      viewer.scale[axis] = multiplier * instance.baseScale[axis];
-      const after = viewer.scale.clone();
+      const object = instance.object;
+      const before = object.scale.clone();
+      object.scale[axis] = scale;
+      const after = object.scale.clone();
       if (!before.equals(after)) {
         commands.push({
-          undo: () => void viewer.scale.copy(before),
-          redo: () => void viewer.scale.copy(after),
+          undo: async () => {
+            object.scale.copy(before);
+            await this.sceneManager.commitInstances([instance]);
+          },
+          redo: async () => {
+            object.scale.copy(after);
+            await this.sceneManager.commitInstances([instance]);
+          },
         });
       }
     }
     this.commandHistory?.pushBatch(commands);
+    void this.sceneManager.commitInstances(list);
   }
 
   async duplicateSelected() {
@@ -269,23 +286,25 @@ export class TransformInspectorPanel extends xb.Script {
     const commands: Command[] = [];
     const duplicates: SceneInstance[] = [];
     for (const instance of list) {
-      const viewer = instance.viewer;
-      const content = viewer.modelScene;
-      const fileName = instance.fileName;
+      const object = instance.object;
+      const fileName = instance.assetPath;
       // Small offset so each copy isn't sitting exactly inside its
       // original.
       const snapshotTransform = {
-        position: viewer.position.clone().add(DUPLICATE_OFFSET),
-        scale: viewer.scale.clone(),
-        quaternion: content?.quaternion.clone(),
+        position: object.position.clone().add(DUPLICATE_OFFSET),
+        scale: object.scale.clone(),
+        quaternion: object.quaternion.clone(),
       };
       // instance.locked is always false here -- locked instances can
       // never be selected in the first place (see SelectionManager) -- but
-      // included for consistency with visible/customName.
+      // included for consistency with other persisted object state.
       const snapshotState = {
-        customName: instance.customName,
+        label: instance.definition.label ?? null,
         locked: instance.locked,
-        visible: viewer.visible,
+        visible: object.visible,
+        detectObject: instance.definition.detectObject,
+        data: instance.definition.data,
+        physics: instance.definition.physics,
       };
 
       // skipHistory + a manually-built command here (rather than relying
@@ -330,45 +349,9 @@ export class TransformInspectorPanel extends xb.Script {
   deleteSelected() {
     const list = this.selectionManager.selectedList();
     if (list.length === 0) return;
-
-    const commands: Command[] = [];
     for (const instance of list) {
-      const viewer = instance.viewer;
-      const content = viewer.modelScene;
-      const fileName = instance.fileName;
-      const snapshotTransform = {
-        position: viewer.position.clone(),
-        scale: viewer.scale.clone(),
-        quaternion: content?.quaternion.clone(),
-      };
-      const snapshotState = {
-        customName: instance.customName,
-        locked: instance.locked,
-        visible: viewer.visible,
-      };
-
-      const ref: {instanceId: number | null} = {instanceId: null};
-      commands.push({
-        undo: async () => {
-          const respawned = await this.sceneManager.spawn(fileName, {
-            transform: snapshotTransform,
-            state: snapshotState,
-            skipHistory: true,
-          });
-          ref.instanceId = respawned?.id ?? null;
-        },
-        redo: () => {
-          if (ref.instanceId != null) {
-            this.sceneManager.removeInstance(ref.instanceId, {
-              skipHistory: true,
-            });
-          }
-        },
-      });
-
-      this.sceneManager.removeInstance(instance.id, {skipHistory: true});
+      this.sceneManager.removeInstance(instance.id);
     }
-    this.commandHistory?.pushBatch(commands);
     this.selectionManager.clearSelection();
   }
 
@@ -406,7 +389,7 @@ export class TransformInspectorPanel extends xb.Script {
 
     this.nameLabel.textContent =
       list.length === 1
-        ? (list[0].customName ?? list[0].fileName)
+        ? (list[0].definition.label ?? list[0].id)
         : `${list.length} objects selected`;
 
     const positionByAxis: Record<Axis, number[]> = {x: [], y: [], z: []};
@@ -414,27 +397,23 @@ export class TransformInspectorPanel extends xb.Script {
     const scaleByAxis: Record<Axis, number[]> = {x: [], y: [], z: []};
 
     for (const instance of list) {
-      const position = instance.viewer.position;
+      const position = instance.object.position;
       positionByAxis.x.push(position.x);
       positionByAxis.y.push(position.y);
       positionByAxis.z.push(position.z);
 
-      const content = instance.viewer.modelScene;
-      if (content) {
-        const euler = new THREE.Euler().setFromQuaternion(
-          content.quaternion,
-          'XYZ'
-        );
-        rotationByAxis.x.push(THREE.MathUtils.radToDeg(euler.x));
-        rotationByAxis.y.push(THREE.MathUtils.radToDeg(euler.y));
-        rotationByAxis.z.push(THREE.MathUtils.radToDeg(euler.z));
-      }
+      const euler = new THREE.Euler().setFromQuaternion(
+        instance.object.quaternion,
+        'XYZ'
+      );
+      rotationByAxis.x.push(THREE.MathUtils.radToDeg(euler.x));
+      rotationByAxis.y.push(THREE.MathUtils.radToDeg(euler.y));
+      rotationByAxis.z.push(THREE.MathUtils.radToDeg(euler.z));
 
-      const scale = instance.viewer.scale;
-      const baseScale = instance.baseScale;
-      scaleByAxis.x.push(scale.x / baseScale.x);
-      scaleByAxis.y.push(scale.y / baseScale.y);
-      scaleByAxis.z.push(scale.z / baseScale.z);
+      const scale = instance.object.scale;
+      scaleByAxis.x.push(scale.x);
+      scaleByAxis.y.push(scale.y);
+      scaleByAxis.z.push(scale.z);
     }
 
     this.setFieldValues(
