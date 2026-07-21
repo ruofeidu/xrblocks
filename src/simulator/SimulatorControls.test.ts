@@ -4,7 +4,7 @@ import {SimulatorControllerState} from './SimulatorControllerState';
 import {SimulatorControls} from './SimulatorControls';
 import {SimulatorHands} from './SimulatorHands';
 import {SimulatorInterface} from './SimulatorInterface';
-import {SimulatorNavMesh} from './SimulatorNavMesh';
+import {SimulatorNavMesh} from './scene/SimulatorNavMesh';
 
 function createControls() {
   return new SimulatorControls(
