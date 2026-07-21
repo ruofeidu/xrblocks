@@ -4,7 +4,7 @@ import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {Input} from '../../input/Input';
 import {SimulatorControllerState} from '../SimulatorControllerState';
 import {SimulatorHands} from '../SimulatorHands';
-import {SimulatorNavMesh} from '../scene/SimulatorNavMesh';
+import {SimulatorNavMesh} from '../SimulatorNavMesh';
 import {SimulatorPointerLockMode} from './SimulatorPointerLockMode';
 
 describe('SimulatorPointerLockMode', () => {
@@ -12,7 +12,6 @@ describe('SimulatorPointerLockMode', () => {
   let mockState: SimulatorControllerState;
   let mockHands: SimulatorHands;
   let mockInput: Input;
-  let mockNavMesh: SimulatorNavMesh;
   let mockDomElement: HTMLCanvasElement;
   beforeEach(() => {
     document.exitPointerLock = vi.fn();
@@ -35,11 +34,6 @@ describe('SimulatorPointerLockMode', () => {
       dispatchEvent: vi.fn(),
     } as unknown as Input;
 
-    mockNavMesh = {
-      constrained: false,
-      applyUserMovement: vi.fn(),
-    } as unknown as SimulatorNavMesh;
-
     mockDomElement = {
       requestPointerLock: vi.fn(),
     } as unknown as HTMLCanvasElement;
@@ -48,7 +42,7 @@ describe('SimulatorPointerLockMode', () => {
       mockState,
       new Set(),
       mockHands,
-      mockNavMesh,
+      new SimulatorNavMesh(),
       vi.fn(),
       vi.fn(),
       vi.fn()

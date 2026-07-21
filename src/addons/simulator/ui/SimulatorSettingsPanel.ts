@@ -99,27 +99,6 @@ export class SimulatorSettingsPanel
       color: #ccc;
     }
 
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      cursor: pointer;
-    }
-
-    .checkbox-label:has(input:disabled) {
-      cursor: not-allowed;
-      opacity: 0.5;
-    }
-
-    input[type='checkbox'] {
-      width: 1rem;
-      height: 1rem;
-      margin: 0;
-      accent-color: #8ab4f8;
-      cursor: inherit;
-    }
-
     select {
       appearance: none;
       -webkit-appearance: none;
@@ -179,8 +158,6 @@ export class SimulatorSettingsPanel
   @property({type: Number}) activeEnvironmentIndex = 0;
   @property({type: String}) simulatorMode = xb.SimulatorMode.USER;
   @property({type: Boolean}) instructionsEnabled = false;
-  @property({type: Boolean}) handPhysicsAvailable = false;
-  @property({type: Boolean}) handPhysicsEnabled = false;
 
   @state() private _isOpen = false;
 
@@ -200,14 +177,6 @@ export class SimulatorSettingsPanel
     const newMode = select.value as xb.SimulatorMode;
     this.simulatorMode = newMode;
     this.dispatchEvent(new xb.SetSimulatorModeEvent(newMode));
-  }
-
-  private _onHandPhysicsChange(e: Event) {
-    const input = e.target as HTMLInputElement;
-    this.handPhysicsEnabled = input.checked;
-    this.dispatchEvent(
-      new xb.SetSimulatorHandPhysicsEvent(this.handPhysicsEnabled)
-    );
   }
 
   private _onShowInstructions() {
@@ -249,7 +218,7 @@ export class SimulatorSettingsPanel
                   value=${idx}
                   ?selected=${idx === this.activeEnvironmentIndex}
                 >
-                  ${env.name ?? env.manifestPath.split('/').pop()}
+                  ${env.name}
                 </option>
               `
             )}
@@ -270,18 +239,6 @@ export class SimulatorSettingsPanel
               `
             )}
           </select>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <span>Hand Physics</span>
-            <input
-              type="checkbox"
-              .checked=${this.handPhysicsEnabled}
-              ?disabled=${!this.handPhysicsAvailable}
-              @change=${this._onHandPhysicsChange}
-            />
-          </label>
         </div>
 
         ${this.instructionsEnabled

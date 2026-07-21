@@ -3,8 +3,7 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import type {GLTF} from 'three/addons/loaders/GLTFLoader.js';
 import type {Pathfinding as PathfindingType} from 'three-pathfinding';
 
-import {SimulatorOptions} from '../SimulatorOptions';
-import {ResolvedSimulatorSceneManifest} from './SimulatorEnvironmentManifest';
+import {SimulatorEnvironment, SimulatorOptions} from './SimulatorOptions';
 
 const DEFAULT_ZONE_ID = 'simulator';
 const RANDOM_PATH_SAMPLE_ATTEMPTS = 8;
@@ -24,18 +23,10 @@ export interface SimulatorNavMeshPath {
   path: THREE.Vector3[];
 }
 
-export interface PreparedSimulatorNavMesh {
-  enabled: boolean;
-  eyeHeight: number;
-  pathfinding?: PathfindingType;
-  zone?: PathfindingZone;
-  debugGeometry?: THREE.BufferGeometry;
-}
-
 const desiredGroundPosition = new THREE.Vector3();
 const startGroundPosition = new THREE.Vector3();
 const clampedGroundPosition = new THREE.Vector3();
-const environmentMatrix = new THREE.Matrix4();
+const initialScenePosition = new THREE.Vector3();
 const targetWorldPosition = new THREE.Vector3();
 const randomTriangleA = new THREE.Vector3();
 const randomTriangleB = new THREE.Vector3();
@@ -46,7 +37,6 @@ const randomTriangleAC = new THREE.Vector3();
 export class SimulatorNavMesh {
   enabled = false;
   ready = false;
-  readonly debugVisualization = new THREE.Group();
 
   private Pathfinding?: PathfindingConstructor;
   private pathfinding?: PathfindingType;
@@ -55,122 +45,60 @@ export class SimulatorNavMesh {
   private groupId: number | null = null;
   private currentNode: PathfindingNode | null = null;
   private eyeHeight = 1.5;
-  private debugVisualizationVisible = false;
-
-  constructor() {
-    this.debugVisualization.name = 'Simulator Navmesh Visualization';
-    this.debugVisualization.raycast = () => {};
-  }
 
   get constrained() {
     return this.enabled && this.ready;
   }
 
-  get debugVisualizationsVisible() {
-    return this.debugVisualizationVisible;
+  async init(options: SimulatorOptions) {
+    this.enabled = options.navMesh.enabled;
+    this.eyeHeight = options.navMesh.eyeHeight;
+    const activeEnv =
+      options.environments[options.activeEnvironmentIndex] ?? null;
+    await this.setEnvironment(activeEnv, options);
   }
 
-  showDebugVisualizations(visible = true) {
-    this.debugVisualizationVisible = visible;
-    this.debugVisualization.visible = visible;
-  }
-
-  async prepareEnvironment(
-    manifest: ResolvedSimulatorSceneManifest,
+  async setEnvironment(
+    environment: SimulatorEnvironment | null,
     options: SimulatorOptions
-  ): Promise<PreparedSimulatorNavMesh> {
-    const prepared: PreparedSimulatorNavMesh = {
-      enabled: options.navMesh.enabled,
-      eyeHeight: options.navMesh.eyeHeight,
-    };
-    const shouldLoad =
-      prepared.enabled || options.navMesh.showDebugVisualizations;
-    if (!shouldLoad) return prepared;
-    if (!manifest.navMeshPath) {
+  ) {
+    this.enabled = options.navMesh.enabled;
+    this.eyeHeight = options.navMesh.eyeHeight;
+    this.ready = false;
+    this.groupId = null;
+    this.currentNode = null;
+    this.pathfinding = undefined;
+    this.zone = undefined;
+
+    if (!this.enabled) return;
+    if (!environment?.navMeshPath) {
       console.warn(
-        'SimulatorNavMesh: navmesh is enabled or visualized, but the active environment has no navMeshPath.'
+        'SimulatorNavMesh: navmesh is enabled, but the active environment has no navMeshPath.'
       );
-      return prepared;
+      return;
     }
 
     try {
-      environmentMatrix.compose(
-        new THREE.Vector3().fromArray(manifest.position ?? [0, 0, 0]),
-        new THREE.Quaternion().fromArray(manifest.quaternion ?? [0, 0, 0, 1]),
-        new THREE.Vector3().fromArray(manifest.scale ?? [1, 1, 1])
+      initialScenePosition.set(
+        options.initialScenePosition.x,
+        options.initialScenePosition.y,
+        options.initialScenePosition.z
       );
       const geometry = await this.loadGeometry(
-        manifest.navMeshPath,
-        environmentMatrix
+        environment.navMeshPath,
+        initialScenePosition
       );
       try {
-        prepared.debugGeometry = geometry.clone();
-        if (prepared.enabled) {
-          const Pathfinding = await this.loadPathfinding();
-          const zone = Pathfinding.createZone(geometry) as PathfindingZone;
-          const pathfinding = new Pathfinding();
-          pathfinding.setZoneData(this.zoneId, zone);
-          prepared.zone = zone;
-          prepared.pathfinding = pathfinding;
-        }
+        await this.setGeometry(geometry);
       } finally {
         geometry.dispose();
       }
     } catch (error) {
-      prepared.debugGeometry?.dispose();
-      throw new Error(
-        `SimulatorNavMesh: failed to load navmesh at ${manifest.navMeshPath}.`,
-        {cause: error}
+      console.warn(
+        `SimulatorNavMesh: failed to load navmesh at ${environment.navMeshPath}.`,
+        error
       );
     }
-    return prepared;
-  }
-
-  commitEnvironment(prepared: PreparedSimulatorNavMesh) {
-    this.enabled = prepared.enabled;
-    this.eyeHeight = prepared.eyeHeight;
-    this.pathfinding = prepared.pathfinding;
-    this.zone = prepared.zone;
-    this.ready = !!prepared.pathfinding;
-    this.groupId = null;
-    this.currentNode = null;
-    this.setDebugGeometry(prepared.debugGeometry);
-  }
-
-  dispose() {
-    this.setDebugGeometry();
-    this.pathfinding = undefined;
-    this.zone = undefined;
-    this.ready = false;
-    this.groupId = null;
-    this.currentNode = null;
-  }
-
-  private setDebugGeometry(geometry?: THREE.BufferGeometry) {
-    for (const child of [...this.debugVisualization.children]) {
-      const mesh = child as THREE.LineSegments;
-      mesh.geometry.dispose();
-      const materials = Array.isArray(mesh.material)
-        ? mesh.material
-        : [mesh.material];
-      for (const material of materials) material.dispose();
-      child.removeFromParent();
-    }
-    if (!geometry) return;
-
-    const wireframe = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geometry, 1),
-      new THREE.LineBasicMaterial({
-        color: 0x00e5ff,
-        transparent: true,
-        opacity: 0.9,
-        depthTest: false,
-      })
-    );
-    wireframe.renderOrder = 1000;
-    wireframe.raycast = () => {};
-    this.debugVisualization.add(wireframe);
-    geometry.dispose();
   }
 
   async setGeometry(geometry: THREE.BufferGeometry) {
@@ -365,12 +293,12 @@ export class SimulatorNavMesh {
 
   private async loadGeometry(
     path: string,
-    transform: THREE.Matrix4
+    sceneOffset: THREE.Vector3
   ): Promise<THREE.BufferGeometry> {
     const loader = new GLTFLoader();
     const gltf = await loader.loadAsync(path);
     try {
-      gltf.scene.applyMatrix4(transform);
+      gltf.scene.position.copy(sceneOffset);
       gltf.scene.updateMatrixWorld(true);
 
       const navMesh = this.findFirstMesh(gltf.scene);

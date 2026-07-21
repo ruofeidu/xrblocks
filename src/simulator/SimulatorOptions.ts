@@ -1,5 +1,6 @@
 import type {TemplateResult} from 'lit';
 
+import {XR_BLOCKS_ASSETS_PATH} from '../constants';
 import {Handedness} from '../input/Hands';
 import {deepMerge} from '../utils/OptionsUtils';
 import {DeepPartial, DeepReadonly} from '../utils/Types';
@@ -21,13 +22,6 @@ const DEFAULT_MODE_TOGGLE_ORDER = {
   [SimulatorMode.EDITOR]: SimulatorMode.USER,
 };
 
-const DEFAULT_ENVIRONMENT_MANIFESTS = [
-  'living-room.json',
-  'office.json',
-  'emulator-scene-v5.json',
-  'emulator-scene-dark.json',
-];
-
 export interface SimulatorCustomInstruction {
   header: string | TemplateResult;
   videoSrc?: string;
@@ -35,33 +29,31 @@ export interface SimulatorCustomInstruction {
 }
 
 export interface SimulatorEnvironment {
-  /** Optional display name; otherwise the manifest name is used. */
-  name?: string;
-  manifestPath: string;
-}
-
-function defaultEnvironment(manifestFile: string): SimulatorEnvironment {
-  return {
-    manifestPath: new URL(
-      `../src/simulator/scene/defaultManifests/${manifestFile}`,
-      import.meta.url
-    ).href,
-  };
-}
-
-export interface SimulatorHandPhysicsOptions {
-  enabled: boolean;
-  radius: number;
-  mass: number;
-  contactOffset: number;
-  friction: number;
-  restitution: number;
+  name: string;
+  scenePath?: string | null;
+  scenePlanesPath?: string | null;
+  navMeshPath?: string | null;
+  videoPath?: string;
 }
 
 export class SimulatorOptions {
   initialCameraPosition = {x: 0, y: 1.5, z: 0};
-  environments = DEFAULT_ENVIRONMENT_MANIFESTS.map(defaultEnvironment);
+  environments: SimulatorEnvironment[] = [
+    {
+      name: 'Living Room',
+      scenePath:
+        XR_BLOCKS_ASSETS_PATH +
+        'simulator/scenes/XREmulatorsceneV5_livingRoom.glb',
+      scenePlanesPath:
+        XR_BLOCKS_ASSETS_PATH +
+        'simulator/scenes/XREmulatorsceneV5_livingRoom_planes.json',
+      navMeshPath:
+        XR_BLOCKS_ASSETS_PATH +
+        'simulator/scenes/XREmulatorsceneV5_livingRoom_navmesh.glb',
+    },
+  ];
   activeEnvironmentIndex = 0;
+  initialScenePosition = {x: -1.6, y: 0.3, z: 0};
   defaultMode = SimulatorMode.USER;
   defaultHand = Handedness.LEFT;
   modeToggle = {
@@ -92,12 +84,7 @@ export class SimulatorOptions {
   };
   navMesh = {
     enabled: false,
-    showDebugVisualizations: false,
     eyeHeight: 1.5,
-  };
-  /** Controls the isolated physics world used by the desktop simulator. */
-  physics = {
-    enabled: true,
   };
   deviceCamera = {
     // Whether to enable the simulator camera feed.
@@ -109,24 +96,15 @@ export class SimulatorOptions {
   renderToRenderTexture = true;
   // Blending mode when rendering the virtual scene.
   blendingMode: 'normal' | 'screen' = 'normal';
-  /** Shoulder/chest origin of the left hand in local camera space. */
-  leftHandOrigin = {x: -0.2, y: -0.2, z: 0};
-  /** Shoulder/chest origin of the right hand in local camera space. */
-  rightHandOrigin = {x: 0.2, y: -0.2, z: 0};
-  /** Optional physical constraints for simulated hands. Requires Rapier. */
-  handPhysics: SimulatorHandPhysicsOptions = {
-    enabled: false,
-    radius: 0.075,
-    mass: 1,
-    contactOffset: 0.002,
-    friction: 0.8,
-    restitution: 0,
-  };
   /** Limits how far each hand controller can travel from the user's shoulder origin. */
   reachDistance = {
     enabled: false,
     /** The maximum distance in meters a controller can move from its origin point. */
     radius: 0.75,
+    /** The shoulder/chest origin point for the left hand in local camera space. */
+    leftHandOrigin: {x: -0.2, y: -0.2, z: 0},
+    /** The shoulder/chest origin point for the right hand in local camera space. */
+    rightHandOrigin: {x: 0.2, y: -0.2, z: 0},
   };
   /** Limits the angular cone in front of the user within which controllers can move. */
   reachAngle = {

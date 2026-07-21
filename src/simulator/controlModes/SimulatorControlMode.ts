@@ -6,7 +6,7 @@ import {Keycodes} from '../../utils/Keycodes';
 import {SimulatorRenderMode} from '../SimulatorConstants';
 import {SimulatorControllerState} from '../SimulatorControllerState';
 import {SimulatorHands} from '../SimulatorHands.js';
-import {SimulatorNavMesh} from '../scene/SimulatorNavMesh';
+import {SimulatorNavMesh} from '../SimulatorNavMesh';
 import {SimulatorHandPose} from '../handPoses/HandPoses';
 import {SimulatorOptions} from '../SimulatorOptions';
 
@@ -226,9 +226,7 @@ export class SimulatorControlMode {
     const angleOpt = this.simulatorOptions?.reachAngle;
     if (!distOpt?.enabled && !angleOpt?.enabled) return false;
     const originObj =
-      idx === 0
-        ? this.simulatorOptions!.leftHandOrigin
-        : this.simulatorOptions!.rightHandOrigin;
+      idx === 0 ? distOpt!.leftHandOrigin : distOpt!.rightHandOrigin;
     target.set(originObj.x, originObj.y, originObj.z);
     return true;
   }

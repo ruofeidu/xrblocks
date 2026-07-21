@@ -5,6 +5,4 @@ export interface ISimulatorSettingsPanelElement extends HTMLElement {
   activeEnvironmentIndex: number;
   simulatorMode: SimulatorMode;
   instructionsEnabled?: boolean;
-  handPhysicsAvailable: boolean;
-  handPhysicsEnabled: boolean;
 }

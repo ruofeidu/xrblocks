@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as xb from 'xrblocks';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
 import {el} from './dom';
 import type {SceneManager} from './SceneManager';
@@ -34,8 +35,9 @@ export interface ModelPickerPanelOptions {
  *
  * The preview thumbnail is its own tiny, fully independent THREE.js scene
  * + WebGLRenderer bound to its own <canvas> -- unrelated to the main
- * xrblocks scene/renderer. It uses xb.ModelLoader so previews support the
- * same compressed GLTF/GLB assets as the simulator.
+ * xrblocks scene/renderer. It loads the currently-browsed file via a raw
+ * GLTFLoader (not xb.ModelViewer; no platform/drag markers needed for a
+ * static thumbnail) each time Prev/Next changes the selection.
  */
 export class ModelPickerPanel extends xb.Script {
   sceneManager: SceneManager;
@@ -50,7 +52,7 @@ export class ModelPickerPanel extends xb.Script {
   previewScene!: THREE.Scene;
   previewCamera!: THREE.PerspectiveCamera;
   previewRoot!: THREE.Group;
-  previewLoader = new xb.ModelLoader();
+  previewLoader!: GLTFLoader;
   previewLoadToken = 0;
   previewObject: THREE.Object3D | null = null;
 
@@ -116,6 +118,8 @@ export class ModelPickerPanel extends xb.Script {
 
     this.previewRoot = new THREE.Group();
     this.previewScene.add(this.previewRoot);
+
+    this.previewLoader = new GLTFLoader();
   }
 
   override async init() {
@@ -285,13 +289,9 @@ export class ModelPickerPanel extends xb.Script {
     if (!fileName) return;
 
     try {
-      const gltf = await this.previewLoader.loadGLTF({
-        url: new URL(
-          fileName,
-          new URL(this.sceneManager.modelsDir, document.baseURI)
-        ).href,
-        renderer: xb.core.renderer,
-      });
+      const gltf = await this.previewLoader.loadAsync(
+        `${this.sceneManager.modelsDir}${fileName}`
+      );
       if (token !== this.previewLoadToken) {
         this.disposePreviewObject(gltf.scene);
         return;
@@ -353,10 +353,5 @@ export class ModelPickerPanel extends xb.Script {
 
   setStatus(text: string) {
     this.statusLabel.textContent = text;
-  }
-
-  override dispose() {
-    this.clearPreview();
-    this.previewRenderer.dispose();
   }
 }
