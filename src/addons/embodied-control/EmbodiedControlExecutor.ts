@@ -214,18 +214,20 @@ export class EmbodiedControlExecutor {
       controller.visible = control.visible;
     }
 
+    if (control.selectStart) {
+      this.applyHandSelect(handIndex, true);
+      return;
+    } else if (control.selectEnd) {
+      this.applyHandSelect(handIndex, false);
+      return;
+    }
+
     if (control.pose) {
       this.applyHandPose(handIndex, control.pose);
     }
 
     if (control.rotations) {
       this.applyHandRotations(handIndex, control.rotations);
-    }
-
-    if (control.selectStart) {
-      this.applyHandSelect(handIndex, true);
-    } else if (control.selectEnd) {
-      this.applyHandSelect(handIndex, false);
     }
   }
 
