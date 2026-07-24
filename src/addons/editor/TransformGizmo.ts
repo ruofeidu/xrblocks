@@ -351,22 +351,22 @@ function clampScaleVector(vector: THREE.Vector3): THREE.Vector3 {
 
 interface TranslateTarget {
   instance: SceneInstance;
-  viewer: xb.ModelViewer;
+  object: THREE.Object3D;
   startPosition: THREE.Vector3;
 }
 
 interface RotateTarget {
   instance: SceneInstance;
-  viewer: xb.ModelViewer;
-  content: THREE.Object3D;
+  object: THREE.Object3D;
   startPosition: THREE.Vector3;
   startQuaternion: THREE.Quaternion;
+  startWorldQuaternion: THREE.Quaternion;
   ownPivot: THREE.Vector3;
 }
 
 interface ScaleTarget {
   instance: SceneInstance;
-  viewer: xb.ModelViewer;
+  object: THREE.Object3D;
   startPosition: THREE.Vector3;
   startScale: THREE.Vector3;
   ownPivot: THREE.Vector3;
@@ -505,12 +505,10 @@ export class TransformGizmo extends xb.Script {
    * raycasting, no per-handle changes needed. Identity in world space. */
   syncOrientation() {
     const primary = this.selectionManager.primary;
-    const content =
-      this.selectionManager.space === 'local'
-        ? primary?.viewer.modelScene
-        : null;
-    if (content) {
-      this.quaternion.copy(content.quaternion);
+    const object =
+      this.selectionManager.space === 'local' ? primary?.object : null;
+    if (object) {
+      object.getWorldQuaternion(this.quaternion);
     } else {
       this.quaternion.identity();
     }
@@ -547,13 +545,13 @@ export class TransformGizmo extends xb.Script {
   }
 
   /** World-space center of the object's bounding box, not its base/origin -
-   * viewer.position sits at the object's floor, which would otherwise
-   * place the gizmo at the object's feet. */
-  getPivotWorldPosition(viewer: xb.ModelViewer): THREE.Vector3 {
-    viewer.updateMatrixWorld();
-    const center = new THREE.Vector3();
-    viewer.bbox.getCenter(center);
-    return center.applyMatrix4(viewer.matrixWorld);
+   * Uses rendered world-space bounds rather than assuming an asset's origin
+   * is its visual center. */
+  getPivotWorldPosition(object: THREE.Object3D): THREE.Vector3 {
+    object.updateWorldMatrix(true, true);
+    return new THREE.Box3()
+      .setFromObject(object)
+      .getCenter(new THREE.Vector3());
   }
 
   /** Centroid of every selected instance's own pivot. For a single
@@ -563,7 +561,7 @@ export class TransformGizmo extends xb.Script {
   computeGroupPivot(selectedList: SceneInstance[]): THREE.Vector3 {
     const pivot = new THREE.Vector3();
     for (const instance of selectedList) {
-      pivot.add(this.getPivotWorldPosition(instance.viewer));
+      pivot.add(this.getPivotWorldPosition(instance.object));
     }
     pivot.divideScalar(selectedList.length);
     return pivot;
@@ -701,8 +699,8 @@ export class TransformGizmo extends xb.Script {
           : null,
       targets: selectedList.map((instance) => ({
         instance,
-        viewer: instance.viewer,
-        startPosition: instance.viewer.position.clone(),
+        object: instance.object,
+        startPosition: instance.object.position.clone(),
       })),
     };
   }
@@ -724,15 +722,16 @@ export class TransformGizmo extends xb.Script {
 
     const targets = selectedList
       .map((instance): RotateTarget | null => {
-        const content = instance.viewer.modelScene;
-        if (!content) return null;
+        const object = instance.object;
         return {
           instance,
-          viewer: instance.viewer,
-          content,
-          startPosition: instance.viewer.position.clone(),
-          startQuaternion: content.quaternion.clone(),
-          ownPivot: this.getPivotWorldPosition(instance.viewer),
+          object,
+          startPosition: object.position.clone(),
+          startQuaternion: object.quaternion.clone(),
+          startWorldQuaternion: object.getWorldQuaternion(
+            new THREE.Quaternion()
+          ),
+          ownPivot: this.getPivotWorldPosition(object),
         };
       })
       .filter((target): target is RotateTarget => target !== null);
@@ -793,10 +792,10 @@ export class TransformGizmo extends xb.Script {
       axisDir,
       targets: selectedList.map((instance) => ({
         instance,
-        viewer: instance.viewer,
-        startPosition: instance.viewer.position.clone(),
-        startScale: instance.viewer.scale.clone(),
-        ownPivot: this.getPivotWorldPosition(instance.viewer),
+        object: instance.object,
+        startPosition: instance.object.position.clone(),
+        startScale: instance.object.scale.clone(),
+        ownPivot: this.getPivotWorldPosition(instance.object),
       })),
     };
   }
@@ -862,7 +861,7 @@ export class TransformGizmo extends xb.Script {
 
   /** How far `point` (relative to `pivot`) ends up after applying
    * `transformFn` to it, expressed as a delta. Used to carry each
-   * target's own pivot displacement over to its actual viewer.position --
+   * target's own pivot displacement over to its object position --
    * see updateRotateDrag/updateScaleDrag. Zero whenever `point` already
    * equals `pivot`, which is what makes group rotate/scale reduce exactly
    * to single-object behavior when there's only one target. */
@@ -874,6 +873,33 @@ export class TransformGizmo extends xb.Script {
     const relative = point.clone().sub(pivot);
     const transformed = transformFn(relative.clone());
     return transformed.sub(relative);
+  }
+
+  applyWorldOffset(
+    object: THREE.Object3D,
+    startPosition: THREE.Vector3,
+    offset: THREE.Vector3
+  ) {
+    if (!object.parent) {
+      object.position.copy(startPosition).add(offset);
+      return;
+    }
+    object.parent.updateWorldMatrix(true, false);
+    const worldPosition = object.parent
+      .localToWorld(startPosition.clone())
+      .add(offset);
+    object.position.copy(object.parent.worldToLocal(worldPosition));
+  }
+
+  applyWorldQuaternion(object: THREE.Object3D, quaternion: THREE.Quaternion) {
+    if (!object.parent) {
+      object.quaternion.copy(quaternion);
+      return;
+    }
+    const parentQuaternion = object.parent.getWorldQuaternion(
+      new THREE.Quaternion()
+    );
+    object.quaternion.copy(parentQuaternion.invert().multiply(quaternion));
   }
 
   updateRotateDrag(drag: RotateDrag) {
@@ -894,10 +920,10 @@ export class TransformGizmo extends xb.Script {
         pivot,
         (relative) => relative.applyQuaternion(deltaQuaternion)
       );
-      target.viewer.position.copy(target.startPosition).add(offset);
-      target.content.quaternion.multiplyQuaternions(
-        deltaQuaternion,
-        target.startQuaternion
+      this.applyWorldOffset(target.object, target.startPosition, offset);
+      this.applyWorldQuaternion(
+        target.object,
+        deltaQuaternion.clone().multiply(target.startWorldQuaternion)
       );
     }
   }
@@ -937,7 +963,7 @@ export class TransformGizmo extends xb.Script {
     }
 
     for (const target of targets) {
-      target.viewer.position.copy(target.startPosition).add(offset);
+      this.applyWorldOffset(target.object, target.startPosition, offset);
     }
   }
 
@@ -990,36 +1016,39 @@ export class TransformGizmo extends xb.Script {
       } else {
         newScale[axis] = target.startScale[axis] * ratio;
       }
-      target.viewer.scale.copy(clampScaleVector(newScale));
+      target.object.scale.copy(clampScaleVector(newScale));
 
       const offset = this.computeOrbitDelta(
         target.ownPivot,
         pivot,
         scaleTransform
       );
-      target.viewer.position.copy(target.startPosition).add(offset);
+      this.applyWorldOffset(target.object, target.startPosition, offset);
     }
   }
 
   endDrag() {
-    if (this.drag) this.pushDragCommand(this.drag);
+    if (this.drag) {
+      this.pushDragCommand(this.drag);
+      void this.selectionManager.sceneManager.commitInstances(
+        this.drag.targets.map((target) => target.instance)
+      );
+    }
     this.drag = null;
   }
 
   pushDragCommand(drag: DragState) {
-    if (!this.commandHistory) return;
-
     const commands: Command[] = [];
     for (const target of drag.targets) {
-      const viewer = target.viewer;
+      const object = target.object;
+      const instance = target.instance;
       const beforePosition = target.startPosition.clone();
-      const afterPosition = viewer.position.clone();
+      const afterPosition = object.position.clone();
 
       if (drag.kind === 'rotate') {
         const rotateTarget = target as RotateTarget;
-        const content = rotateTarget.content;
         const beforeQuaternion = rotateTarget.startQuaternion.clone();
-        const afterQuaternion = content.quaternion.clone();
+        const afterQuaternion = object.quaternion.clone();
         if (
           beforePosition.equals(afterPosition) &&
           beforeQuaternion.equals(afterQuaternion)
@@ -1027,43 +1056,80 @@ export class TransformGizmo extends xb.Script {
           continue;
         }
         commands.push({
-          undo: () => {
-            viewer.position.copy(beforePosition);
-            content.quaternion.copy(beforeQuaternion);
+          undo: async () => {
+            object.position.copy(beforePosition);
+            object.quaternion.copy(beforeQuaternion);
+            await this.selectionManager.sceneManager.commitInstances([
+              instance,
+            ]);
           },
-          redo: () => {
-            viewer.position.copy(afterPosition);
-            content.quaternion.copy(afterQuaternion);
+          redo: async () => {
+            object.position.copy(afterPosition);
+            object.quaternion.copy(afterQuaternion);
+            await this.selectionManager.sceneManager.commitInstances([
+              instance,
+            ]);
           },
         });
       } else if (drag.kind === 'scale') {
         const scaleTarget = target as ScaleTarget;
         const beforeScale = scaleTarget.startScale.clone();
-        const afterScale = viewer.scale.clone();
+        const afterScale = object.scale.clone();
         if (
           beforePosition.equals(afterPosition) &&
           beforeScale.equals(afterScale)
         )
           continue;
         commands.push({
-          undo: () => {
-            viewer.position.copy(beforePosition);
-            viewer.scale.copy(beforeScale);
+          undo: async () => {
+            object.position.copy(beforePosition);
+            object.scale.copy(beforeScale);
+            await this.selectionManager.sceneManager.commitInstances([
+              instance,
+            ]);
           },
-          redo: () => {
-            viewer.position.copy(afterPosition);
-            viewer.scale.copy(afterScale);
+          redo: async () => {
+            object.position.copy(afterPosition);
+            object.scale.copy(afterScale);
+            await this.selectionManager.sceneManager.commitInstances([
+              instance,
+            ]);
           },
         });
       } else {
         if (beforePosition.equals(afterPosition)) continue;
         commands.push({
-          undo: () => void viewer.position.copy(beforePosition),
-          redo: () => void viewer.position.copy(afterPosition),
+          undo: async () => {
+            object.position.copy(beforePosition);
+            await this.selectionManager.sceneManager.commitInstances([
+              instance,
+            ]);
+          },
+          redo: async () => {
+            object.position.copy(afterPosition);
+            await this.selectionManager.sceneManager.commitInstances([
+              instance,
+            ]);
+          },
         });
       }
     }
 
-    this.commandHistory.pushBatch(commands);
+    this.commandHistory?.pushBatch(commands);
+  }
+
+  override dispose() {
+    this.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      mesh.geometry?.dispose();
+      const materials = Array.isArray(mesh.material)
+        ? mesh.material
+        : mesh.material
+          ? [mesh.material]
+          : [];
+      for (const material of materials) material.dispose();
+    });
+    this.handleRecords.length = 0;
+    this.drag = null;
   }
 }
