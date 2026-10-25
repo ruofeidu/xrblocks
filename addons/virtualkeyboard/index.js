@@ -1,2 +1,2 @@
-export { Keyboard } from './Keyboard.js';
-import 'xrblocks';
+import { Keyboard } from "./Keyboard.js";
+export { Keyboard };
